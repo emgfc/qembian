@@ -21,6 +21,7 @@ while read -r kind name url pin; do
       ;;
     file)
       f="downloads/$name"
+      mkdir -p "$(dirname "$f")"
       if [ ! -f "$f" ] || ! echo "$pin  $f" | sha256sum -c --status; then
         echo ">> download $name"
         curl -fSL --retry 5 -C - -o "$f" "$url"

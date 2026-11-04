@@ -47,6 +47,20 @@ echo ">> qemu-system-arm ${qargs[*]}" | tee "$OUT/qemu.log"
 "$QI/bin/qemu-system-arm" "${qargs[@]}" >>"$OUT/qemu.log" 2>&1 &
 QPID=$!
 
+# Type a line into the guest. The Syborg keymap is UK layout: PC scancode 0x2B (where X's US
+# layout puts "\") is "#" there, and "\" is the ISO 102nd key (scancode 0x56 = X keycode 94,
+# keysym "less" in Xvfb's default layout). So send each "\" as that key.
+type_line() {
+  local s="$1" seg
+  while :; do
+    seg="${s%%\\*}"
+    [ -n "$seg" ] && xdotool type --delay 120 "$seg"
+    [ "$seg" = "$s" ] && break
+    xdotool key less; s="${s#*\\}"
+  done
+  xdotool key Return
+}
+
 shot() { xwd -root -silent | convert xwd:- "$OUT/screen-$1.png" 2>/dev/null || true; }
 
 # Screenshot every 10 s; type commands (if any) at the half-way point.
@@ -56,7 +70,7 @@ while [ $t -lt "$SECS" ] && kill -0 $QPID 2>/dev/null; do
   if [ ${#TYPE[@]} -gt 0 ] && [ $t -eq $(( (SECS/2) / 5 * 5 )) ]; then
     for c in "${TYPE[@]}"; do
       xdotool search --name . windowfocus 2>/dev/null || true
-      xdotool type --delay 120 "$c"; xdotool key Return; sleep 3
+      type_line "$c"; sleep 3
     done
   fi
   if [ $((t % 10)) -eq 0 ]; then shot "$(printf %02d $n)"; n=$((n+1)); fi

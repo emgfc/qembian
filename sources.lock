@@ -17,3 +17,14 @@ file PDK_4_0a.zip https://archive.org/download/nokia_sdks_n_dev_tools/PDK_4_0a.z
 file arm-2009q3-63-arm-none-symbianelf-i686-pc-linux-gnu.tar.bz2 http://web.archive.org/web/20140809062110id_/https://sourcery.mentor.com/public/gnu_toolchain/arm-none-symbianelf/arm-2009q3-63-arm-none-symbianelf-i686-pc-linux-gnu.tar.bz2 21f91d1692e3987d1d9cb23bda7b10822b3134cf63d985b95c2b55d35ebde789
 # Fallback toolchain: archive.org bundle containing CodeSourcery arm-2012.03-42 (GCC 4.6.3) for arm-none-symbianelf. md5 a9507198b67888d102e343b5a14e627f.
 file Gcce4.6.3.zip https://archive.org/download/nokia_sdks_n_dev_tools/Gcce4.6.3.zip 8f7b6ac2c4b67d7f16a335aee9d7f9d26c08f76078c0bc7a987c7e7e40929d8d
+# GCC 4.4.1 ARM libgcc helper sources. CSL 2009q3's symbianelf libgcc omits the EABI integer
+# division helpers (upstream t-symbian expects the Symbian runtime to provide them); the
+# GCC_SURGE kernel build expects them from -lgcc. See docs/build-log.md.
+file gcc-4.4.1-arm/lib1funcs.asm https://raw.githubusercontent.com/gcc-mirror/gcc/releases/gcc-4.4.1/gcc/config/arm/lib1funcs.asm 92d419bc87231dd980f3935e6681873e82bfaa005b7f300382c8a39e4dc0ccf9
+file gcc-4.4.1-arm/bpabi.S https://raw.githubusercontent.com/gcc-mirror/gcc/releases/gcc-4.4.1/gcc/config/arm/bpabi.S ea68fd1d3ca487a40ab21f659264c70306ac927db78ca3077c0849e508a0a2e9
+file gcc-4.4.1-arm/bpabi.c https://raw.githubusercontent.com/gcc-mirror/gcc/releases/gcc-4.4.1/gcc/config/arm/bpabi.c 3bfecdc8b180f6b012a2fd9f7e39cd9b684e4224fc41f045da68c82099522948
+file gcc-4.4.1-arm/ieee754-df.S https://raw.githubusercontent.com/gcc-mirror/gcc/releases/gcc-4.4.1/gcc/config/arm/ieee754-df.S 8cfe28d39773b1d38362ca62d82b2a62d665b689ea7e522222f2b5ecc74bec7c
+file gcc-4.4.1-arm/ieee754-sf.S https://raw.githubusercontent.com/gcc-mirror/gcc/releases/gcc-4.4.1/gcc/config/arm/ieee754-sf.S 8e513a1cbf3caadf80647abaa80d7f111f5b45290241867747875bbabe40e7f0
+file gcc-4.4.1-arm/libgcc2.c https://raw.githubusercontent.com/gcc-mirror/gcc/releases/gcc-4.4.1/gcc/libgcc2.c 39326ef9ede351219245d0e1a573f4b0d1a86a3db71fb1d49f1b623d2159e118
+file gcc-4.4.1-arm/libgcc2.h https://raw.githubusercontent.com/gcc-mirror/gcc/releases/gcc-4.4.1/gcc/libgcc2.h ef4bedc4f2aee7846489519ae209aa8e8ae77f0e8783978f49e739e025b7cb4c
+file gcc-4.4.1-arm/longlong.h https://raw.githubusercontent.com/gcc-mirror/gcc/releases/gcc-4.4.1/gcc/longlong.h 72a491e32962e165ffbcca50eecdbd4f3e79832a3db55289c4473ecf504ea84b

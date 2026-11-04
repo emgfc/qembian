@@ -4,4 +4,4 @@
 /build/
 /out/
 *.log
-!docs/logs/*.log
+!docs/evidence/*.log

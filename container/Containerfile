@@ -17,13 +17,17 @@ RUN printf 'APT::Get::AllowUnauthenticated "true";\nAcquire::Check-Valid-Until "
         build-essential bison flex perl make patch file less \
         python2.6 python2.6-dev \
         libsdl1.2-dev libexpat1-dev zlib1g-dev libpng12-dev libncurses5-dev \
-        libbz2-dev libxml2-dev libboost-dev \
+        libbz2-dev libxml2-dev libboost-dev libboost-thread-dev \
         p7zip-full unzip bzip2 xz-utils ca-certificates gdb \
         xvfb x11-apps xdotool imagemagick \
  && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Raptor and the Symbian makefiles assume bash as /bin/sh.
 RUN ln -sf bash /bin/sh
+
+# Make `uname -r` report 2.6.32 (see uname-2.6 for why).
+COPY uname-2.6 /usr/local/bin/uname
+RUN chmod 755 /usr/local/bin/uname
 
 # Make configure scripts that call `uname -m` see a 32-bit machine.
 ENTRYPOINT ["linux32", "--"]
