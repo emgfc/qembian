@@ -13,6 +13,7 @@
 //   ctl 17 {TDesC8*}                     send ISI message         -> answer per reply table
 //   ctl 21 {channel, TDes8*}             channel info             -> "6C <channel>"
 //   ctl 23 {TDesC8*}                     subscribe (res, msgid) pairs
+//   ctl 22                               max data size (return value) -> 4096
 //   ctl 33 / 35                          cancel receive / connection notify
 // ISI frame: [0]media [1]rdev [2]sdev [3]resource [4..5]len-6 (LE) [6]robj [7]sobj [8]tid [9]msgid [10..]
 // The peer answers like a modem in NORMAL state with no SIM. Every send and delivery is logged
@@ -246,6 +247,9 @@ TInt DIscPeerChannel::Control(TInt aFn, TAny* a1)
 			}
 		return KErrNone;
 		}
+	case 22:	// IscApi export 10: maximum data transfer size of this channel (return value).
+				// DATAPORT.CSY sizes its reads with it; 0 makes it read 0 bytes -> KErrArgument leave.
+		return 4096;
 	case 33:	// receive cancel
 		if (iRxStatus)
 			{
