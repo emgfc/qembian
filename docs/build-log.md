@@ -154,7 +154,8 @@ The plan is in [roadmap.md](roadmap.md) and the firmware facts in
 | 10 | WSERV KERN-EXEC 3 (array index −1) | gdb: `NewScreenDeviceL` leaves −5 for every mode. Caps offsets: +56/+60/+64 = EColor16M/16MU/16MA (9.2 numbering); scdv maps HAL mode index 0/1 = 64K/16MU; Syborg LCD reported mode 2 of 3 at 24 bpp | caps +60; `lcd_n95` (Syborg LCD rebuilt with 32 bpp, 2 modes, current 1 — `patches/qemu-baseport/0001`); 240×320 DTB (`tools/dtb_set.py`, `SYBORG_DTB`) |
 | 11 | WSERV-INTERNAL 13 | wsini `SCR_ROTATION1 270` needs rotation 270 in the orientation mask (`r_display` caps +36/+40/+44 = 90/180/270) | rotations declared |
 | 12 | silent stall after WSERV init | WSERV waits on display request 0x8003 (`DoRequest` + `WaitForRequest`) that the stand-in left pending | display stand-in completes requests at once |
-| 13 (current) | no fault; `Starter.exe` and `DosServer.exe` run; screen is a uniform 240×320 framebuffer | DosServer loads `CommonDSY.dll`/`NokiaDSY.dll` and opens ISC unit 24; Starter presumably waits for the DOS/modem state (MTC) that the silent ISC peer never sends | next: fake modem (ISI/MTC) responses |
+| 13 | no fault; `Starter.exe` and `DosServer.exe` run; screen is a uniform 240×320 framebuffer | DosServer loads `CommonDSY.dll`/`NokiaDSY.dll` and opens ISC unit 24; Starter presumably waits for the DOS/modem state (MTC) that the silent ISC peer never sends | fake modem peer (below) |
+| 14 (current) | `C32-fault 0` in `c32exe` CCommServer → C32Start reboots | `DATAPORT.CSY` (ROFS, RAM-loaded at 0x70014000) opens ISC channel 46, registers a name (`db 05`, answered `db 06`), then leaves inside its port open; the unwinder finds its exception descriptor, then the comms server faults | next: E32-image loader for ROFS binaries (decompress/relocate) to decompile DATAPORT.CSY; answer NOKIATSY's network/name-service requests |
 
 What already works in run 13, all N95 binaries on our kernel ([boot summary](evidence/e1/hybrid-boot-summary.txt)) ([trace excerpt](evidence/e1/hybrid-serial-excerpt.txt),
 [loaded code segments](evidence/e1/hybrid-codesegs-loaded.txt), [exec call counts](evidence/e1/hybrid-exec-call-counts.txt)):
@@ -167,6 +168,16 @@ What already works in run 13, all N95 binaries on our kernel ([boot summary](evi
   Nokia's own `scdv.dll`/`r_display.dll` on the Syborg frame buffer, **FBSERV**, **ECOM**, the crash
   monitor processes, **`Starter.exe`**, **`DosServer.exe`** (+ `CommonDSY`, `NokiaDSY`), `baksrvs.exe`.
 - Code loaded from ROFS into RAM (non-XIP) by the N95 loader.
+
+**Fake modem (run 14):** `src/n95compat/stubs/iscpeer.inl`, built into `nokiaiscdriver.ldd`
+(channels 0..31) and `nokiaiscdriverextension.ldd` (32..63), implements the IscApi channel interface
+and answers like a modem in NORMAL state with no SIM, per
+[n95-isc-isi-protocol.md](n95-isc-isi-protocol.md) (researched by a Fable subagent with headless
+Ghidra, `tools/ghidra/decompile.sh`; key claims re-checked against the decompiled IscApi). With it,
+DosServer finishes, Starter runs its start list (c32start/c32exe with ETel and NOKIATSY,
+FeatMgrServer, mpmserver, SAServer), and LanguageSelection no longer panics. All ISC traffic is
+logged ([evidence](evidence/e1/hybrid-isc-traffic.txt)): unanswered so far are NOKIATSY's
+resource 0x1b/0x0a/0x17/0xdb requests, SAServer's 0x1b, and LanguageSelection's SIM 0x1f/0x19 reads.
 
 Remaining non-fatal panics: `LanguageSelection` (`StartupLangPlugI -5`), `mc_useragent` (`KERN-EXEC 0`).
 

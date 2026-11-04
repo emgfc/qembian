@@ -37,7 +37,8 @@ README.
 - E1.4: shims added as hit (HandleDuplicate, MutexWait, SafeInc/Dec, loader struct size).
 - E1.5 in progress. Hardware stand-ins exist for ISC (silent modem), Custom, the display driver,
   the ROFS media and a 240×320 32 bpp LCD. Nokia's WSERV, FBSERV, ECOM, Starter and DosServer run.
-- The next blocker is the modem/system state that Starter waits for (ISI/MTC via ISC).
+- Fake modem peer (ISI over ISC) done for the boot-critical messages; Starter runs its start list.
+- The next blocker is `DATAPORT.CSY` leaving in the comms server; needs a ROFS E32-image loader for analysis.
 
 ## Option A (later)
 
