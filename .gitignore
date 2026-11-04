@@ -5,3 +5,4 @@
 /out/
 *.log
 !docs/evidence/*.log
+__pycache__/

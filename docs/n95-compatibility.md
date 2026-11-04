@@ -6,13 +6,20 @@ Legend: **[verified]**, **[inferred]**, **[unverified]**.
 
 ## Verdict
 
-**Approach B in its plain form does not work.** "Original N95 userspace unmodified on this kernel"
-is not viable, because the **executive-call (SWI) ABI differs substantially** between 9.2 and
-this kernel. User-side *library* ABIs (export ordinals) are, however, almost fully preserved. A
-**hybrid (D)** is plausible: give this kernel a 9.2-compatible exec personality and compose ROMs
-around the N95's own XIP user side. It needs N95-specific data (the 9.2 exec table and the ROM
-layout), which needs the firmware. Approach **A** (OMAP2420 machine emulation) deserves a
-serious estimate before committing, because the QEMU tree here already models the N95's SoC family.
+*Updated 2026-11-04 after the firmware inventory ([n95-firmware-inventory.md](n95-firmware-inventory.md)).
+Sections 1–5 are the original pre-firmware assessment. Sections 6–7 replace the earlier option
+table.*
+
+**Approach B in its plain form does not work.** Running the original N95 user side unmodified on
+this kernel fails because of the exec ABI: of the N95's 265 SWIs, only 53 keep their number in our
+kernel. Two ways of bridging that gap are now measured and both are feasible:
+
+1. A 9.2 exec personality in our kernel, with the N95 user side byte-identical, including its EUSER.
+2. Our EUSER swapped in and the N95 XIP binaries rebound to it.
+
+**Recommendation: option 1**, with option 2 kept as a fallback. **Decided 2026-11-04: option 1, then
+option A** ([roadmap.md](roadmap.md)). The reasoning is in §7. Approach A
+(OMAP2420 emulation) is confirmed plausible but has the largest open-ended hardware surface.
 
 ## 1. Version gap
 
@@ -66,6 +73,9 @@ Semantics also drifted *within* the public history (2009 → 2010). [verified in
 
 ## 4. Binary/ROM format
 
+> Superseded by measurement: imports are 8-byte thunks (323,609 ROM-wide), there is no branch
+> collapsing, and the core ROM is demand paged. See [n95-firmware-inventory.md §4](n95-firmware-inventory.md).
+
 - **E32Image (non-XIP)**: the loader (`sf_lepoc.cpp`, `f32image.h`) accepts header format V
   with deflate or byte-pair compression, which is the 9.x format. [verified in source; no 9.2 binary loaded yet]
 - **XIP ROM binaries** [inferred, standard EKA2 design]: files in a core ROM image are
@@ -91,25 +101,51 @@ Semantics also drifted *within* the public history (2009 → 2010). [verified in
 | Platform security | Same capability/SID/VID model. ROM files are trusted; the loader enforces capabilities. Signatures are only checked for installs. [inferred] |
 | Graphics | 9.2 WSERV is pre-NGA and uses a screen driver plus LCD HAL. Syborg's `LCD.DLL` provides a framebuffer through HAL, which is likely workable. Nokia's display drivers are not. [inferred] |
 
-## 6. Approaches compared
+## 6. Options after the firmware inventory
 
-| | A. Full N95 hardware emulation | B. Our kernel + unmodified N95 user side | C. HLE (Rust, EKA2L1-style) | D. Hybrid: our kernel with a 9.2 exec personality + N95 user side |
-|---|---|---|---|---|
-| Original kernel/ROM | yes, unmodified | no | no | no |
-| Blocking issue | Nokia-specific HW (power ASICs, modem link, display/keypad wiring, flash, boot chain) | **exec ABI mismatch (26%)** + XIP binding | must reimplement kernel + many servers | 9.2 exec table must be reconstructed; ROM composition; Nokia HW servers need stubs |
-| Head start here | QEMU 0.9.1 tree already has **OMAP2420** (`omap2.c`, `nseries.c` N800/N810, OneNAND, CBUS Retu/Tahvo) [verified files exist; N95 = OMAP2420 inferred] | — | earlier Rust work, EKA2L1 as reference | working EKA2 + Syborg + debug tooling (this repo) |
-| Risk | High unknown HW surface, but every fix is "make HW behave". No ABI guesswork. | Not viable as is | Large, open-ended. EKA2L1 reimplements WSERV and other servers rather than running the originals. | Medium: well-defined mechanical work plus an unknown number of semantic mismatches |
+Measured facts are in [n95-firmware-inventory.md](n95-firmware-inventory.md). The common ground for
+options 1 and 2:
+- The N95 core ROM uses **romBase 0x80000000 and the multiple memory model, the same as our Syborg ROM**.
+  It flattens to 58 MB (the paging can simply be switched off), and the Syborg board's 512 MB of RAM holds it.
+- In both options our kernel-side files (EKERN, variant, Syborg drivers) replace the N95's 49
+  extensions and 38 LDD/PDDs. They have to be placed where they don't overlap N95 user-side files,
+  for example after `0x839cb000`, with a new `TRomHeader` and root directory at `0x80000000`.
+  User code does not reference the N95's kernel-side files.
 
-## 7. Recommended next experiments
+| | **1. 9.2 exec personality** | **2. Rebind to our EUSER** | **A. OMAP2420 emulation** |
+|---|---|---|---|
+| N95 user side | **byte-identical, EUSER included**. No rebinding: 323,609 thunks stay valid. | EUSER (and probably EFSRV/efile) replaced. About 114k EUSER thunks + about 13.8k value-matched words patched, or trampolines, which can't cover 126 exports spaced under 8 bytes apart. | byte-identical |
+| Kernel | ours + a 9.2 SWI table: 265 entries. About 250 are named (218 via export matching, 32 more via EKA2L1, two independent sources that agree). | ours, unchanged | Nokia's, unchanged |
+| Where incompatibilities show up | **at one choke point (SWI dispatch)**, traceable per call on serial | spread over 2,590 images: 9.2-compiled inline code and class layouts against a Symbian^3 EUSER. Bugs are silent memory corruption. | hardware register accesses |
+| Hard parts | 9.2 semantics: kernel-held active scheduler and trap handler (fast `F06`/`F08`/`F09`), the DLL-lock and attach protocol (`S9b`–`Sa1`), `MutexWait` without a timeout, 9.2 loader structures (N95 `efile.exe` stays), 9.2 user-side views of LDD channels (`TBusLocalDrive`, comms) | F32 plugin ABI: N95 `.fsy`/`.fxt` link to N95 `efile.exe` internals, so file systems would come from our build. Header and layout drift. The 13.8k non-thunk refs are found by value (false-positive risk). | modem link (ISC/ISI, `nips_kernel_eka2`), GAPE, STI, display and keypad wiring, DSP bridge, PowerVR, boot chain (NOLO → XZIP) |
+| Head start | our kernel boots and is debuggable. EKA2L1's `v93` code is a reference implementation of 9.2 exec semantics. | all ABSENT EUSER ordinals are unused (0 of 2,712 images). The N95's extra ordinals 2211–2229 match ours. | QEMU 0.9.1 already has OMAP2420, Menelaus (`twl92230`), OneNAND, CBUS, I2C, SPI and the N800 machine. The N95 uses the same NOLO loader family. |
 
-1. **No firmware needed (cheap)**: build a tiny console EXE against the **S60 3rd FP1 SDK**
-   import libraries (9.2 ordinals; the user's `~/csl-gcc` 3.4.3 or our 4.4.1 + elf2e32). Run
-   it from ROM or `C:` on our Syborg ROM. This proves that 9.2-linked relocatable binaries bind to our EUSER.
-2. **Needs the firmware (decision point)**: *inventory only*. Split the core image vs ROFS; list
-   the XIP files and their link addresses; extract the N95 `euser.dll` exec stubs to get the
-   **exact 9.2 SWI table**; count imports of the 7 ABSENT EUSER ordinals; list the Nokia LDD/PDDs
-   and the servers that open them. The output is a quantified choice between A and D.
-3. Depending on (2): either a prototype exec-number translation in `kernel/eka/kernel/arm/`
-   (selected per process, keyed by image metadata), or a time-boxed spike booting the N95 core
-   image on the `n800` OMAP2420 machine to see how far the original kernel gets before it
-   touches unmodelled hardware.
+Common to all three: the Nokia hardware-facing user-side servers (DOS/SysAp power, modem ISA
+stack, camera, accessories) need stub drivers or fake peers. Starter/SysAp will block the boot
+otherwise. The display needs to be 240×320 through the Syborg framebuffer, which is configurable in the DTS.
+
+## 7. Recommendation and next experiments
+
+**Option 1** is preferred:
+- It keeps the user side exactly as shipped, which is the project's goal, with no rebinding and no
+  mixed 9.2/^3 user code.
+- It concentrates every incompatibility in one mechanically checkable layer (the exec dispatch).
+- The table it needs has now been recovered with two independent derivations agreeing.
+
+Option 2's risk is spread across thousands of binaries and fails silently. Its one advantage, no
+kernel changes, is lost because F32 and the drivers' user-side interfaces still differ.
+
+1. **E1, the option 1 spike:**
+   - A ROM composer: our kernel-side image + the flat N95 core (unpaged), N95 `EStart.exe` and
+     `efile.exe` kept.
+   - A per-process or global "9.2 personality" SWI table in `kernel/eka/kernel/arm/`. The 250
+     named calls map to our handlers or to shims; unknown calls trace and panic.
+   - **Goal:** N95 `efile.exe` runs and mounts Z:, then `EStart` progresses. Every SWI is logged
+     to serial, so each stall names its cause.
+2. **E2:** resolve the remaining 15 unnamed SWIs and the 2 EKA2L1 disagreements (`S84`, `F05`) by
+   disassembling the N95 EUSER callers. Extend the comparison to argument structures for the
+   loader and chunk calls.
+3. **E3 (cheap, parallel):** a time-boxed boot of the flat N95 core image on the QEMU `n800`
+   machine, to see how far Nokia's own EKERN gets on modelled OMAP2420 hardware. This gives
+   option A a real data point.
+4. **Deferred:** build the option 2 rebinder only if E1 hits a wall in the kernel personality.

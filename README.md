@@ -6,7 +6,8 @@ support package with GCC, packs a text-shell ROM, and boots it in the Symbian-mo
 **QEMU 0.9.1** ("Symbian Virtual Platform").
 
 The longer-term goal is running original Nokia N95 8GB (Symbian 9.2 / S60 3rd FP1) userspace.
-This repository is the reference environment for that work; it does not boot N95 software.
+The current plan is in [docs/roadmap.md](docs/roadmap.md): first our kernel with a 9.2 exec personality
+running the N95 user side unmodified, then full OMAP2420 emulation.
 
 ## Status (2026-11-04)
 
@@ -15,7 +16,7 @@ This repository is the reference environment for that work; it does not boot N95
 | M1 environment | done | `scripts/build-all.sh` rebuilds everything from pinned, checksummed inputs in about 3.5 min (input downloads not included): [clean-build.log](docs/evidence/clean-build.log) |
 | M2 QEMU | done | Symbian QEMU builds; the prebuilt PDK 4.0a Syborg ROM boots to ESHELL: [screenshot](docs/evidence/pdk-fixture-eshell.png) |
 | M3 own ROM | done (udeb) | A ROM of our own GCC-built kernel, BSP and file server boots to an interactive ESHELL ([screenshot](docs/evidence/clean-build-eshell-dir.png)) and starts processes ([btrace](docs/evidence/own-udeb-btrace.png)). The serial kernel trace is in [evidence](docs/evidence/own-udeb-trace0x80000003-serial-head.txt). |
-| M4 N95 assessment | first pass | [docs/n95-compatibility.md](docs/n95-compatibility.md) |
+| M4 N95 assessment | firmware inventoried | [docs/n95-firmware-inventory.md](docs/n95-firmware-inventory.md) (RM-320 core ROM extracted, 9.2 exec table recovered, XIP import census) and [docs/n95-compatibility.md](docs/n95-compatibility.md) (options; recommendation) |
 
 The `urel` variant has not been built yet. SDL window mode (`run.sh --gui`) has not been
 tried on a desktop session. All other features have been run as documented below.
@@ -51,6 +52,7 @@ Results:
 | `scripts/build-kernel.sh [udeb\|urel]` | Builds `ksrt_gcce` and then the whole `kernelhwsrv` package (`arm.v5.<var>.gcce4_4_1.surge`). |
 | `scripts/build-syborg.sh [udeb\|urel]` | Builds the Syborg BSP and, through its ROM extension, the text-shell ROM. |
 | `scripts/build-rom-trace.sh [var] [mask]` | Rebuilds the ROM with a different `kerneltrace` mask, for example `0x80000003` (KBOOT and KHARDWARE). |
+| `N95_FW_DIR=… scripts/n95-inventory.sh` | Read-only analysis of an N95 8GB firmware set: container split, core-ROM unpaging, file list, EUSER SWI table, import census. Output goes to `build/n95/`. No firmware bytes are committed. |
 
 ## Running
 
@@ -75,7 +77,8 @@ scripts/run.sh --gdb                           # gdbstub on 127.0.0.1:1234, CPU 
 sources.lock          pinned git revisions + download URLs/sha256
 container/            Containerfile (squeeze i386) + uname shim
 scripts/              everything above; libgcc-shim/ for the toolchain fixup
-tools/                analysis helpers (DSO/DEF ordinal diff, exec-table numbering)
+tools/                analysis helpers (DSO/DEF ordinal diff, exec-table numbering, BB5 FIASCO split,
+                      paged-ROM unpacker, XIP ROM reader, SWI-table recovery, XIP import census)
 docs/                 research, build log, architecture, N95 compatibility, evidence/
 external/ downloads/ cache/ build/    generated, git-ignored
 ```
@@ -85,6 +88,8 @@ external/ downloads/ cache/ build/    generated, git-ignored
 - [docs/research.md](docs/research.md): sources, branches, toolchains, dependency graph, what is and isn't available
 - [docs/build-log.md](docs/build-log.md): every build problem hit, its cause and its fix
 - [docs/architecture.md](docs/architecture.md): virtual board, ROM, boot sequence, build pipeline
+- [docs/roadmap.md](docs/roadmap.md): decided plan, option 1 (9.2 exec personality) then option A (OMAP2420 emulation), with step exit criteria
+- [docs/n95-firmware-inventory.md](docs/n95-firmware-inventory.md): what is in the RM-320 firmware, measured
 - [docs/n95-compatibility.md](docs/n95-compatibility.md): feasibility of running N95 userspace, approach comparison, next experiment
 
 ## Licensing notes
