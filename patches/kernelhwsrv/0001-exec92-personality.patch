@@ -1,0 +1,571 @@
+--- /dev/null
++++ b/kernel/eka/kernel/sexec92.cpp
+@@ -0,0 +1,171 @@
++// Copyright (c) 2026 syborg-pg contributors. Licensed under the Eclipse Public License v1.0.
++//
++// Symbian OS 9.2 executive-call personality.
++//
++// User-side code built for Symbian 9.2 (e.g. Nokia N95 8GB EUSER) enters the kernel with the
++// 9.2 SWI numbering. When the ROM header's kernel config flags have
++// KKernelConfigExec92Personality set, every user thread gets these tables instead of the native
++// ones. They are built at boot by copying entries out of the native tables according to
++// exec92_map.h (generated from tools/exec92/exec92.map), plus a few shims for calls whose 9.2
++// semantics differ, and logging stubs for 9.2 calls that have no equivalent.
++
++#include <kernel/kern_priv.h>
++#include <kernel/execs.h>
++#include "exec92_map.h"
++
++const TUint32 KKernelConfigExec92Personality = 1u<<29;
++
++TBool Exec92Enabled = EFalse;
++TUint32 EpocFastExecTable92[EXEC92_FAST_COUNT];
++TUint32 EpocSlowExecTable92[3 + 2*EXEC92_SLOW_COUNT];
++volatile TUint32 Exec92LastBadFast = 0;		// fast execs run with interrupts off: record, don't print
++
++// --- shims ------------------------------------------------------------------------------------
++
++extern TInt Exec92Shim_SafeInc32(TInt*);	// cexec92.cia
++extern TInt Exec92Shim_SafeDec32(TInt*);	// cexec92.cia
++
++// 9.2 RMutex::Wait() passes no timeout; r1 is whatever the caller left there.
++TInt Exec92Shim_MutexWait92(DMutex* aMutex)
++	{
++	return ExecHandler::MutexWait(aMutex, 0);
++	}
++
++// 9.2 RHandleBase::Duplicate(): Exec::HandleDuplicate(aThreadHandle, aType, aHandle) with the
++// source handle passed by value; returns the new handle (>=0) or an error. Ours takes TInt& in/out.
++// Same logic as ExecHandler::HandleDuplicate (sexec.cpp) without the user-memory round trip.
++TInt Exec92Shim_HandleDuplicate92(TInt aThreadHandle, TOwnerType aType, TInt aHandle)
++	{
++	TInt h = aHandle;
++	DThread* pC=TheCurrentThread;
++	NKern::LockSystem();
++	DThread* pT=(DThread*)K::ThreadEnterCS(aThreadHandle,EThread);
++	TInt r=KErrBadHandle;
++	NKern::LockSystem();
++	DObject* pO=pT->ObjectFromHandle(h);
++	h = 0;
++	if (pO)
++		r=pO->Open();
++	NKern::UnlockSystem();
++	if (r==KErrNone)
++		{
++		if (pO->Protection()!=DObject::EGlobal
++			&& pT->iOwningProcess->iSecurityZone!=pC->iOwningProcess->iSecurityZone)
++			r = PlatSec::ProcessIsolationFail(__PLATSEC_DIAGNOSTIC_STRING("Checked by RHandleBase::Duplicate (9.2)"));
++		if (r==KErrNone)
++			r = pC->MakeHandle(aType, pO, h);
++		if (r<KErrNone)
++			pO->Close(NULL);
++		}
++	pT->Close(NULL);
++	NKern::ThreadLeaveCS();
++	if (r == KErrBadHandle)
++		K::PanicKernExec(EBadHandle);
++	return r==KErrNone ? h : r;
++	}
++
++// flags for slow shims: same handle preprocessing / system lock usage as the native call
++static TUint32 SlowFlagsOf(TInt aOurSlowNumber)
++	{
++	return EpocSlowExecTable[3 + 2*aOurSlowNumber];
++	}
++
++// --- logging stubs for 9.2 calls with no mapping ----------------------------------------------
++
++#define BAD_SLOW(n) \
++	static TInt Exec92BadSlow_##n(TInt a0, TInt a1, TInt a2, TInt a3) \
++		{ \
++		Kern::Printf("EXEC92: unmapped 9.2 slow exec 0x%02x args %08x %08x %08x %08x", n, a0, a1, a2, a3); \
++		return KErrNotSupported; \
++		}
++#define BAD_FAST(n) \
++	static TInt Exec92BadFast_##n(TInt) { Exec92LastBadFast = 0x800000|n; return 0; }
++EXEC92_BAD_SLOW(BAD_SLOW)
++EXEC92_BAD_FAST(BAD_FAST)
++
++static TLinAddr BadSlowFunc(TInt n)
++	{
++#define CASE(x) case x: return (TLinAddr)&Exec92BadSlow_##x;
++	switch (n) { EXEC92_BAD_SLOW(CASE) }
++#undef CASE
++	return 0;
++	}
++
++static TLinAddr BadFastFunc(TInt n)
++	{
++#define CASE(x) case x: return (TLinAddr)&Exec92BadFast_##x;
++	switch (n) { EXEC92_BAD_FAST(CASE) }
++#undef CASE
++	return 0;
++	}
++
++#define SHIM_FUNC(k, name, kind, base) case k: return (TLinAddr)&Exec92Shim_##name;
++static TLinAddr ShimFunc(TInt k)
++	{
++	switch (k) { EXEC92_SHIMS(SHIM_FUNC) }
++	return 0;
++	}
++#undef SHIM_FUNC
++
++#define EExecNone (-1)
++#define SHIM_FLAGS(k, name, kind, base) case k: return EExec##base<0 ? 0 : SlowFlagsOf(EExec##base);
++static TUint32 ShimFlags(TInt k)
++	{
++	switch (k) { EXEC92_SHIMS(SHIM_FLAGS) }
++	return 0;
++	}
++#undef SHIM_FLAGS
++
++// --- table construction -----------------------------------------------------------------------
++
++void Exec92Init()
++	{
++	if (!(TheSuperPage().KernelConfigFlags() & KKernelConfigExec92Personality))
++		return;
++	TheSuperPage().SetKernelConfigFlags(TheSuperPage().KernelConfigFlags() & ~KKernelConfigExec92Personality);
++
++	EpocFastExecTable92[0] = EXEC92_FAST_COUNT;
++	for (TInt n=1; n<EXEC92_FAST_COUNT; ++n)
++		{
++		TInt m = KExec92Fast[n];
++		TLinAddr f;
++		if (m >= 0)
++			f = EpocFastExecTable[m];
++		else if (m == EXEC92_INVALID)
++			f = BadFastFunc(n);
++		else
++			f = ShimFunc(-2-m);
++		__ASSERT_ALWAYS(f, K::Fault(K::EInit3Failed));
++		EpocFastExecTable92[n] = f;
++		}
++
++	EpocSlowExecTable92[0] = EXEC92_SLOW_COUNT;
++	EpocSlowExecTable92[1] = EpocSlowExecTable[1];	// invalid handler (out of range numbers)
++	EpocSlowExecTable92[2] = EpocSlowExecTable[2];	// preprocess (handle lookup) handler
++	for (TInt n=0; n<EXEC92_SLOW_COUNT; ++n)
++		{
++		TInt m = KExec92Slow[n];
++		TUint32 flags;
++		TLinAddr f;
++		if (m >= 0)
++			{
++			flags = EpocSlowExecTable[3 + 2*m];
++			f = EpocSlowExecTable[4 + 2*m];
++			}
++		else if (m == EXEC92_INVALID)
++			{
++			flags = 0;
++			f = BadSlowFunc(n);
++			}
++		else
++			{
++			flags = ShimFlags(-2-m);
++			f = ShimFunc(-2-m);
++			}
++		__ASSERT_ALWAYS(f, K::Fault(K::EInit3Failed));
++		EpocSlowExecTable92[3 + 2*n] = flags;
++		EpocSlowExecTable92[4 + 2*n] = f;
++		}
++	Exec92Enabled = ETrue;
++	Kern::Printf("EXEC92: Symbian 9.2 exec personality enabled (%d fast, %d slow)", EXEC92_FAST_COUNT, EXEC92_SLOW_COUNT);
++	}
+--- /dev/null
++++ b/kernel/eka/kernel/exec92_map.h
+@@ -0,0 +1,291 @@
++// GENERATED by tools/exec92/gen_kernel_map.py from tools/exec92/exec92.map - do not edit
++// Symbian 9.2 executive call numbering (Nokia N95 8GB EUSER) -> this kernel
++
++#define EXEC92_FAST_COUNT 28
++#define EXEC92_SLOW_COUNT 238
++#define EXEC92_INVALID (-1)
++#define EXEC92_SHIM(k) (-2-(k))
++
++#define EXEC92_SHIMS(X) \
++	X(0, SafeInc32, FAST, None) \
++	X(1, SafeDec32, FAST, None) \
++	X(2, MutexWait92, SLOW, MutexWait) \
++	X(3, HandleDuplicate92, SLOW, HandleDuplicate)
++
++#define EXEC92_BAD_FAST(X) X(0x0a) X(0x0b)
++#define EXEC92_BAD_SLOW(X) X(0x34) X(0xe8) X(0xed)
++
++static const TInt16 KExec92Fast[28] =
++	{
++	0,               // F00 WaitForAnyRequest
++	1,               // F01 Heap
++	2,               // F02 HeapSwitch
++	3,               // F03 PushTrapFrame
++	4,               // F04 PopTrapFrame
++	5,               // F05 ActiveScheduler
++	6,               // F06 SetActiveScheduler
++	7,               // F07 LockPeriod
++	8,               // F08 TrapHandler
++	9,               // F09 SetTrapHandler
++	EXEC92_INVALID,  // F0a !invalid
++	EXEC92_INVALID,  // F0b !invalid
++	10,              // F0c DebugMask
++	11,              // F0d DebugMaskIndex
++	12,              // F0e SetDebugMask
++	13,              // F0f FastCounter
++	14,              // F10 NTickCount
++	15,              // F11 LockRamDrive
++	16,              // F12 UnlockRamDrive
++	17,              // F13 RomHeaderAddress
++	18,              // F14 RomRootDirectoryAddress
++	EXEC92_SHIM(0),  // F15 @SafeInc32
++	EXEC92_SHIM(1),  // F16 @SafeDec32
++	19,              // F17 SetReentryPoint
++	20,              // F18 KernelConfigFlags
++	21,              // F19 UTCOffset
++	22,              // F1a GetGlobalUserData
++	23,              // F1b CheckFilter
++	};
++
++static const TInt16 KExec92Slow[238] =
++	{
++	0,               // S00 ObjectNext
++	1,               // S01 ChunkBase
++	2,               // S02 ChunkSize
++	3,               // S03 ChunkMaxSize
++	4,               // S04 HandleAttributes
++	5,               // S05 TickCount
++	6,               // S06 LogicalDeviceGetCaps
++	7,               // S07 LogicalDeviceQueryVersionSupported
++	8,               // S08 LogicalDeviceIsAvailable
++	9,               // S09 LocaleExports
++	10,              // S0a ChannelRequest
++	11,              // S0b MathRandom
++	12,              // S0c IMBRange
++	13,              // S0d ResetMachine
++	14,              // S0e LibraryLookup
++	15,              // S0f LibraryFileName
++	16,              // S10 ExecuteInSupervisorMode
++	EXEC92_SHIM(2),  // S11 @MutexWait92:MutexWait
++	18,              // S12 MutexSignal
++	19,              // S13 ProcessId
++	20,              // S14 DllFileName
++	21,              // S15 ProcessResume
++	22,              // S16 ProcessFileName
++	23,              // S17 ProcessCommandLine
++	24,              // S18 ProcessExitType
++	25,              // S19 ProcessExitReason
++	26,              // S1a ProcessExitCategory
++	27,              // S1b ProcessPriority
++	28,              // S1c ProcessSetPriority
++	29,              // S1d ProcessFlags
++	30,              // S1e ProcessSetFlags
++	31,              // S1f SemaphoreWait
++	32,              // S20 SemaphoreSignal1
++	33,              // S21 SemaphoreSignalN
++	34,              // S22 ServerReceive
++	35,              // S23 ServerCancel
++	36,              // S24 SetSessionPtr
++	37,              // S25 SessionSend
++	38,              // S26 ThreadId
++	39,              // S27 SessionShare
++	40,              // S28 ThreadResume
++	41,              // S29 ThreadSuspend
++	42,              // S2a ThreadPriority
++	43,              // S2b ThreadSetPriority
++	44,              // S2c ThreadProcessPriority
++	45,              // S2d ThreadSetProcessPriority
++	46,              // S2e ThreadFlags
++	47,              // S2f ThreadSetFlags
++	48,              // S30 ThreadRequestCount
++	49,              // S31 ThreadExitType
++	50,              // S32 ThreadExitReason
++	51,              // S33 ThreadExitCategory
++	EXEC92_INVALID,  // S34 !invalid
++	52,              // S35 TimerCancel
++	53,              // S36 TimerAfter
++	54,              // S37 TimerAt
++	55,              // S38 TimerLock
++	56,              // S39 ChangeNotifierLogon
++	57,              // S3a ChangeNotifierLogoff
++	58,              // S3b RequestSignal
++	59,              // S3c HandleName
++	60,              // S3d HandleFullName
++	61,              // S3e HandleInfo
++	62,              // S3f HandleCount
++	63,              // S40 After
++	64,              // S41 At
++	65,              // S42 MessageComplete
++	66,              // S43 MessageCompleteWithHandle
++	68,              // S44 TimeNow
++	70,              // S45 SetUTCTimeAndOffset
++	71,              // S46 SetMachineConfiguration
++	72,              // S47 CaptureEventHook
++	73,              // S48 ReleaseEventHook
++	74,              // S49 RequestEvent
++	75,              // S4a RequestEventCancel
++	76,              // S4b AddEvent
++	77,              // S4c SessionSendSync
++	78,              // S4d DllTls
++	79,              // S4e HalFunction
++	80,              // S4f WsRegisterThread
++	81,              // S50 FsRegisterThread
++	82,              // S51 ProcessCommandLineLength
++	83,              // S52 TimerInactivity
++	84,              // S53 UserInactivityTime
++	85,              // S54 ResetInactivityTime
++	86,              // S55 DebugPrint
++	87,              // S56 BreakPoint
++	88,              // S57 ProfileStart
++	89,              // S58 ProfileEnd
++	90,              // S59 ExceptionHandler
++	91,              // S5a SetExceptionHandler
++	92,              // S5b ModifyExceptionMask
++	93,              // S5c RaiseException
++	94,              // S5d IsExceptionHandled
++	95,              // S5e ProcessGetMemoryInfo
++	96,              // S5f LibraryGetMemoryInfo
++	97,              // S60 MachineConfiguration
++	98,              // S61 SetMemoryThresholds
++	99,              // S62 LibraryType
++	100,             // S63 ProcessType
++	101,             // S64 ChunkBottom
++	102,             // S65 ChunkTop
++	103,             // S66 ThreadContext
++	104,             // S67 ThreadCreate
++	105,             // S68 FindHandleOpen
++	106,             // S69 HandleClose
++	107,             // S6a ChunkCreate
++	108,             // S6b ChunkAdjust
++	109,             // S6c OpenObject
++	EXEC92_SHIM(3),  // S6d @HandleDuplicate92:HandleDuplicate
++	111,             // S6e MutexCreate
++	112,             // S6f SemaphoreCreate
++	113,             // S70 ThreadOpenById
++	114,             // S71 ProcessOpenById
++	115,             // S72 ThreadKill
++	116,             // S73 ThreadLogon
++	117,             // S74 ThreadLogonCancel
++	118,             // S75 DllSetTls
++	119,             // S76 DllFreeTls
++	120,             // S77 ThreadRename
++	121,             // S78 ProcessRename
++	122,             // S79 ProcessKill
++	123,             // S7a ProcessLogon
++	124,             // S7b ProcessLogonCancel
++	125,             // S7c ThreadProcess
++	126,             // S7d ServerCreate
++	128,             // S7e SessionCreate
++	129,             // S7f SessionCreateFromHandle
++	130,             // S80 DeviceLoad
++	131,             // S81 DeviceFree
++	132,             // S82 ChannelCreate
++	133,             // S83 TimerCreate
++	134,             // S84 TimerHighRes
++	135,             // S85 AfterHighRes
++	136,             // S86 ChangeNotifierCreate
++	137,             // S87 UndertakerCreate
++	138,             // S88 UndertakerLogon
++	139,             // S89 UndertakerLogonCancel
++	140,             // S8a KernelHeapDebug
++	141,             // S8b ThreadGetCpuTime
++	142,             // S8c CodeSegCreate
++	143,             // S8d CodeSegLoaded
++	144,             // S8e LibraryCreate
++	145,             // S8f CodeSegOpen
++	146,             // S90 CodeSegClose
++	147,             // S91 CodeSegNext
++	148,             // S92 CodeSegInfo
++	149,             // S93 CodeSegAddDependency
++	150,             // S94 CodeSegDeferDeletes
++	151,             // S95 CodeSegEndDeferDeletes
++	152,             // S96 ProcessCreate
++	153,             // S97 ProcessLoaded
++	154,             // S98 CheckLoaderClientState
++	155,             // S99 ThreadProcessCodeSeg
++	156,             // S9a CodeSegReadExportDir
++	157,             // S9b WaitDllLock
++	158,             // S9c ReleaseDllLock
++	159,             // S9d LibraryAttach
++	160,             // S9e LibraryAttached
++	161,             // S9f StaticCallList
++	162,             // Sa0 LibraryDetach
++	163,             // Sa1 LibraryDetached
++	164,             // Sa2 LastThreadHandle
++	165,             // Sa3 ThreadRendezvous
++	166,             // Sa4 ProcessRendezvous
++	167,             // Sa5 MessageGetDesLength
++	168,             // Sa6 MessageGetDesMaxLength
++	169,             // Sa7 MessageIpcCopy
++	170,             // Sa8 MessageClient
++	171,             // Sa9 MessageSetProcessPriority
++	172,             // Saa MessageConstructFromPtr
++	173,             // Sab MessageKill
++	174,             // Sac MessageOpenObject
++	175,             // Sad ProcessSecurityInfo
++	176,             // Sae ThreadSecurityInfo
++	177,             // Saf MessageSecurityInfo
++	178,             // Sb0 CreatorSecurityInfo
++	179,             // Sb1 DisabledCapabilities
++	180,             // Sb2 ChunkSetRestrictions
++	181,             // Sb3 MsgQueueCreate
++	182,             // Sb4 MsgQueueSend
++	183,             // Sb5 MsgQueueReceive
++	184,             // Sb6 MsgQueueNotifySpaceAvailable
++	185,             // Sb7 MsgQueueCancelSpaceAvailable
++	186,             // Sb8 MsgQueueNotifyDataAvailable
++	187,             // Sb9 MsgQueueCancelDataAvailable
++	188,             // Sba MsgQueueSize
++	189,             // Sbb PropertyDefine
++	190,             // Sbc PropertyDelete
++	191,             // Sbd PropertyAttach
++	192,             // Sbe PropertySubscribe
++	193,             // Sbf PropertyCancel
++	194,             // Sc0 PropertyGetI
++	195,             // Sc1 PropertyGetB
++	196,             // Sc2 PropertySetI
++	197,             // Sc3 PropertySetB
++	198,             // Sc4 PropertyFindGetI
++	199,             // Sc5 PropertyFindGetB
++	200,             // Sc6 PropertyFindSetI
++	201,             // Sc7 PropertyFindSetB
++	202,             // Sc8 PowerEnableWakeupEvents
++	203,             // Sc9 PowerDisableWakeupEvents
++	204,             // Sca PowerRequestWakeupEventNotification
++	205,             // Scb PowerCancelWakeupEventNotification
++	206,             // Scc PowerDown
++	207,             // Scd ProcessSetHandleParameter
++	208,             // Sce ProcessSetDataParameter
++	209,             // Scf ProcessGetHandleParameter
++	210,             // Sd0 ProcessGetDataParameter
++	211,             // Sd1 ProcessDataParameterLength
++	212,             // Sd2 MessageClientProcessFlags
++	213,             // Sd3 ThreadStackInfo
++	214,             // Sd4 ThreadGetHeap
++	215,             // Sd5 ThreadAsProcess
++	216,             // Sd6 CondVarCreate
++	217,             // Sd7 CondVarWait
++	218,             // Sd8 CondVarSignal
++	219,             // Sd9 CondVarBroadcast
++	220,             // Sda PlatSecDiagnostic
++	221,             // Sdb ExceptionDescriptor
++	222,             // Sdc ThreadRequestSignal
++	223,             // Sdd MutexIsHeld
++	224,             // Sde LeaveStart
++	225,             // Sdf LeaveEnd
++	226,             // Se0 SetDebugMaskIndex
++	227,             // Se1 GetModuleNameFromAddress
++	228,             // Se2 NotifyChanges
++	229,             // Se3 SetGlobalUserData
++	230,             // Se4 SessionSecurityInfo
++	231,             // Se5 MessageClientStatus
++	232,             // Se6 SetFloatingPointMode
++	233,             // Se7 BTraceOut
++	EXEC92_INVALID,  // Se8 !invalid
++	236,             // Se9 CheckFilter2
++	237,             // Sea ProcessExeExportData
++	238,             // Seb NotifyIfCodeSegDestroyed
++	239,             // Sec GetDestroyedCodeSegInfo
++	EXEC92_INVALID,  // Sed !invalid
++	};
++
+--- /dev/null
++++ b/kernel/eka/kernel/arm/cexec92.cia
+@@ -0,0 +1,35 @@
++// Copyright (c) 2026 syborg-pg contributors. Licensed under the Eclipse Public License v1.0.
++//
++// Fast-exec shims for the Symbian 9.2 personality (see ../sexec92.cpp).
++// Fast execs run in SVC mode with interrupts disabled, so these read-modify-writes are atomic
++// on a uniprocessor. User memory is accessed with LDRT/STRT, as in cexec.cia.
++
++#include <e32cia.h>
++#include <arm.h>
++#include "nk_priv.h"
++
++// TInt User::SafeInc(TInt& a): if (a>0) ++a; return original a
++__NAKED__ TInt Exec92Shim_SafeInc32(TInt* /*a*/)
++	{
++	USER_MEMORY_GUARD_OFF(,r12,r12);
++	asm("ldrt r1, [r0] ");
++	asm("cmp r1, #0 ");
++	asm("addgt r2, r1, #1 ");
++	asm("strgtt r2, [r0] ");
++	asm("mov r0, r1 ");
++	USER_MEMORY_GUARD_ON(,r12,r12);
++	__JUMP(,lr);
++	}
++
++// TInt User::SafeDec(TInt& a): if (a>0) --a; return original a
++__NAKED__ TInt Exec92Shim_SafeDec32(TInt* /*a*/)
++	{
++	USER_MEMORY_GUARD_OFF(,r12,r12);
++	asm("ldrt r1, [r0] ");
++	asm("cmp r1, #0 ");
++	asm("subgt r2, r1, #1 ");
++	asm("strgtt r2, [r0] ");
++	asm("mov r0, r1 ");
++	USER_MEMORY_GUARD_ON(,r12,r12);
++	__JUMP(,lr);
++	}
+--- a/kernel/eka/kernel/sthread.cpp
++++ b/kernel/eka/kernel/sthread.cpp
+@@ -16,6 +16,10 @@
+ //
+ 
+ #include <kernel/kern_priv.h>
++
++extern TBool Exec92Enabled;
++extern TUint32 EpocFastExecTable92[];
++extern TUint32 EpocSlowExecTable92[];
+ #include "execs.h"
+ #include <kernel/emi.h>
+ 
+@@ -583,6 +587,12 @@
+ 	ni.iHandlers = &EpocThreadHandlers;
+ 	ni.iFastExecTable=(const SFastExecTable*)EpocFastExecTable;
+ 	ni.iSlowExecTable=(const SSlowExecTable*)EpocSlowExecTable;
++	if (Exec92Enabled && iThreadType==EThreadUser)
++		{
++		// Symbian 9.2 executive-call personality (sexec92.cpp)
++		ni.iFastExecTable=(const SFastExecTable*)EpocFastExecTable92;
++		ni.iSlowExecTable=(const SSlowExecTable*)EpocSlowExecTable92;
++		}
+ 	ni.iParameterBlock=(const TUint32*)&aInfo;
+ 	ni.iParameterBlockSize=aInfo.iTotalSize;
+ 	ni.iStackBase=iSupervisorStack;
+--- a/kernel/eka/kernel/sinit.cpp
++++ b/kernel/eka/kernel/sinit.cpp
+@@ -16,6 +16,8 @@
+ //
+ 
+ #include <kernel/kern_priv.h>
++
++extern void Exec92Init();
+ #include <e32uid.h>
+ #include <collate.h>
+ #include <kernel/emi.h>
+@@ -382,6 +384,9 @@
+ 	K::SvMsgQ->iThread=&pN->iNThread;
+ 	K::SvBarrierQ.SetDfcQ(K::SvMsgQ);
+ 
++	// Symbian 9.2 exec personality, if requested by the ROM header (sexec92.cpp)
++	Exec92Init();
++
+ 	// clear IPC V1 available flag
+ 	TheSuperPage().SetKernelConfigFlags(TheSuperPage().KernelConfigFlags() & ~EKernelConfigIpcV1Available);
+ 
+--- a/kernel/eka/kernel/ekern.mmp
++++ b/kernel/eka/kernel/ekern.mmp
+@@ -74,6 +74,7 @@
+ #endif
+ sourcepath				arm
+ source					 cglobals.cpp cexec.cpp cexec.cia cinit.cpp
++source					 cexec92.cia
+ source					 ckernel.cpp ckernel.cia cipc.cpp cipc.cia csched.cia
+ source					 cutils.cpp cutils.cia
+ source					 cache.cpp cache_maintenance.cia cache_maintenance.cpp
+@@ -145,6 +146,7 @@
+ sourcepath				.
+ source					 sglobals.cpp device.cpp eventq.cpp
+ source					 sexec.cpp sinit.cpp skernel.cpp
++source					 sexec92.cpp
+ source					 scodeseg.cpp sipc.cpp notifier.cpp 
+ source					 object.cpp power.cpp server.cpp
+ source					 sha256.cpp securerng.cpp

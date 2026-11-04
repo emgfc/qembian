@@ -102,3 +102,64 @@ verified. All fixes live in scripts or the container definition, so nothing is a
   No faults or panics.
 - gdb (host, multi-arch 16.3) → QEMU gdbstub: stops at the reset vector, and a hardware breakpoint
   on `_E32Startup` (0x80003130) hits after the MMU is on.
+
+---
+
+# Option 1 (E1): our kernel + 9.2 exec personality + N95 user side
+
+The plan is in [roadmap.md](roadmap.md) and the firmware facts in
+[n95-firmware-inventory.md](n95-firmware-inventory.md). To reproduce:
+`scripts/n95-inventory.sh` once, then `scripts/hybrid-boot.sh [--no-build] [--secs N] [--trace MASK]`.
+
+## E1.1 ROM composer (`tools/romcompose.py`) [verified]
+- **Layout:** in the N95 core ROM, all 84 kernel-side images live below `0x8038f9a0` and all
+  2,635 user-side files above it. Kernel side means a primary/variant/extension/device flag, or
+  imports from EKERN. The composite takes our ROM's bytes for `[0x80000000, 0x8038f9a0)` (header,
+  Syborg bootstrap, our 23 kernel-side files ending at `0x802d5ff4` in udeb) and the N95 flat image
+  verbatim above that.
+- **New structures:** a new root directory (with `TRomDirSortInfo` tables, case-insensitive UTF-8
+  order as in rombuild) and a merged exception search table (2,624 entries, used by the RVCT
+  unwinder through `UserSvr::RomHeaderAddress`) go after the N95 image.
+- **Header patches:** size, root, `iSecondaryFile` = N95 `efile.exe`, and paging/compression off.
+  Our primary/variant/extension `TRomEntry` chain still points into our original directory, which
+  is intact inside our window.
+- **Verified:** all 2,635 N95 files are byte-identical at their original addresses. The Syborg
+  bootstrap takes the ROM size from `TRomHeader`, so a 60 MB image needs no BSP change.
+- **Data overrides** (`--file ROMPATH=LOCAL`) are for board configuration only. Currently that is
+  `rom/hybrid/ESTARTCOMP.TXT`.
+
+## E1.2 9.2 exec tables in the kernel (`patches/kernelhwsrv/0001-exec92-personality.patch`) [verified]
+- **Mechanism:** each `NThread` carries its own fast/slow exec table pointers (`sthread.cpp`). When
+  `TRomHeader.iKernelConfigFlags` bit 29 is set (`romcompose.py --exec92`), `Exec92Init()` builds
+  `EpocFastExecTable92`/`EpocSlowExecTable92` at boot. It copies entries (handler and flags) out of
+  the native tables per `exec92_map.h`, which `tools/exec92/gen_kernel_map.py` generates from the
+  reviewed `tools/exec92/exec92.map`. Every user thread then gets the 9.2 tables. The native ROM is
+  unaffected: the regression boot to ESHELL passes.
+- **Map:** 28 fast + 238 slow 9.2 calls. 6 map to per-number logging stubs (calls with no caller
+  in the N95 EUSER). Shims so far: `SafeInc32`/`SafeDec32` (9.2-only fast calls),
+  `MutexWait92` (no timeout argument in 9.2), `HandleDuplicate92`.
+
+## E1.3 boot runs
+| Run | Result | Cause | Fix |
+|---|---|---|---|
+| 1 | kernel fault in `umemget32`, DFAR `0x4bd20001` | `S6d HandleDuplicate`: 9.2 passes the source handle **by value** in r2 and returns the new handle. Ours takes `TInt&`, so the kernel dereferenced the handle. Found from the user LR → N95 `RHandleBase::Duplicate`. | shim `HandleDuplicate92` |
+| 2 | `efile.exe` "Fserv fault 162" → KERN 4 | N95 `SetSystemDrive` check: C: must be local/internal NAND/flash/disk. N95 `Z:\sys\data\ESTARTCOMP.TXT` maps C: to local drive 6 (N95 NAND); Syborg has drives 0 (IRAM) and 1 (NVMemory). | override ESTARTCOMP.TXT: D:=0, C:=1 |
+| 3 | silent hang, all threads idle in the trace | gdb PC sampling (`run.sh --gdb-nowait`) showed EStart spinning in `TLex16::NextToken`/`SkipSpace`: the override had LF line endings, and EStart only splits on CR LF | CRLF (`rom/hybrid/.gitattributes`) |
+| 4 (current) | EStart panic "NokiaISCApi 1" → KERN 4 | EStart prints `##-> NokiaISC in use <-##` and asks the loader for the ISC driver, which gets `KErrNotFound`. The Nokia modem-link LDDs (`NokiaISCDriver.ldd`, `IscIsiMultiplexer.ldd`) are N95 kernel side and were dropped. | next: E1.5 ISC stub |
+
+What already works in run 4, all N95 binaries on our kernel ([trace excerpt](evidence/e1/hybrid-serial-excerpt.txt),
+[loaded code segments](evidence/e1/hybrid-codesegs-loaded.txt), [exec call counts](evidence/e1/hybrid-exec-call-counts.txt)):
+- `efile.exe` and its loader thread: code-seg create, load, dependencies, library attach.
+- C++ leave/trap through `LeaveStart`/`LeaveEnd`, client/server IPC, drive threads.
+- `erofs.fsy`, `ecomp.fsy` and `ELocal.fsy`, with C: mounted as FAT on Syborg NVMemory through our
+  `ELOCD`/`MEDNVMEMORY`.
+- `EStart.exe`, `halsettings.exe`, `domainSrv.exe` + `domainPolicy.dll`.
+
+Open risks noted along the way:
+- **`TCodeSegCreateInfo`:** the 9.2 SDK struct ends at `iClientProcessHandle`; ours appends
+  32 bytes of relocation/paging fields. The kernel's `CodeSegInfo` trace shows garbage there.
+  Check whether the N95 8GB's paging backport has the same tail; otherwise `CodeSegInfo` overruns
+  the loader's buffer.
+- **ARMv6 exclusives:** the N95 user side uses `ldrex`/`strex`. Our ARMv5 kernel doesn't clear the
+  exclusive monitor on context switch.
+- **VFP:** not checked yet whether the N95 user side uses VFP; the Syborg kernel doesn't enable it.

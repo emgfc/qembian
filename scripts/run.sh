@@ -20,6 +20,7 @@ while [ $# -gt 0 ]; do
     --timeout) TIMEOUT="$2"; shift ;;
     --gui) GUI=1 ;;
     --gdb) GDB=1 ;;
+    --gdb-nowait) GDB=2 ;;
     --serial-log) SERIAL_LOG="$2"; shift ;;
     -h|--help) sed -n '2,13p' "$0"; exit 0 ;;
     *) ROM="$1" ;;
@@ -30,7 +31,7 @@ ROM="${ROM:-build/epocroot/epoc32/rom/syborg_tshell_ARMV5_udeb.img}"
 
 if [ -z "${SYBORG_IN_CONTAINER:-}" ]; then
   extra=()
-  [ $GDB = 1 ] && extra+=(-p 127.0.0.1:1234:1234)
+  [ $GDB != 0 ] && extra+=(-p 127.0.0.1:1234:1234)
   if [ $GUI = 1 ]; then
     extra+=(-e DISPLAY="${DISPLAY:-:0}" -v /tmp/.X11-unix:/tmp/.X11-unix)
     [ -n "${XAUTHORITY:-}" ] && extra+=(-e XAUTHORITY=/xauth -v "$XAUTHORITY:/xauth:ro")
@@ -39,6 +40,7 @@ if [ -z "${SYBORG_IN_CONTAINER:-}" ]; then
   [ -n "$TIMEOUT" ] && args=(--timeout "$TIMEOUT" "${args[@]}")
   [ $GUI = 1 ] && args=(--gui "${args[@]}")
   [ $GDB = 1 ] && args=(--gdb "${args[@]}")
+  [ $GDB = 2 ] && args=(--gdb-nowait "${args[@]}")
   [ -n "$SERIAL_LOG" ] && args=(--serial-log "$SERIAL_LOG" "${args[@]}")
   CONTAINER_ARGS="${extra[*]+${extra[*]}}" exec "$ROOT/scripts/in-container.sh" /work/scripts/run.sh "${args[@]}"
 fi
@@ -62,6 +64,7 @@ if [ $GUI = 0 ]; then
   export SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy
 fi
 [ $GDB = 1 ] && qargs+=(-s -S)
+[ $GDB = 2 ] && qargs+=(-s)
 
 echo ">> qemu-system-arm ${qargs[*]}" >&2
 if [ -n "$TIMEOUT" ]; then

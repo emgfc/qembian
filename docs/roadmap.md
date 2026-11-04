@@ -32,6 +32,14 @@ Why this order:
 The status of each step is tracked in [build-log.md](build-log.md) (option 1 section) and the
 README.
 
+**Status 2026-11-04:**
+- E1.1 done.
+- E1.2 done.
+- E1.3 done: N95 `efile.exe` runs and mounts drives.
+- E1.4 partly done: shims are added as calls are hit, and N95 `EStart.exe` runs until the modem
+  API, starting `halsettings.exe` and `domainSrv.exe` on the way.
+- E1.5 started: the current blocker is the ISC (modem link) driver stub.
+
 ## Option A (later)
 
 Start from the QEMU 0.9.1 `n800` machine (OMAP2420, Menelaus, OneNAND, CBUS, I2C, SPI already
