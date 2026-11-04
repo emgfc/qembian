@@ -1,0 +1,30 @@
+# Legacy build environment for the 2010-era Symbian Foundation tools.
+#
+# Debian 6.0 "squeeze" i386: GCC 4.4.5, Python 2.6.6, Perl 5.10, SDL 1.2 --
+# contemporaneous with the Ubuntu 10.04 i386 setup the Symbian Foundation used,
+# and 32-bit so the i686 CodeSourcery toolchain and the 32-bit-only host tools
+# (elf2e32, rombuild, ...) run natively.
+#
+# SECURITY: squeeze is EOL (2016). Packages come from archive.debian.org; the
+# archive signing keys have expired, so apt runs with AllowUnauthenticated.
+# Keep this image isolated: no network services, project dir bind-mounted only.
+FROM docker.io/debian/eol:squeeze
+
+RUN printf 'APT::Get::AllowUnauthenticated "true";\nAcquire::Check-Valid-Until "false";\n' \
+        > /etc/apt/apt.conf.d/99archive \
+ && apt-get update -qq \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
+        build-essential bison flex perl make patch file less \
+        python2.6 python2.6-dev \
+        libsdl1.2-dev libexpat1-dev zlib1g-dev libpng12-dev libncurses5-dev \
+        libbz2-dev libxml2-dev libboost-dev \
+        p7zip-full unzip bzip2 xz-utils ca-certificates gdb \
+        xvfb x11-apps xdotool imagemagick \
+ && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Raptor and the Symbian makefiles assume bash as /bin/sh.
+RUN ln -sf bash /bin/sh
+
+# Make configure scripts that call `uname -m` see a 32-bit machine.
+ENTRYPOINT ["linux32", "--"]
+CMD ["bash"]

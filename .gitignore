@@ -1,0 +1,7 @@
+/downloads/
+/external/
+/cache/
+/build/
+/out/
+*.log
+!docs/logs/*.log
