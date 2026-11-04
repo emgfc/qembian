@@ -1,0 +1,13 @@
+--- a/baseport/syborg/variant.mmh
++++ b/baseport/syborg/variant.mmh
+@@ -99,8 +99,9 @@
+ //macro __CPU_ARM1136_ERRATUM_411920_FIXED
+ 
+ 
+-#ifndef GCCE
++// syborg-pg: VFP enabled for GCCE too (the N95 user side uses VFP; see docs/build-log.md)
+ macro __CPU_HAS_VFP
++#ifndef GCCE
+ #define USE_VFP_MATH
+ #endif
+ // !@! not moving when 1136

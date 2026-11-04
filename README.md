@@ -18,7 +18,7 @@ running the N95 user side unmodified, then full OMAP2420 emulation.
 | M3 own ROM | done (udeb) | A ROM of our own GCC-built kernel, BSP and file server boots to an interactive ESHELL ([screenshot](docs/evidence/clean-build-eshell-dir.png)) and starts processes ([btrace](docs/evidence/own-udeb-btrace.png)). The serial kernel trace is in [evidence](docs/evidence/own-udeb-trace0x80000003-serial-head.txt). |
 | M4 N95 assessment | firmware inventoried | [docs/n95-firmware-inventory.md](docs/n95-firmware-inventory.md) (RM-320 core ROM extracted, 9.2 exec table recovered, XIP import census) and [docs/n95-compatibility.md](docs/n95-compatibility.md) (options; recommendation) |
 
-| E1 option 1 (N95 user side on our kernel) | in progress | Nokia `efile.exe`, `EStart.exe`, `domainSrv.exe` run unmodified on our kernel with the 9.2 exec personality; blocked at the N95 modem-link (ISC) driver ([build-log](docs/build-log.md#option-1-e1-our-kernel--92-exec-personality--n95-user-side)) |
+| E1 option 1 (N95 user side on our kernel) | in progress | Nokia's file server, EStart, WSERV, FBSERV, ECOM, Starter and DosServer (21 processes) run unmodified on our kernel with the 9.2 exec personality and stand-ins for Nokia hardware drivers; next blocker: modem/system state for Starter ([build-log](docs/build-log.md#option-1-e1-our-kernel--92-exec-personality--n95-user-side)) |
 
 The `urel` variant has not been built yet. SDL window mode (`run.sh --gui`) has not been
 tried on a desktop session. All other features have been run as documented below.
@@ -54,7 +54,8 @@ Results:
 | `scripts/build-kernel.sh [udeb\|urel]` | Builds `ksrt_gcce` and then the whole `kernelhwsrv` package (`arm.v5.<var>.gcce4_4_1.surge`). |
 | `scripts/build-syborg.sh [udeb\|urel]` | Builds the Syborg BSP and, through its ROM extension, the text-shell ROM. |
 | `scripts/build-rom-trace.sh [var] [mask]` | Rebuilds the ROM with a different `kerneltrace` mask, for example `0x80000003` (KBOOT and KHARDWARE). |
-| `scripts/hybrid-boot.sh [--no-build] [--secs N] [--trace MASK]` | Option 1 loop: rebuild our kernel side, compose it with the N95 user side (`tools/romcompose.py`, 9.2 exec personality on), boot headless and summarise the serial log. |
+| `scripts/hybrid-boot.sh [--no-build] [--secs N] [--trace MASK]` | Option 1 loop: rebuild our kernel side, compose it with the N95 user side and ROFS (`tools/romcompose.py`, 9.2 exec personality on), boot headless on a 240×320 board (`SYBORG_DTB`) and summarise the serial log. |
+| `scripts/build-n95compat.sh` | Builds `src/n95compat` (stand-ins for N95 kernel drivers: ISC, Custom, DisplayDriver, ROFS media, `lcd_n95`) and the hybrid's kernel-side ROM. |
 | `N95_FW_DIR=… scripts/n95-inventory.sh` | Read-only analysis of an N95 8GB firmware set: container split, core-ROM unpaging, file list, EUSER SWI table, import census. Output goes to `build/n95/`. No firmware bytes are committed. |
 
 ## Running
@@ -82,7 +83,11 @@ sources.lock          pinned git revisions + download URLs/sha256
 container/            Containerfile (squeeze i386) + uname shim
 scripts/              everything above; libgcc-shim/ for the toolchain fixup
 tools/                analysis helpers (DSO/DEF ordinal diff, exec-table numbering, BB5 FIASCO split,
-                      paged-ROM unpacker, XIP ROM reader, SWI-table recovery, XIP import census)
+                      paged-ROM unpacker, XIP ROM reader, SWI-table recovery, XIP import census,
+                      XIP disassembler, ROM composer, DTB editor); tools/exec92/ = 9.2 exec map
+src/n95compat/        kernel-side stand-ins for N95 hardware drivers (option 1)
+rom/hybrid/           board configuration overrides for the hybrid ROM
+patches/              source patches applied by setup-epocroot.sh (kernel, Syborg baseport)
 docs/                 research, build log, architecture, N95 compatibility, evidence/
 external/ downloads/ cache/ build/    generated, git-ignored
 ```

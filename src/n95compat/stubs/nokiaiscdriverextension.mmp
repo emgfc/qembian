@@ -1,0 +1,11 @@
+// N95 nokiaiscdriverextension.ldd stand-in (see nokiastub.h)
+#include "../../variant.mmh"
+#include <kernel/kern_ext.mmh>
+target			VariantTarget(nokiaiscdriverextension,ldd)
+linkas			nokiaiscdriverextension.ldd
+targettype		ldd
+sourcepath		.
+source			nokiaiscdriverextension.cpp
+noexportlibrary
+vendorid		0x70000001
+capability		all

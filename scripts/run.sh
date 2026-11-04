@@ -32,6 +32,7 @@ ROM="${ROM:-build/epocroot/epoc32/rom/syborg_tshell_ARMV5_udeb.img}"
 if [ -z "${SYBORG_IN_CONTAINER:-}" ]; then
   extra=()
   [ $GDB != 0 ] && extra+=(-p 127.0.0.1:1234:1234)
+  [ -n "${SYBORG_DTB:-}" ] && extra+=(-e SYBORG_DTB=$SYBORG_DTB)
   if [ $GUI = 1 ]; then
     extra+=(-e DISPLAY="${DISPLAY:-:0}" -v /tmp/.X11-unix:/tmp/.X11-unix)
     [ -n "${XAUTHORITY:-}" ] && extra+=(-e XAUTHORITY=/xauth -v "$XAUTHORITY:/xauth:ro")
@@ -49,7 +50,7 @@ QI=/work/build/qemu/install
 cd /work
 ROM_ABS="$(readlink -f "$ROM")"
 [ -f "$ROM_ABS" ] || { echo "ROM not found: $ROM" >&2; exit 1; }
-DTB=/work/external/oss.FCL.sf.adapt.Qemu/baseport/syborg/syborg.dtb
+DTB=${SYBORG_DTB:-/work/external/oss.FCL.sf.adapt.Qemu/baseport/syborg/syborg.dtb}	# SYBORG_DTB: path under /work
 
 mkdir -p /work/build/run && cd /work/build/run
 export LD_LIBRARY_PATH="$QI/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"

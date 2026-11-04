@@ -1,0 +1,35 @@
+--- a/baseport/syborg/fb/syborg_fb.h
++++ b/baseport/syborg/fb/syborg_fb.h
+@@ -39,13 +39,25 @@
+ 
+ const TBool KConfigPixelOrderRGB       = 0;
+ const TBool KConfigPixelOrderLandscape = 1;
+-const TInt  KConfigLcdDisplayMode       = 2;
+-
+-
+-const TInt  KConfigLcdNumberOfDisplayModes = 3;
+-
+-
+-const TInt  KConfigBitsPerPixel        = 24;
++// syborg-pg: mode layout overridable for the N95 hybrid (N95 HAL modes: 0 = EColor64K, 1 = EColor16MU)
++#ifndef SYBORG_FB_DISPLAY_MODE
++#define SYBORG_FB_DISPLAY_MODE 2
++#endif
++#ifndef SYBORG_FB_NUM_MODES
++#define SYBORG_FB_NUM_MODES 3
++#endif
++const TInt  KConfigLcdDisplayMode       = SYBORG_FB_DISPLAY_MODE;
++
++
++const TInt  KConfigLcdNumberOfDisplayModes = SYBORG_FB_NUM_MODES;
++
++
++// syborg-pg: bits per pixel reported through HAL (the device always runs at 32 bpp).
++// 24 = stock behaviour; the N95 hybrid builds lcd_n95 with 32 so its screen driver selects EColor16MU.
++#ifndef SYBORG_FB_REPORTED_BPP
++#define SYBORG_FB_REPORTED_BPP 24
++#endif
++const TInt  KConfigBitsPerPixel        = SYBORG_FB_REPORTED_BPP;
+ 
+ 
+ 

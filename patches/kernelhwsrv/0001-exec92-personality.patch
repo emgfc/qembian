@@ -1,6 +1,6 @@
 --- /dev/null
 +++ b/kernel/eka/kernel/sexec92.cpp
-@@ -0,0 +1,171 @@
+@@ -0,0 +1,181 @@
 +// Copyright (c) 2026 syborg-pg contributors. Licensed under the Eclipse Public License v1.0.
 +//
 +// Symbian OS 9.2 executive-call personality.
@@ -22,6 +22,16 @@
 +TUint32 EpocFastExecTable92[EXEC92_FAST_COUNT];
 +TUint32 EpocSlowExecTable92[3 + 2*EXEC92_SLOW_COUNT];
 +volatile TUint32 Exec92LastBadFast = 0;		// fast execs run with interrupts off: record, don't print
++
++// Size difference of loader structures for the current thread: 9.2 TProcessCreateInfo lacks
++// iDebugAttributes, iDestructStat and iFlags (12 bytes) at the end.
++TInt Exec92ProcessCreateInfoShrink()
++	{
++	if (!Exec92Enabled)
++		return 0;
++	const SSlowExecEntry* t = TheCurrentThread->iNThread.iSlowExecTable;
++	return t == ((const SSlowExecTable*)EpocSlowExecTable92)->iEntries ? 12 : 0;
++	}
 +
 +// --- shims ------------------------------------------------------------------------------------
 +
@@ -569,3 +579,55 @@
  source					 scodeseg.cpp sipc.cpp notifier.cpp 
  source					 object.cpp power.cpp server.cpp
  source					 sha256.cpp securerng.cpp
+--- a/kernel/eka/kernel/scodeseg.cpp
++++ b/kernel/eka/kernel/scodeseg.cpp
+@@ -20,6 +20,7 @@
+ #include "execs.h"
+ 
+ extern void InvalidExecHandler();
++extern TInt Exec92ProcessCreateInfoShrink();	// sexec92.cpp
+ 
+ // Compare code segments by name
+ TInt CompareCodeSegsByName(const DCodeSeg& aA, const DCodeSeg& aB)
+@@ -1666,7 +1667,10 @@
+ TInt ExecHandler::ProcessCreate(TProcessCreateInfo& aInfo, const TDesC* aCommandLine)
+ 	{
+ 	TProcessCreateInfo info;
+-	kumemget32(&info, &aInfo, sizeof(info));
++	// Symbian 9.2 loaders pass a shorter TProcessCreateInfo (no iDebugAttributes/iDestructStat/iFlags)
++	const TInt usize = sizeof(info) - Exec92ProcessCreateInfoShrink();
++	memclr(&info, sizeof(info));
++	kumemget32(&info, &aInfo, usize);
+ 	__KTRACE_OPT2(KEXEC,KDLL,Kern::Printf("Exec::ProcessCreate %S ver %08x", &info.iFileName, info.iModuleVersion));
+ 	__KTRACE_OPT(KDLL,DumpProcessCreateInfo(info));
+ 	K::CheckFileServerAccess();			// only F32 can use this exec function
+@@ -1718,7 +1722,7 @@
+ 	if (n)
+ 		n->Close();
+ 	NKern::ThreadLeaveCS();
+-	kumemput32(&aInfo.iUids, &info.iUids, sizeof(info)-sizeof(info.iFileName));
++	kumemput32(&aInfo.iUids, &info.iUids, usize-sizeof(info.iFileName));
+ 	__KTRACE_OPT(KDLL,DumpProcessCreateInfo(info));
+ 	__KTRACE_OPT2(KEXEC,KDLL,Kern::Printf("Exec::ProcessCreate returns %d",r));
+ 	return r;
+@@ -1793,7 +1797,10 @@
+ TInt ExecHandler::ProcessLoaded(TProcessCreateInfo& aInfo)
+ 	{
+ 	TProcessCreateInfo info;
+-	kumemget32(&info, &aInfo, sizeof(info));
++	// Symbian 9.2 loaders pass a shorter TProcessCreateInfo (no iDebugAttributes/iDestructStat/iFlags)
++	const TInt usize = sizeof(info) - Exec92ProcessCreateInfoShrink();
++	memclr(&info, sizeof(info));
++	kumemget32(&info, &aInfo, usize);
+ 	__KTRACE_OPT2(KEXEC,KDLL,Kern::Printf("Exec::ProcessLoaded %S ver %08x", &info.iFileName, info.iModuleVersion));
+ 	__KTRACE_OPT(KDLL,DumpProcessCreateInfo(info));
+ 	K::CheckFileServerAccess();			// only F32 can use this exec function
+@@ -1823,7 +1830,7 @@
+ 	if (r!=KErrNone)
+ 		pP->Close(NULL);
+ 	NKern::ThreadLeaveCS();
+-	kumemput32(&aInfo.iUids, &info.iUids, sizeof(info)-sizeof(info.iFileName));
++	kumemput32(&aInfo.iUids, &info.iUids, usize-sizeof(info.iFileName));
+ 	__KTRACE_OPT(KDLL,DumpProcessCreateInfo(info));
+ 	__KTRACE_OPT2(KEXEC,KDLL,Kern::Printf("Exec::ProcessLoaded returns %d",r));
+ 	return r;

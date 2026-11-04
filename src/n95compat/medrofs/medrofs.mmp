@@ -1,0 +1,16 @@
+// MEDROFS.PDD: N95 ROFS partition from memory (see medrofs.cpp)
+#include "../../variant.mmh"
+#include <kernel/kern_ext.mmh>
+target			VariantTarget(medrofs,pdd)
+linkas			medrofs.pdd
+targettype		pdd
+USERINCLUDE		../../../../../../os/kernelhwsrv/kernel/eka/include/drivers
+OS_LAYER_SYSTEMINCLUDE_SYMBIAN
+sourcepath		.
+source			medrofs.cpp
+library			elocd.lib
+noexportlibrary
+epocallowdlldata
+uid				0 0x100000d8
+vendorid		0x70000001
+capability		all

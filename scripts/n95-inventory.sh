@@ -14,6 +14,12 @@ O=build/n95; mkdir -p $O/abi
 C0R=$(ls "$N95_FW_DIR"/*.C0R | head -1)
 sha256sum "$C0R" > $O/firmware.sha256
 python3 -I tools/fiasco.py "$C0R" --out $O/c0r > $O/c0r-partitions.txt
+cp $O/c0r/SOS_ROFS@*.bin $O/rofs1.img
+V13=$(ls "$N95_FW_DIR"/*.v1[0-9] 2>/dev/null | head -1 || true)
+if [ -n "$V13" ]; then
+  python3 -I tools/fiasco.py "$V13" --out $O/v13 > $O/v13-partitions.txt
+  cp $O/v13/SOS_ROFX@*.bin $O/rofs2.img
+fi
 python3 -I tools/rom_unpage.py $O/c0r/SOS_CORE@*.bin $O/core-flat.img
 python3 -I tools/romimg.py $O/core-flat.img --images --json $O/core.json > $O/core-files.txt
 EU=$(awk '/Sys\/Bin\/EUser.dll$/{print $1}' $O/core-files.txt)

@@ -1,0 +1,11 @@
+// N95 custom.ldd stand-in (see nokiastub.h)
+#include "../../variant.mmh"
+#include <kernel/kern_ext.mmh>
+target			VariantTarget(custom,ldd)
+linkas			custom.ldd
+targettype		ldd
+sourcepath		.
+source			custom.cpp
+noexportlibrary
+vendorid		0x70000001
+capability		all

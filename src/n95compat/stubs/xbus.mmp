@@ -1,0 +1,11 @@
+// N95 xbus.ldd stand-in (see nokiastub.h)
+#include "../../variant.mmh"
+#include <kernel/kern_ext.mmh>
+target			VariantTarget(xbus,ldd)
+linkas			xbus.ldd
+targettype		ldd
+sourcepath		.
+source			xbus.cpp
+noexportlibrary
+vendorid		0x70000001
+capability		all

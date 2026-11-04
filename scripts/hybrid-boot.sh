@@ -22,14 +22,19 @@ if [ $BUILD = 1 ]; then
   scripts/build-syborg.sh udeb > build/logs/hybrid-syborg-build.txt 2>&1 || { tail -30 build/logs/hybrid-syborg-build.txt; exit 1; }
   grep -E ': error|undefined reference' build/logs/syborg-udeb.log | head -20 && { echo "BUILD ERRORS"; exit 1; } || true
 fi
-python3 -I tools/romcompose.py --ours build/epocroot/epoc32/rom/syborg_tshell_ARMV5_udeb.img \
+scripts/build-n95compat.sh udeb > build/logs/hybrid-n95compat-build.txt 2>&1 || { tail -30 build/logs/hybrid-n95compat-build.txt; exit 1; }
+python3 -I tools/romcompose.py --ours build/rom-hybrid/syborg_hybrid_kernel_ARMV5_udeb.img \
   --n95 build/n95/core-flat.img -o build/n95/hybrid.img --manifest build/n95/hybrid-manifest.txt \
   --exec92 --trace "$TRACE" \
-  --file Sys/Data/ESTARTCOMP.TXT=rom/hybrid/ESTARTCOMP.TXT
+  --file Sys/Data/ESTARTCOMP.TXT=rom/hybrid/ESTARTCOMP.TXT \
+  --rofs build/n95/rofs1.img --rofs build/n95/rofs2.img
+python3 -I tools/dtb_set.py external/oss.FCL.sf.adapt.Qemu/baseport/syborg/syborg.dtb build/n95/syborg-n95.dtb \
+  framebuffer:width=240 framebuffer:height=320 > /dev/null
 rm -rf "$OUT"
-scripts/boot-test.sh --secs "$SECS" --out "$OUT" "${TYPE[@]}" build/n95/hybrid.img > build/logs/hybrid-boot.txt 2>&1 || true
+SYBORG_DTB=/work/build/n95/syborg-n95.dtb scripts/boot-test.sh --secs "$SECS" --out "$OUT" "${TYPE[@]}" build/n95/hybrid.img > build/logs/hybrid-boot.txt 2>&1 || true
 L="$OUT/serial0.log"
 echo "== serial: $(wc -l < "$L") lines; EXEC92 lines:"; grep -a 'EXEC92' "$L" | sort | uniq -c | head -30 || true
-echo "== processes created:"; grep -a -o 'DProcess::Create.*\|Process .* MapCodeSeg z:[^ ]*' "$L" | grep -a -o 'z:\\sys\\bin\\[^ ]*' | uniq | head -40 || true
+echo "== processes created:"; grep -a -o 'AddThread [^ ]*::Main to [^ ]*' "$L" | awk '{print $4}' | tr '\n' ' '; echo
 echo "== faults/panics:"; grep -a -n -i -E 'FAULT|panic|Thread .* Panic|KERN-EXEC|exception' "$L" | head -20 || true
+echo "== ISC:"; grep -a "ISCSTUB\|N95COMPAT" "$L" | sort | uniq -c | sort -rn | head -30 || true
 echo "== tail:"; tail -n 25 "$L"

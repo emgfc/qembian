@@ -1,0 +1,35 @@
+--- a/kernel/eka/kernel/sutils.cpp
++++ b/kernel/eka/kernel/sutils.cpp
+@@ -3540,6 +3540,7 @@
+ 		} while (!__e32_atomic_cas_ord_ptr(&iStatus, &status, status | KClientRequestFlagInUse));
+ 	iResult = aReason;
+ 	(void)aThread;
++	__KTRACE_OPT(KTHREAD2,Kern::Printf("REQC %O status %08x <- %d (by %O)", aThread, status & ~KClientRequestFlagMask, aReason, TheCurrentThread));
+ #ifdef BTRACE_REQUESTS
+ 	BTraceContext12(BTrace::ERequests,BTrace::ERequestComplete,&aThread->iNThread,iStatus,aReason);
+ #endif
+--- a/kernel/eka/kernel/sipc.cpp
++++ b/kernel/eka/kernel/sipc.cpp
+@@ -1977,6 +1977,22 @@
+ 	if ((aInfo.iFlags & KIpcDirWrite) == 0)
+ 		{
+ 		r = pT->DoDesRead(aMsg->Descriptor(aParam), aInfo.iLocalPtr, aInfo.iLocalLen, aOffset, mode);
++		// syborg-pg: show what servers read from clients (file names etc.) when KIPC tracing is on
++		__KTRACE_OPT(KIPC,
++			{
++			TInt wide = (aInfo.iFlags & KChunkShiftBy1) ? 1 : 0;
++			TInt n = (r > 0 ? r : aInfo.iLocalLen) << wide;
++			TUint8 buf[128];
++			if (n > (TInt)sizeof(buf)) n = sizeof(buf);
++			if (r >= 0 && n > 0)
++				{
++				kumemget(buf, aInfo.iLocalPtr, n);
++				TBuf8<64> txt;
++				for (TInt i=0; i<n && txt.Length()<64; i += 1+wide)
++					txt.Append(buf[i]>=32 && buf[i]<127 ? buf[i] : '.');
++				Kern::Printf("IPCRD %O <- %O: \"%S\"", TheCurrentThread, pT, &txt);
++				}
++			});
+ 		}
+ 	else
+ 		{

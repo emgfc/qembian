@@ -32,13 +32,12 @@ Why this order:
 The status of each step is tracked in [build-log.md](build-log.md) (option 1 section) and the
 README.
 
-**Status 2026-11-04:**
-- E1.1 done.
-- E1.2 done.
-- E1.3 done: N95 `efile.exe` runs and mounts drives.
-- E1.4 partly done: shims are added as calls are hit, and N95 `EStart.exe` runs until the modem
-  API, starting `halsettings.exe` and `domainSrv.exe` on the way.
-- E1.5 started: the current blocker is the ISC (modem link) driver stub.
+**Status 2026-11-04 (end of day):**
+- E1.1–E1.3 done.
+- E1.4: shims added as hit (HandleDuplicate, MutexWait, SafeInc/Dec, loader struct size).
+- E1.5 in progress. Hardware stand-ins exist for ISC (silent modem), Custom, the display driver,
+  the ROFS media and a 240×320 32 bpp LCD. Nokia's WSERV, FBSERV, ECOM, Starter and DosServer run.
+- The next blocker is the modem/system state that Starter waits for (ISI/MTC via ISC).
 
 ## Option A (later)
 

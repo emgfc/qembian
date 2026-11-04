@@ -11,7 +11,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 if [ -z "${SYBORG_IN_CONTAINER:-}" ]; then
-  exec "$ROOT/scripts/in-container.sh" /work/scripts/boot-test.sh "$@"
+  CONTAINER_ARGS="${SYBORG_DTB:+-e SYBORG_DTB=$SYBORG_DTB}" exec "$ROOT/scripts/in-container.sh" /work/scripts/boot-test.sh "$@"
 fi
 
 SECS=60; ROM=""; OUT=""; TYPE=()
@@ -32,7 +32,7 @@ OUT="${OUT:-build/boot-test/$(basename "$ROM" .img)}"
 rm -rf "$OUT"; mkdir -p "$OUT"; OUT="$(readlink -f "$OUT")"
 
 QI=/work/build/qemu/install
-DTB=/work/external/oss.FCL.sf.adapt.Qemu/baseport/syborg/syborg.dtb
+DTB=${SYBORG_DTB:-/work/external/oss.FCL.sf.adapt.Qemu/baseport/syborg/syborg.dtb}	# SYBORG_DTB: path under /work
 export LD_LIBRARY_PATH="$QI/lib" SDL_AUDIODRIVER=dummy DISPLAY=:99
 
 Xvfb :99 -screen 0 800x600x24 -nolisten tcp >/dev/null 2>&1 &

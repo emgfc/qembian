@@ -3,7 +3,9 @@
 #
 # The N95 file maps C: to local drive 6 (NAND), Y: to 7, Z: to the ROFS composite on 8 and E: to
 # the memory card on 1. The Syborg board exposes local drive 0 (internal RAM) and 1 (NVMemory),
-# so the drives are remapped here. ROFS (Z: composite) and E: come later (docs/roadmap.md E1.5).
+# so C:/D: are remapped here. Z: keeps the N95's own line: ROFS1+ROFx are served on local
+# drive 8 by MEDROFS.PDD (src/n95compat/medrofs). E: (memory card) and Y: are not present yet.
 
 D: 0  ELOCAL FAT  0       FS_FORMAT_ALWAYS,FS_SYNC_DRIVE         # IRAM
 C: 1  ELOCAL FAT  0       FS_FORMAT_CORRUPT,FS_SCANDRIVE         # Syborg NVMemory
+Z: 8  0      0    0       FS_COMPOSITE                           # COMPOSITE (ROFS+ROMFS)

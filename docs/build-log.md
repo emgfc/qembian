@@ -145,21 +145,41 @@ The plan is in [roadmap.md](roadmap.md) and the firmware facts in
 | 1 | kernel fault in `umemget32`, DFAR `0x4bd20001` | `S6d HandleDuplicate`: 9.2 passes the source handle **by value** in r2 and returns the new handle. Ours takes `TInt&`, so the kernel dereferenced the handle. Found from the user LR → N95 `RHandleBase::Duplicate`. | shim `HandleDuplicate92` |
 | 2 | `efile.exe` "Fserv fault 162" → KERN 4 | N95 `SetSystemDrive` check: C: must be local/internal NAND/flash/disk. N95 `Z:\sys\data\ESTARTCOMP.TXT` maps C: to local drive 6 (N95 NAND); Syborg has drives 0 (IRAM) and 1 (NVMemory). | override ESTARTCOMP.TXT: D:=0, C:=1 |
 | 3 | silent hang, all threads idle in the trace | gdb PC sampling (`run.sh --gdb-nowait`) showed EStart spinning in `TLex16::NextToken`/`SkipSpace`: the override had LF line endings, and EStart only splits on CR LF | CRLF (`rom/hybrid/.gitattributes`) |
-| 4 (current) | EStart panic "NokiaISCApi 1" → KERN 4 | EStart prints `##-> NokiaISC in use <-##` and asks the loader for the ISC driver, which gets `KErrNotFound`. The Nokia modem-link LDDs (`NokiaISCDriver.ldd`, `IscIsiMultiplexer.ldd`) are N95 kernel side and were dropped. | next: E1.5 ISC stub |
+| 4 | EStart panic "NokiaISCApi 1" → KERN 4 | `IscApi.dll` loads `xbus.ldd`, `iscisimultiplexer.ldd`, `nokiaiscdriver.ldd` and `nokiaiscdriverextension.ldd` (all N95 kernel side, dropped) | stand-in LDDs (`src/n95compat`); `NokiaISCDriver` completes async init (control 0), the rest is silent |
+| 5 | EStart panic `custom.ldd -1` | EStart's boot flow: `Custom` channel controls 32/2/1 (boot mode) | `custom.ldd` stand-in answers 0 (normal start); `sosadlserver.ldd` load-only |
+| 6 | WSERV-INTERNAL 13 (wsini.ini not found, `KErrPathNotFound`) | `wsini.ini` and much more live in ROFS (Z: composite). ROFS1 (`SOS+ROFS`) + ROFx (`.v13` → `SOS+ROFX`) form one partition; ROFx sits at ROFS1's `iMaxImageSize` (0x1700000, the same distance as on the N95 flash) | `romcompose.py --rofs` appends the blob and a ROM trailer; `MEDROFS.PDD` serves it as NAND/ROFS local drive 8; Z: line from the N95 `ESTARTCOMP.TXT` restored |
+| 7 | efile LoaderThread panic E32USER-CBase 46 (stray signal) | New `REQC` trace: the kernel completed a loader `TRequestStatus` when MC_info died. Our `ProcessCreate`/`ProcessLoaded` read and write `TProcessCreateInfo` with 3 extra Symbian^3 fields (`iDebugAttributes`, `iDestructStat`, `iFlags`); 9.2's struct is 12 bytes shorter, so loader stack garbage became a destruct notifier (and paging flags) | handlers use the 9.2 size for 9.2 threads (`Exec92ProcessCreateInfoShrink`) |
+| 8 | kernel fault: undefined instruction in user mode (`DFPAEABI.dll`) | N95 floating-point runtime uses VFP; Syborg's `variant.mmh` enables `__CPU_HAS_VFP` only `#ifndef GCCE` | VFP enabled for GCCE (`patches/qemu-baseport/0002`); compiles clean; text-shell regression passes |
+| 9 | WSERV KERN-EXEC 3 | New `IPCRD` trace (server reads of client descriptors): `r_display.dll` → `scdv.dll` (screen driver) needs `d_display.ldd` (`DisplayDriver`) | `d_display.ldd` stand-in: select screen (10), 104-byte capabilities (11) |
+| 10 | WSERV KERN-EXEC 3 (array index −1) | gdb: `NewScreenDeviceL` leaves −5 for every mode. Caps offsets: +56/+60/+64 = EColor16M/16MU/16MA (9.2 numbering); scdv maps HAL mode index 0/1 = 64K/16MU; Syborg LCD reported mode 2 of 3 at 24 bpp | caps +60; `lcd_n95` (Syborg LCD rebuilt with 32 bpp, 2 modes, current 1 — `patches/qemu-baseport/0001`); 240×320 DTB (`tools/dtb_set.py`, `SYBORG_DTB`) |
+| 11 | WSERV-INTERNAL 13 | wsini `SCR_ROTATION1 270` needs rotation 270 in the orientation mask (`r_display` caps +36/+40/+44 = 90/180/270) | rotations declared |
+| 12 | silent stall after WSERV init | WSERV waits on display request 0x8003 (`DoRequest` + `WaitForRequest`) that the stand-in left pending | display stand-in completes requests at once |
+| 13 (current) | no fault; `Starter.exe` and `DosServer.exe` run; screen is a uniform 240×320 framebuffer | DosServer loads `CommonDSY.dll`/`NokiaDSY.dll` and opens ISC unit 24; Starter presumably waits for the DOS/modem state (MTC) that the silent ISC peer never sends | next: fake modem (ISI/MTC) responses |
 
-What already works in run 4, all N95 binaries on our kernel ([trace excerpt](evidence/e1/hybrid-serial-excerpt.txt),
+What already works in run 13, all N95 binaries on our kernel ([boot summary](evidence/e1/hybrid-boot-summary.txt)) ([trace excerpt](evidence/e1/hybrid-serial-excerpt.txt),
 [loaded code segments](evidence/e1/hybrid-codesegs-loaded.txt), [exec call counts](evidence/e1/hybrid-exec-call-counts.txt)):
 - `efile.exe` and its loader thread: code-seg create, load, dependencies, library attach.
 - C++ leave/trap through `LeaveStart`/`LeaveEnd`, client/server IPC, drive threads.
 - `erofs.fsy`, `ecomp.fsy` and `ELocal.fsy`, with C: mounted as FAT on Syborg NVMemory through our
   `ELOCD`/`MEDNVMEMORY`.
-- `EStart.exe`, `halsettings.exe`, `domainSrv.exe` + `domainPolicy.dll`.
+- `EStart.exe`, `halsettings.exe`, `domainSrv.exe` + `domainPolicy.dll`, `SecEnvInit`, `IntegrityCheck(Server)`,
+  `centralrepositorysrv`, `EInfoServer`, `LanguageSelection`, `sysagt2svr`, **WSERV** (`EwSrv`) with
+  Nokia's own `scdv.dll`/`r_display.dll` on the Syborg frame buffer, **FBSERV**, **ECOM**, the crash
+  monitor processes, **`Starter.exe`**, **`DosServer.exe`** (+ `CommonDSY`, `NokiaDSY`), `baksrvs.exe`.
+- Code loaded from ROFS into RAM (non-XIP) by the N95 loader.
+
+Remaining non-fatal panics: `LanguageSelection` (`StartupLangPlugI -5`), `mc_useragent` (`KERN-EXEC 0`).
+
+Diagnostic tools added on the way: kernel traces `REQC` (request completions, trace bit 24) and
+`IPCRD` (what servers read from clients, bit 11) in `patches/kernelhwsrv/0002`; `tools/xipdis.py`
+(XIP disassembly with import names); gdb recipes in `build/n95/gdb-*.cmd` patterns (attach to
+`run.sh --gdb`, `break` after calls, `set logging`).
 
 Open risks noted along the way:
-- **`TCodeSegCreateInfo`:** the 9.2 SDK struct ends at `iClientProcessHandle`; ours appends
-  32 bytes of relocation/paging fields. The kernel's `CodeSegInfo` trace shows garbage there.
-  Check whether the N95 8GB's paging backport has the same tail; otherwise `CodeSegInfo` overruns
-  the loader's buffer.
+- **`TCodeSegCreateInfo`:** the 9.2 SDK struct ends at `iClientProcessHandle`, ours appends 32 bytes.
+  The N95's process-create fields line up with ours (heap/stack values are right), so the N95 8GB
+  struct evidently has the same 32 bytes (paging backport); only `TProcessCreateInfo`'s 12-byte tail
+  differed (fixed in run 7).
 - **ARMv6 exclusives:** the N95 user side uses `ldrex`/`strex`. Our ARMv5 kernel doesn't clear the
   exclusive monitor on context switch.
-- **VFP:** not checked yet whether the N95 user side uses VFP; the Syborg kernel doesn't enable it.
+- **VFP:** enabled (run 8). The N95 user side is ARMv6 code with VFP; the Syborg CPU model is a Cortex-A8.

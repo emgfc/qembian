@@ -1,0 +1,11 @@
+// N95 sosadlserver.ldd stand-in (see nokiastub.h)
+#include "../../variant.mmh"
+#include <kernel/kern_ext.mmh>
+target			VariantTarget(sosadlserver,ldd)
+linkas			sosadlserver.ldd
+targettype		ldd
+sourcepath		.
+source			sosadlserver.cpp
+noexportlibrary
+vendorid		0x70000001
+capability		all

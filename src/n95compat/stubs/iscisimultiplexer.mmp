@@ -1,0 +1,11 @@
+// N95 iscisimultiplexer.ldd stand-in (see nokiastub.h)
+#include "../../variant.mmh"
+#include <kernel/kern_ext.mmh>
+target			VariantTarget(iscisimultiplexer,ldd)
+linkas			iscisimultiplexer.ldd
+targettype		ldd
+sourcepath		.
+source			iscisimultiplexer.cpp
+noexportlibrary
+vendorid		0x70000001
+capability		all

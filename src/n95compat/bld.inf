@@ -1,0 +1,16 @@
+// n95compat: kernel-side stand-ins for Nokia N95 hardware drivers, used by the option 1 hybrid
+// ROM (docs/roadmap.md). Built against the Syborg variant (copied under
+// sf/adapt/qemu/baseport/syborg/n95compat by scripts/build-n95compat.sh).
+PRJ_PLATFORMS
+ARMV5
+
+PRJ_MMPFILES
+stubs/nokiaiscdriver.mmp
+stubs/xbus.mmp
+stubs/iscisimultiplexer.mmp
+stubs/nokiaiscdriverextension.mmp
+stubs/custom.mmp
+stubs/sosadlserver.mmp
+stubs/d_display.mmp
+medrofs/medrofs.mmp
+lcd/lcd_n95.mmp

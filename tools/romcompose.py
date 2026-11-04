@@ -134,6 +134,8 @@ def main():
     ap.add_argument('--secondary', default='sys/bin/efile.exe')
     ap.add_argument('--file', action='append', default=[], metavar='ROMPATH=LOCAL',
                     help='add or replace a ROM file (data only), e.g. Sys/Data/ESTARTCOMP.TXT=rom/hybrid/ESTARTCOMP.TXT')
+    ap.add_argument('--rofs', action='append', default=[], metavar='IMG',
+                    help='ROFS image(s) for the N95 ROFS media (MEDROFS.PDD): first ROFS, then ROFx extension')
     ap.add_argument('--exec92', action='store_true', help='set the 9.2 exec personality flag (kernel config bit 29)')
     ap.add_argument('--trace', type=lambda x: int(x, 0), help='kernel trace mask word 0 (nk_trace.h bits)')
     a = ap.parse_args()
@@ -200,8 +202,29 @@ def main():
     fence = max(ne[-1] if ne else 0, n95end)
     est_at = B + len(out)
     out += struct.pack('<i', len(ents)) + struct.pack('<%dI' % (len(ents) + 1), *(ents + [fence]))
-    end = (B + len(out) + 0xFFF) & ~0xFFF
+    # ROFS partition blob for MEDROFS.PDD: ROFS1 at 0, each following ROFx at the previous
+    # image's iMaxImageSize (as on the N95 flash), then a 16-byte trailer at the end of the ROM
+    rofs_at = rofs_len = 0
+    if a.rofs:
+        blob = bytearray()
+        for k, path in enumerate(a.rofs):
+            img = open(path, 'rb').read()
+            if img[:4] not in (b'ROFS', b'ROFx'):
+                raise SystemExit('%s: not a ROFS image' % path)
+            blob += img
+            if k + 1 < len(a.rofs):
+                mx = struct.unpack_from('<I', img, 44)[0]
+                if mx < len(img):
+                    raise SystemExit('%s: iMaxImageSize smaller than image' % path)
+                blob += b'\xff' * (mx - len(img))
+        rofs_at = (B + len(out) + 0xFFFF) & ~0xFFFF
+        out += b'\0' * (rofs_at - B - len(out)) + blob
+        rofs_len = len(blob)
+        print('ROFS media blob: %d image(s), 0x%x bytes @0x%08x' % (len(a.rofs), rofs_len, rofs_at))
+    end = (B + len(out) + 16 + 0xFFF) & ~0xFFF
     out += b'\0' * (end - B - len(out))
+    if a.rofs:
+        struct.pack_into('<8sII', out, len(out) - 16, b'N95ROFS\0', rofs_at, rofs_len)
     size = len(out)
 
     # patch TRomHeader
