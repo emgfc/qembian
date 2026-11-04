@@ -1,0 +1,95 @@
+# syborg-pg — EKA2 on the Syborg virtual platform
+
+A reproducible environment that builds the open-source Symbian **EKA2 kernel** (Symbian
+Foundation `kernelhwsrv`, branch `GCC_SURGE`, E32 build 3098) and the **Syborg** board
+support package with GCC, packs a text-shell ROM, and boots it in the Symbian-modified
+**QEMU 0.9.1** ("Symbian Virtual Platform").
+
+The longer-term goal is running original Nokia N95 8GB (Symbian 9.2 / S60 3rd FP1) userspace.
+This repository is the reference environment for that work; it does not boot N95 software.
+
+## Status (2026-11-04)
+
+| Milestone | Status | Evidence |
+|---|---|---|
+| M1 environment | done | `scripts/build-all.sh` rebuilds everything from pinned, checksummed inputs in about 3.5 min (input downloads not included): [clean-build.log](docs/evidence/clean-build.log) |
+| M2 QEMU | done | Symbian QEMU builds; the prebuilt PDK 4.0a Syborg ROM boots to ESHELL: [screenshot](docs/evidence/pdk-fixture-eshell.png) |
+| M3 own ROM | done (udeb) | A ROM of our own GCC-built kernel, BSP and file server boots to an interactive ESHELL ([screenshot](docs/evidence/clean-build-eshell-dir.png)) and starts processes ([btrace](docs/evidence/own-udeb-btrace.png)). The serial kernel trace is in [evidence](docs/evidence/own-udeb-trace0x80000003-serial-head.txt). |
+| M4 N95 assessment | first pass | [docs/n95-compatibility.md](docs/n95-compatibility.md) |
+
+The `urel` variant has not been built yet. SDL window mode (`run.sh --gui`) has not been
+tried on a desktop session. All other features have been run as documented below.
+
+## Requirements
+
+- Linux x86_64 host with **podman** (rootless works; tested with 6.1.2). Docker should also
+  work: run with `ENGINE=docker`, which has not been tested.
+- `git`, `curl`, `sha256sum`, about 8 GB of free disk (the downloads are about 2 GB).
+- Optional: a multi-arch `gdb` on the host, for kernel debugging.
+
+All legacy tooling runs in a **Debian 6 "squeeze" i386** container built from
+`container/Containerfile`. The host needs no 32-bit libraries.
+
+## Quick start
+
+```sh
+scripts/build-all.sh          # fetch -> container -> QEMU -> host tools -> kernel -> BSP+ROM -> boot test
+```
+
+Results:
+- ROM: `build/epocroot/epoc32/rom/syborg_tshell_ARMV5_udeb.img` (+ `.symbol`, ROMBUILD log in `epoc32/rom/syborg/`)
+- Boot test: `build/boot-test/syborg_tshell_ARMV5_udeb/{serial0.log,screen-*.png}`
+
+## Individual steps
+
+| Script | What it does |
+|---|---|
+| `scripts/fetch.sh` | Clones the pinned git revisions into `external/` and downloads the pinned archives into `downloads/`. Every pin is in `sources.lock` and every download is sha256-verified. |
+| `scripts/setup-epocroot.sh` | Assembles `build/epocroot`: the PDK epoc32 headers and tools, the LinuxBuild package, and copies of the kernel and baseport sources. Unpacks the GCC toolchain, patches its libgcc ([why](docs/build-log.md#5-libgcc-lacks-the-arm-eabi-integer-helpers)) and extracts the PDK fixture ROMs. |
+| `scripts/build-qemu.sh` | Builds QEMU 0.9.1-symbian, its Python device plugins and `libnvmemmory.so` into `build/qemu/install`. |
+| `scripts/build-hosttools.sh` | Builds Raptor (sbs 2.15.2) and the Linux host tools (elf2e32, rcomp, rombuild, ...). |
+| `scripts/build-kernel.sh [udeb\|urel]` | Builds `ksrt_gcce` and then the whole `kernelhwsrv` package (`arm.v5.<var>.gcce4_4_1.surge`). |
+| `scripts/build-syborg.sh [udeb\|urel]` | Builds the Syborg BSP and, through its ROM extension, the text-shell ROM. |
+| `scripts/build-rom-trace.sh [var] [mask]` | Rebuilds the ROM with a different `kerneltrace` mask, for example `0x80000003` (KBOOT and KHARDWARE). |
+
+## Running
+
+```sh
+scripts/run.sh --fixture --timeout 30          # prebuilt PDK ROM; serial0 on stdout, headless
+scripts/run.sh                                 # our ROM, headless (the shell is on the framebuffer, so use boot-test or --gui)
+scripts/boot-test.sh --secs 60 --type 'dir z:\sys\bin'   # Xvfb + screenshots + typed commands
+scripts/run.sh --gui                           # SDL window via host X11 (not yet tried)
+scripts/run.sh --gdb                           # gdbstub on 127.0.0.1:1234, CPU halted at reset
+```
+
+- **serial0** is the kernel debug port (`Kern::Printf`, `RDebug::Print`). ESHELL draws on the
+  framebuffer through EWSRV, so the shell shows up in screenshots or the SDL window, not on serial.
+- The Syborg keymap is UK layout. `boot-test.sh` sends `\` as the ISO 102nd key.
+- Debugging: `gdb -ex 'set architecture arm' -ex 'target remote 127.0.0.1:1234'`. The ROM
+  symbol file gives addresses, for example `hbreak *0x80003130` for EKERN `_E32Startup`.
+  This has been tried and works.
+
+## Layout
+
+```
+sources.lock          pinned git revisions + download URLs/sha256
+container/            Containerfile (squeeze i386) + uname shim
+scripts/              everything above; libgcc-shim/ for the toolchain fixup
+tools/                analysis helpers (DSO/DEF ordinal diff, exec-table numbering)
+docs/                 research, build log, architecture, N95 compatibility, evidence/
+external/ downloads/ cache/ build/    generated, git-ignored
+```
+
+## Documentation
+
+- [docs/research.md](docs/research.md): sources, branches, toolchains, dependency graph, what is and isn't available
+- [docs/build-log.md](docs/build-log.md): every build problem hit, its cause and its fix
+- [docs/architecture.md](docs/architecture.md): virtual board, ROM, boot sequence, build pipeline
+- [docs/n95-compatibility.md](docs/n95-compatibility.md): feasibility of running N95 userspace, approach comparison, next experiment
+
+## Licensing notes
+
+Symbian Foundation sources are EPL-1.0. QEMU is GPL-2.0. The GCC helper sources are
+GPL-3.0 with the GCC Runtime Library Exception. CodeSourcery Lite binaries are GPL and fetched
+from the Wayback Machine. The PDK is EPL-1.0 apart from some binary-only parts, and is fetched
+from archive.org. Nothing large or proprietary is committed here.
