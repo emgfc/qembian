@@ -13,5 +13,7 @@ stubs/custom.mmp
 stubs/sosadlserver.mmp
 stubs/d_display.mmp
 stubs/secldd.mmp
+stubs/ehwa.mmp
+stubs/ehwaomap.mmp
 medrofs/medrofs.mmp
 lcd/lcd_n95.mmp

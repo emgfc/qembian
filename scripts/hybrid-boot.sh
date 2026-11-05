@@ -27,7 +27,7 @@ python3 -I tools/romcompose.py --ours build/rom-hybrid/syborg_hybrid_kernel_ARMV
   --n95 build/n95/core-flat.img -o build/n95/hybrid.img --manifest build/n95/hybrid-manifest.txt \
   --exec92 --trace "$TRACE" \
   --file Sys/Data/ESTARTCOMP.TXT=rom/hybrid/ESTARTCOMP.TXT \
-  --rofs build/n95/rofs1.img --rofs build/n95/rofs2.img
+  --rofs build/n95/rofs1.img --rofs build/n95/rofs2.img --patches rom/hybrid/code-patches.txt
 python3 -I tools/dtb_set.py external/oss.FCL.sf.adapt.Qemu/baseport/syborg/syborg.dtb build/n95/syborg-n95.dtb \
   framebuffer:width=240 framebuffer:height=320 > /dev/null
 rm -rf "$OUT"

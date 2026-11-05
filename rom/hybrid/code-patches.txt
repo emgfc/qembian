@@ -1,0 +1,10 @@
+# Byte patches applied to the composed hybrid ROM by tools/romcompose.py --patches.
+# Format: ADDR  ORIGINAL-BYTES  NEW-BYTES  # reason (bytes in memory order; Thumb halfwords are LE)
+# Every entry is a hack listed in docs/hacks.md.
+
+# H-keysound-nommf: eiksrvui.dll key-sound server creates CMdaAudioToneUtility (MMF) for each tone
+# sound; without the DSP bridge MMFAudioServer cannot start, NewL leaves -1, EikSrvs dies and the
+# Avkon chain restarts forever. Replace "blx CMdaAudioToneUtility::NewL" with "movs r0,#0; nop":
+# tone player stays NULL (the play paths check it). Key tones are silent.
+82f0e366  01f0a2eb  0020c046   # eiksrvui.dll+? sound-info ConstructL
+82f0e9c8  01f070e8  0020c046   # eiksrvui.dll re-create on prepare

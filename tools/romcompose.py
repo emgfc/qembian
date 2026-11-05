@@ -138,6 +138,8 @@ def main():
                     help='ROFS image(s) for the N95 ROFS media (MEDROFS.PDD): first ROFS, then ROFx extension')
     ap.add_argument('--exec92', action='store_true', help='set the 9.2 exec personality flag (kernel config bit 29)')
     ap.add_argument('--trace', type=lambda x: int(x, 0), help='kernel trace mask word 0 (nk_trace.h bits)')
+    ap.add_argument('--patches', metavar='FILE',
+                    help='code patch list: "ADDR ORIGHEX NEWHEX  # why" per line; original bytes are verified')
     a = ap.parse_args()
 
     od, orom, ofiles = load(a.ours)
@@ -243,6 +245,19 @@ def main():
         put(184, struct.unpack_from('<I', out, 184)[0] | (1 << 29))   # iKernelConfigFlags
     if a.trace is not None:
         put(256, a.trace)                         # iTraceMask[0]
+    if a.patches:
+        for ln in open(a.patches):
+            ln = ln.split('#', 1)[0].split()
+            if not ln:
+                continue
+            addr, orig, new = int(ln[0], 16), bytes.fromhex(ln[1]), bytes.fromhex(ln[2])
+            if len(orig) != len(new):
+                raise SystemExit('patch %08x: length mismatch' % addr)
+            o = addr - B
+            if bytes(out[o:o + len(orig)]) != orig:
+                raise SystemExit('patch %08x: expected %s, found %s' % (addr, orig.hex(), bytes(out[o:o + len(orig)]).hex()))
+            out[o:o + len(new)] = new
+            print('patch %08x: %s -> %s' % (addr, orig.hex(), new.hex()))
     # primary/variant/extension TRomEntry pointers (and the iNextExtension chain) refer to our
     # original directory, which is still intact inside our window, so they stay valid as-is.
     open(a.out, 'wb').write(out)

@@ -39,6 +39,7 @@ Keep this file up to date with every new hack.
 | `d_display.ldd` (`DisplayDriver`) | caps block: only +0/+16/+20 = 1 (caller defaults), +60 = 1 (16MU), rotations; all requests completed immediately; controls other than 10/11 ignored | real display driver semantics (update/vsync requests, brightness, power) |
 | fake modem `INFO_SERIAL_NUMBER_READ` (`1B 00`→`1B 01`) | replies `[INFO_OK][1 sb][0x41 IMEI_PLAIN len 20: 0, 15, "490154203237518", 0]`; the IMEI is the well-known documentation example, the layout follows the reference ISI headers, **not** verified against NOKIATSY's parser (hack H-imei) | RightsServer asks ETel for the phone id after DRM init; unanswered it waits forever. If NOKIATSY panics `IsiMessage: OFFS`, check subblock layout |
 | `secldd.ldd` (`SecEnv`) | request 2 ("wait for next job") stays pending; request 6 (SecEnv.dll export 17, "process data in a secure-environment app", used by DrmBb5KeyStorage to wrap/unwrap DRM keys) is an **identity transform**: input copied to output, out length = in length. **Exception (hack H-secenv-cert):** mode 3 with empty input is DrmBb5KeyStorage reading the device certificate chain (output = `[TUint32 LE len][DER cert]` records, the last one X509-parsed and SHA-1 hashed); the stub returns a self-signed RSA-1024 `CN=N95-stub-device` cert generated with openssl (`src/n95compat/stubs/stubcert.h`, no firmware bytes). An empty output made `FUN_0000823a` index the record array at −1 → RightsServer `USER 130`. Requests 3/4/5/7/16 complete `KErrNotSupported`; others complete `KErrNone` | no secure environment exists; DRM-protected content will not decrypt. Failing request 6 made RightsServer exit −5 → DRMHelperServer panicked → AknSkinSrv → EikSrvs → AknCapServer → Starter all waited forever |
+| `ehwa.ldd` (`Hwa`) + `ehwaomap.pdd` (`Hwa.Omap`) — TI DSP/BIOS bridge (hack H-dspbridge) | PDD load-only; LDD accepts every control, writes nothing, completes requests at once. `bridgeapi.dll` attach (ctl `0x400001e`) then fails (expects a non-zero node handle back) and MmfAudioServer's resource manager still dies. Kept only so the PDD/LDD loads succeed | a real DSP bridge model, or an MMF/DevSound replacement. MmRmServer also needs `dvfs_interface.ldd` (`LeaveIfError`) |
 | `medrofs.pdd` | ROFS1 + ROFx served read-only from memory appended to the ROM | fine |
 | `lcd_n95` | see BSP | |
 
@@ -49,6 +50,14 @@ Keep this file up to date with every new hack.
 | `Z:\sys\data\ESTARTCOMP.TXT` replaced: D: = local drive 0 (IRAM), C: = 1 (NVMemory), Z: = composite with ROFS on 8; no E: (memory card), no Y: | map the N95 drive layout if needed (mass memory E:) |
 | N95 kernel side dropped wholesale; our kernel files placed below the N95 user window | n/a |
 | Paging off: the core ROM is flattened | n/a |
+
+## User-side code patches (rom/hybrid/code-patches.txt, `romcompose.py --patches`)
+
+Byte patches on N95 binaries in the composed ROM; original bytes are verified at compose time.
+
+| Hack | Where | Real implementation |
+|---|---|---|
+| **H-keysound-nommf:** `blx CMdaAudioToneUtility::NewL` → `movs r0,#0; nop` (2 sites) so the key-sound server keeps a NULL tone player instead of leaving −1 when MMFAudioServer cannot start (no DSP) | `eiksrvui.dll` 0x82f0e366, 0x82f0e9c8 | working audio (MMF with a fake DSP/DevSound). Risk: the tone player's prepare-complete callback dereferences without a check, but it is only invoked by a live player; key tones are silent |
 
 ## Known remaining non-fatal failures
 

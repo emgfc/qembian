@@ -1,0 +1,11 @@
+// N95 ehwaomap.pdd stand-in
+#include "../../variant.mmh"
+#include <kernel/kern_ext.mmh>
+target			VariantTarget(ehwaomap,pdd)
+linkas			ehwaomap.pdd
+targettype		pdd
+sourcepath		.
+source			ehwaomap.cpp
+noexportlibrary
+vendorid		0x70000001
+capability		all

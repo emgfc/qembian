@@ -30,6 +30,7 @@ for m in $(grep -o '^[a-z0-9_]*/[a-z0-9_]*\.mmp' /work/src/n95compat/bld.inf); d
   case "$f" in
     lcd_n95) continue ;;	# replaces LCD.DLL below instead of being added
     med*) kind=extension; ext=pdd ;;
+    ehwaomap) kind=device; ext=pdd ;;
     *) kind=device; ext=ldd ;;
   esac
   printf '%s[%s]=\t%s/_syborg_%s.%s\t\\sys\\bin\\%s.%s\n' "$kind" "$VARID" "$REL" "$f" "$ext" "$f" "$ext"
