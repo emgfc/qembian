@@ -15,5 +15,7 @@ stubs/d_display.mmp
 stubs/secldd.mmp
 stubs/ehwa.mmp
 stubs/ehwaomap.mmp
+stubs/lightldd.mmp
+stubs/lightpdd.mmp
 medrofs/medrofs.mmp
 lcd/lcd_n95.mmp

@@ -1,0 +1,11 @@
+// N95 LightLdd.ldd stand-in (see nokiastub.h)
+#include "../../variant.mmh"
+#include <kernel/kern_ext.mmh>
+target			VariantTarget(lightldd,ldd)
+linkas			lightldd.ldd
+targettype		ldd
+sourcepath		.
+source			lightldd.cpp
+noexportlibrary
+vendorid		0x70000001
+capability		all

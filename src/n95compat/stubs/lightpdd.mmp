@@ -1,0 +1,11 @@
+// N95 LightPdd.pdd stand-in
+#include "../../variant.mmh"
+#include <kernel/kern_ext.mmh>
+target			VariantTarget(lightpdd,pdd)
+linkas			lightpdd.pdd
+targettype		pdd
+sourcepath		.
+source			lightpdd.cpp
+noexportlibrary
+vendorid		0x70000001
+capability		all

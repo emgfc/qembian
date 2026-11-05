@@ -21,3 +21,10 @@
 # Make them return at once.
 82f0ea94  c169  7047   # eiksrvui.dll tone play helper 1: ldr r1,[r0,#28] -> bx lr
 82f0eac8  c169  7047   # eiksrvui.dll tone play helper 2: ldr r1,[r0,#28] -> bx lr
+
+# H-startuptone-nommf (docs/n95-startup-animation.md): Startup.exe CStartupTone::ConstructL creates a
+# CMdaAudioPlayerUtility for the startup tone; without the DSP bridge the MMF open blocks the main
+# thread in a synchronous controller call, the view server times out (ViewSrv 11, 10 s) and the
+# welcome animation is never shown. "blx NewFilePlayerL" -> "movs r0,#0; nop": no tone player,
+# Play() returns KErrNotReady, the (silent) key-sound fallback is used and the animation runs.
+833a93c4  01f0aaec  0020c046   # startup.exe CStartupTone::ConstructL
