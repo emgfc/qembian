@@ -322,3 +322,22 @@ KErrNotReady at 0x81706c3a and never sets 0xd5; check the log for a Phone exit),
 status keys 0x100052e9 (== 8) / 0x100052f0 (== 1) under KUidSystemCategory published by sae.exe,
 which depend on ETel (NOKIATSY) and DosServer events; with "no SIM" from the fake modem the
 "insert SIM" control (state 5) may be shown instead of the animation unless feature 88 is off.
+
+### 5.6 Cross-check against run r47 (`build/runs/r47/report.txt`, after the light-control fix)
+
+- `12.49 s Startup::startup sets 101f8766/4 = 101` is immediately followed by
+  `12.489 s ISCPEER: ch 24 no reply for resource 35 msg 02` (serial.log line 87420): that is
+  step 1 of the DSY self-test from 5.3, sent from Startup's ConstructL via DSClient #50 → DosServer
+  (channel 24 = NokiaDSY) **[verified]**. The 0x59/0x42 request never appears because the DSY
+  stalls on step 1.
+- `Startup::startup → !Windowserver M:65541` is the normal idle event wait of a parked UI
+  application; Phone.exe (thread `Telephone::Telephone`) is alive, so the 0xd5 gate can still be
+  satisfied once 0xd3 is written **[verified from the process/thread lists]**.
+- The newly started `btmanserver`, `mpxcollectionserver`, `mpxplaybackserver`, `remconserver`
+  are not items of Starter's boot list before its WAIT item (5.4); they are launched on demand by
+  SysAp/Phone/media clients. Starter itself is still parked on the type-12 WAIT until 0x41 = 212,
+  consistent with 0x41 staying at 202.
+- The other unanswered ISI requests in r47 (GPDS 0x31, NET `0A`, PHONE_INFO `1B 0B`, `54 0D`,
+  `1C 38`) are not on the Startup state-2 path; `1C 38`/`54 0D` and the ETel waits (sae → EtelServer
+  40018, CLKNITZMDLS 24015, mpmserver 40022) may matter for the later gates 5→6 (Phone 0xd5)
+  and 8→9 (sae SIM/network keys) **[inferred]**.

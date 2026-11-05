@@ -20,10 +20,11 @@ res 1C PN_ACCESSORY?          inferred  # SAServer subscribes 1C 37/42 (accessor
 res 23 PN_PERMANENT_DATA      inferred
 res 31 PN_GPDS                verified
 res 32 PN_NOKIA_32            verified  # unknown Nokia resource, NOKIATSY handles 1,2,10,11,13
-res 35 PN_UNKNOWN_35          inferred
+res 35 PN_SELFTEST?           inferred  # NokiaDSY start-up self-test (DOS event 1), docs/n95-startup-animation.md §5.3
 res 3A PN_LIGHT               inferred  # SALightsService targets KBD/KBD2/MMKEYS/DISPLAY/...
 res 47 PN_LIGHT_CTRL?         inferred  # SALightsService FUN_8091ee7e: req 06 [03][on/off], resp 07 [status], ind 08
 res 54 PN_UNKNOWN_54          inferred
+res 59 PN_UNKNOWN_59          inferred  # 4th self-test step, 10 s timeout in NokiaDSY
 res 62 PN_EPOC_INFO           ref
 res D9 PN_PIPE                ref
 res DB PN_NAMESERVICE         verified
@@ -59,6 +60,9 @@ msg 31 19 GPDS_STATUS_REQ                 verified
 msg 31 30 GPDS_CONFIGURATION_INFO_REQ     verified
 msg 31 3A GPDS_CONTEXTS_CLEAR_REQ         ref
 msg 3A 22 LIGHT_TARGET_INFO_REQ?          inferred
+msg 35 00 SELFTEST_STATUS_REQ?            inferred
+msg 35 02 SELFTEST_RUN_REQ?               inferred
+msg 59 42 SELFTEST_FINAL_REQ?             inferred
 msg 47 06 LIGHT_CTRL_SET_REQ?             inferred  # resp 07: byte 10 = status (0 = ok)
 msg 47 08 LIGHT_CTRL_IND?                 inferred
 msg DB 01 PNS_NAME_QUERY_REQ              verified
@@ -81,3 +85,6 @@ reply DB 01 02 00 01 00 01 00 00 00 00 00 31 00 33 00 00  # PNS_NAME_QUERY (GPDS
 reply 09 19 1A 2F 24                                      # SIM read: data not available
 reply 23 04 05 len=18 00 01 01 10                         # PN_PERMANENT_DATA read
 reply 47 06 07 00 00                                      # light control set: status OK (SysAp->HWRM->SAServer waited on this)
+reply 35 02 03 00 00                                      # self-test steps 1/3: status 0 = passed (NokiaDSY 0x808bc3e2/0x808bc3a4 accept 0,10,11)
+reply 35 00 01 00 00                                      # self-test step 2: status 0 (0x808bc366)
+reply 59 42 43 00 00                                      # self-test final step: any payload accepted (0x808bc362)
