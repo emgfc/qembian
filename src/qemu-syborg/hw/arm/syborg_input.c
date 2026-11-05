@@ -7,6 +7,7 @@
  *
  * Pointer registers: 0 ID (absolute: 0xc51d0006), 1 LATCH (write pops the next event into
  * X/Y/Z/BUTTONS), 2 FIFO_COUNT, 3 X, 4 Y, 5 Z, 6 BUTTONS, 7 INT_ENABLE, 8 FIFO_SIZE.
+ * Host mouse input only with -global syborg-pointer.input=on (default off: S60 3rd has no touch).
  * Absolute coordinates are 0..0x7fff (the QEMU input layer range, as in 0.9.1); buttons
  * 1 left, 2 right, 4 middle.
  *
@@ -177,6 +178,7 @@ struct SyborgPointerState {
     qemu_irq irq;
     uint32_t fifo_size;
     bool absolute;
+    bool input;                    /* receive host mouse events (off: S60 3rd has no touch) */
     uint32_t int_enabled;
     uint32_t count, head;
     SyborgPointerEvent cur;        /* latched into the registers */
@@ -303,7 +305,9 @@ static void ptr_realize(DeviceState *dev, Error **errp)
     memory_region_init_io(&s->iomem, OBJECT(s), &ptr_ops, s, "syborg-pointer", 0x1000);
     sysbus_init_mmio(SYS_BUS_DEVICE(s), &s->iomem);
     sysbus_init_irq(SYS_BUS_DEVICE(s), &s->irq);
-    s->hs = qemu_input_handler_register(dev, &ptr_handler);
+    if (s->input) {
+        s->hs = qemu_input_handler_register(dev, &ptr_handler);
+    }
 }
 
 static const VMStateDescription vmstate_ptr_event = {
@@ -337,6 +341,9 @@ static const VMStateDescription vmstate_ptr = {
 static const Property ptr_properties[] = {
     DEFINE_PROP_UINT32("fifo-size", SyborgPointerState, fifo_size, 16),
     DEFINE_PROP_BOOL("absolute", SyborgPointerState, absolute, true),
+    /* the N95 (S60 3rd edition) has no touch screen: keep the device for the guest driver but
+       do not take host mouse input unless asked (-global syborg-pointer.input=on) */
+    DEFINE_PROP_BOOL("input", SyborgPointerState, input, false),
 };
 
 static void ptr_class_init(ObjectClass *oc, const void *data)

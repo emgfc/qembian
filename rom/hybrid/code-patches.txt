@@ -15,3 +15,9 @@
 # Patch the literal 1001 -> -1000 so the splash is a bottom-most background and the startup UI
 # (notes, queries, idle) shows above it.
 833a6574  e9030000  18fcffff   # SplashScreen.exe window-group priority literal
+
+# H-keysound-nommf (continued): the two tone "play" helpers dereference the (NULL) tone player
+# without a check (EikSrvs KeySoundServer KERN-EXEC 3 on the first key/notification tone).
+# Make them return at once.
+82f0ea94  c169  7047   # eiksrvui.dll tone play helper 1: ldr r1,[r0,#28] -> bx lr
+82f0eac8  c169  7047   # eiksrvui.dll tone play helper 2: ldr r1,[r0,#28] -> bx lr

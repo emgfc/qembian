@@ -62,3 +62,13 @@ shortcut is in [hacks.md](hacks.md).
   finish (kernel `N95PROP:` trace, patch 0004); then why AknIconServer renders SVG icons empty.
 - Tooling added: `tools/pcsample.py` (guest PC sampling), `SYBORG_GDB=1|wait` for
   `scripts/hybrid-boot.sh`, `romcompose.py --patches` (verified byte patches), stub control hooks.
+
+**Queue (2026-11-05, from the project owner):**
+- Startup "hands" animation missing; Startup panics `ViewSrv 11` (research: `docs/n95-startup-animation.md`).
+- Screensaver: the N95 panel has a partial-display power-save mode (only the screensaver strip is
+  lit, other rows dark). Implement it in the display stand-in / framebuffer so disabled rows show
+  black when the screensaver engages (the `DisplayDriver` control it uses is not identified yet).
+- White band at rows 240–319 and a stuck "SysAp: Feature not supported" note: half-initialised UI;
+  expected to go away as SysAp/Startup get their missing features. Not a display bug.
+- Done: host mouse input to the Syborg pointer is off by default on modern QEMU
+  (`-global syborg-pointer.input=on` to enable); S60 3rd edition has no touch screen.
