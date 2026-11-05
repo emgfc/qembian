@@ -12,5 +12,6 @@ stubs/nokiaiscdriverextension.mmp
 stubs/custom.mmp
 stubs/sosadlserver.mmp
 stubs/d_display.mmp
+stubs/secldd.mmp
 medrofs/medrofs.mmp
 lcd/lcd_n95.mmp

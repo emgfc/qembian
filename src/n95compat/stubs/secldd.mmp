@@ -1,0 +1,11 @@
+// N95 secldd.ldd stand-in (see nokiastub.h)
+#include "../../variant.mmh"
+#include <kernel/kern_ext.mmh>
+target			VariantTarget(secldd,ldd)
+linkas			secldd.ldd
+targettype		ldd
+sourcepath		.
+source			secldd.cpp
+noexportlibrary
+vendorid		0x70000001
+capability		all

@@ -4,7 +4,7 @@
 // Built twice: nokiaiscdriver.ldd ("NokiaISCDriver", channels = units 0..31) and
 // nokiaiscdriverextension.ldd ("NokiaISCDriverExtension", channels 32..63, unit = channel - 32).
 //
-// Protocol: docs/n95-isc-isi-protocol.md (IscApi controls, ISI framing, boot replies).
+// Protocol: docs/n95-isc-isi-protocol.md and -2.md (IscApi controls, ISI framing, boot replies).
 //   ctl 0  {status*}                     modem link init          -> complete KErrNone
 //   ctl 1  {status*, channel, TDesC8*}   open channel             -> complete KErrNone
 //   ctl 4  {status*, TDes8*, TPtr8*}     receive next message     -> deliver or park
@@ -91,6 +91,7 @@ private:
 	TAny* iRxBuf;					// TDes8* in client
 	TAny* iRxNeeded;				// TPtr8* (2 bytes) in client
 	TRequestStatus* iConnStatus;	// pending NotifyConnectionStatus
+	TRequestStatus* iFlowStatus;	// pending NotifyFlowControlStatus
 	TUint8 iSubs[KMaxSubs];
 	TInt iSubsLen;
 	TBool iMtcIndSent;
@@ -109,9 +110,11 @@ TInt DIscPeerChannel::DoCreate(TInt aUnit, const TDesC8*, const TVersion&)
 	iChannel = ISC_CHANNEL_BASE + aUnit;
 	if (aUnit >= 0 && aUnit < 32)
 		{
+		NKern::ThreadEnterCS();
 		Kern::MutexWait(*iF->iLock);
 		iF->iChannels[aUnit] = this;
 		Kern::MutexSignal(*iF->iLock);
+		NKern::ThreadLeaveCS();
 		}
 	Kern::Printf("ISCPEER: channel %d opened by %O", iChannel, iClient);
 	return KErrNone;
@@ -119,10 +122,12 @@ TInt DIscPeerChannel::DoCreate(TInt aUnit, const TDesC8*, const TVersion&)
 
 DIscPeerChannel::~DIscPeerChannel()
 	{
+	NKern::ThreadEnterCS();
 	Kern::MutexWait(*iF->iLock);
 	if (iUnit >= 0 && iUnit < 32 && iF->iChannels[iUnit] == this)
 		iF->iChannels[iUnit] = NULL;
 	Kern::MutexSignal(*iF->iLock);
+	NKern::ThreadLeaveCS();
 	Kern::Printf("ISCPEER: channel %d closed", iChannel);
 	}
 
@@ -160,9 +165,11 @@ TInt DIscPeerChannel::Request(TInt aFn, TAny* a1, TAny* a2)
 			}
 		return KErrNone;
 		}
+	NKern::ThreadEnterCS();				// DMutex use requires a critical section
 	Kern::MutexWait(*iF->iLock);
 	TInt r = Control(aFn, a1);
 	Kern::MutexSignal(*iF->iLock);
+	NKern::ThreadLeaveCS();
 	return r;
 	}
 
@@ -211,6 +218,10 @@ TInt DIscPeerChannel::Control(TInt aFn, TAny* a1)
 		TryDeliver();
 		return KErrNone;
 		}
+	case 8:		// notify flow control status {status*, TPtr8*}: flow never changes (park)
+		ReadArgs(a1, w, 1);
+		iFlowStatus = (TRequestStatus*)w[0];
+		return KErrNone;
 	case 7:		// notify connection status {status*, TPtr8*}: modem link never changes
 		ReadArgs(a1, w, 1);
 		iConnStatus = (TRequestStatus*)w[0];
@@ -370,6 +381,39 @@ void DIscPeerChannel::HandleSend(const TUint8* m, TInt aLen)
 		Reply(res, tid, 0x06, K00, 2);
 		return;
 		}
+	// --- additions from docs/n95-isc-isi-protocol-2.md §4 ---
+	struct SR { TUint8 iRes, iReq, iResp; TUint8 iLen; TUint8 iData[24]; };
+	static const SR KTable[] =
+		{
+		{ 0x1B, 0x2E, 0x2F, 16, { 0x00, 0x01, 0xF0, 0x00, 0x00, 0x10 } },		// PP: product profile bits (nsb>=1)
+		{ 0x0A, 0x0B, 0x0C, 6,  { 0x00, 0x01, 0x04, 0x04, 0x00, 0x00 } },		// NET_RSSI_GET
+		{ 0x0A, 0x36, 0x37, 6,  { 0x00, 0x01, 0x2C, 0x04, 0x01, 0x00 } },		// NET_RAT
+		// NET_MODEM_REG_STATUS (0A 00) deliberately unanswered: the proposed reply made NOKIATSY panic
+		// "IsiMessage: OFFS -9" (subblock shorter than its parser expects); nothing waits for it.
+		{ 0x17, 0x00, 0x01, 6,  { 0x01, 0x01, 0x00, 0x04, 0x02, 0x00 } },		// GSS (old id) op 0
+		{ 0x17, 0x0A, 0x0B, 6,  { 0x01, 0x01, 0x16, 0x04, 0x07, 0x00 } },		// GSS op 0x0a
+		{ 0x15, 0x16, 0x79, 2,  { 0x00, 0x00 } },								// MTC RF status: normal
+		{ 0xDB, 0x01, 0x02, 14, { 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x31, 0x00, 0x33, 0x00, 0x00 } },	// PNS_NAME_QUERY (GPDS)
+		{ 0x09, 0x19, 0x1A, 2,  { 0x2F, 0x24 } },								// SIM read: data not available
+		{ 0x23, 0x04, 0x05, 18, { 0x00, 0x01, 0x01, 0x10 } },					// PN_PERMANENT_DATA read
+		};
+	if (res == 0x1B && id == 0x29)			// PP read: echo the request's subblocks (values 0)
+		{
+		Reply(res, tid, 0x2A, m + 10, aLen - 10);
+		return;
+		}
+	if (res == KResSim && id == 0x1F)		// SIM language preference: status "data not available"
+		{
+		TUint8 d[2] = { aLen > 10 ? m[10] : (TUint8)0, 0x24 };
+		Reply(res, tid, 0x20, d, 2);
+		return;
+		}
+	for (TUint i = 0; i < sizeof(KTable) / sizeof(KTable[0]); ++i)
+		if (KTable[i].iRes == res && KTable[i].iReq == id)
+			{
+			Reply(res, tid, KTable[i].iResp, KTable[i].iData, KTable[i].iLen);
+			return;
+			}
 	Kern::Printf("ISCPEER: ch %d no reply for resource %02x msg %02x", iChannel, res, id);
 	}
 

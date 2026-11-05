@@ -12,7 +12,11 @@
 
 #include <kernel/kernel.h>
 
-enum TStubAction { EWriteInt, EComplete, EReturn, EWriteBlock };
+enum TStubAction { EWriteInt, EComplete, EReturn, EWriteBlock, EPendRequest };
+// EPendRequest: table entry { KStubRequest|n, EPendRequest } keeps DoRequest(n) pending even when
+// the device completes requests by default (e.g. 'wait for next job' notifications);
+// { KStubRequest|n, EComplete, value } completes DoRequest(n) with that value
+const TInt KStubRequest = 0x10000;
 // EWriteBlock: copy iSize bytes from iData to a1 (e.g. a capabilities structure)
 struct SStubCtl { TInt iFn; TStubAction iAction; TInt iValue; const TAny* iData; TInt iSize; };
 
@@ -61,10 +65,20 @@ public:
 			TUint32 args[2] = {0, 0};
 			if (a2)
 				Kern::ThreadRawRead(&Kern::CurrentThread(), a2, args, sizeof(args));
-			Kern::Printf("N95STUB: %S u%d request 0x%x args %08x %08x %s", &iF->iName, iUnit, ~aFn,
-						 args[0], args[1], iF->iCompleteRequests ? "completed" : "pending");
-			if (iF->iCompleteRequests && s)
-				Kern::RequestComplete(s, KErrNone);
+			TBool pend = !iF->iCompleteRequests;
+			TInt result = KErrNone;
+			for (TInt i=0; i<iF->iCount; ++i)
+				if (iF->iCtl[i].iFn == (KStubRequest | ~aFn))
+					{
+					if (iF->iCtl[i].iAction == EPendRequest)
+						pend = ETrue;
+					else if (iF->iCtl[i].iAction == EComplete)
+						{ pend = EFalse; result = iF->iCtl[i].iValue; }
+					}
+			Kern::Printf("N95STUB: %S u%d request 0x%x args %08x %08x %s %d by %O", &iF->iName, iUnit, ~aFn,
+						 args[0], args[1], pend ? "pending" : "completed", result, &Kern::CurrentThread());
+			if (!pend && s)
+				Kern::RequestComplete(s, result);
 			return KErrNone;
 			}
 		if (aFn == (TInt)KMaxTInt)
