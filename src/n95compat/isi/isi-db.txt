@@ -1,0 +1,79 @@
+# ISI resource/message names and the fake modem's simple reply table.
+#
+#   res  ID NAME [evidence]                 resource (ISI resource byte, hex)
+#   msg  RES ID NAME [evidence]              message id within a resource (responses: id+1 unless named)
+#   reply RES REQ RESP [len=N] BYTES... # comment
+#                                            canned reply: data after the message id; len pads with 00
+#
+# Evidence: verified = seen in N95 code/logs; ref = name from public reference headers (names only,
+# no code copied); inferred = guessed from usage. Special-case replies (echoing request data, IMEI,
+# light, MTC state machine) stay in src/n95compat/stubs/iscpeer.inl.
+# tools/isi.py turns the reply lines into src/n95compat/stubs/isireplies.h (scripts/build-n95compat.sh).
+
+res 09 PN_SIM                 verified
+res 0A PN_NETWORK             verified
+res 15 PN_MTC                 verified
+res 16 PN_CSD                 inferred
+res 17 PN_EM_OR_GSS           inferred  # NOKIATSY uses it like GSS; SAEmService (energy mgmt) too
+res 1B PN_PHONE_INFO          verified
+res 1C PN_ACCESSORY?          inferred  # SAServer subscribes 1C 37/42 (accessory/lights indications)
+res 23 PN_PERMANENT_DATA      inferred
+res 31 PN_GPDS                verified
+res 32 PN_NOKIA_32            verified  # unknown Nokia resource, NOKIATSY handles 1,2,10,11,13
+res 35 PN_UNKNOWN_35          inferred
+res 3A PN_LIGHT               inferred  # SALightsService targets KBD/KBD2/MMKEYS/DISPLAY/...
+res 54 PN_UNKNOWN_54          inferred
+res 62 PN_EPOC_INFO           ref
+res D9 PN_PIPE                ref
+res DB PN_NAMESERVICE         verified
+
+msg 09 19 SIM_NETWORK_INFO_REQ            ref
+msg 09 1D SIM_IMSI_REQ_READ_IMSI          ref
+msg 09 1F SIM_LANGUAGE_PREF_REQ?          inferred
+msg 0A 00 NET_MODEM_REG_STATUS_GET_REQ    verified
+msg 0A 0B NET_RSSI_GET_REQ                verified
+msg 0A 36 NET_RAT_REQ                     verified
+msg 15 01 MTC_STATE_REQ                   ref
+msg 15 02 MTC_STATE_QUERY_REQ             verified
+msg 15 03 MTC_POWER_OFF_REQ               ref
+msg 15 04 MTC_POWER_ON_REQ                ref
+msg 15 0B MTC_STARTUP_SYNQ_REQ            ref
+msg 15 12 MTC_SHUTDOWN_SYNC_REQ           ref
+msg 15 16 MTC_RF_STATUS_QUERY_REQ?        inferred
+msg 15 C0 MTC_STATE_INFO_IND              verified
+msg 17 00 GSS_OPERATION_REQ?              inferred
+msg 17 08 EM_OP_08_REQ?                   inferred
+msg 17 0A EM_BATTERY_INFO_REQ?            inferred  # op 1 bars, op 2 charger (SAEmService)
+msg 17 21 EM_INFO_IND?                    inferred
+msg 1B 00 INFO_SERIAL_NUMBER_READ_REQ     ref
+msg 1B 0B INFO_REQ_0B?                    inferred
+msg 1B 29 INFO_PP_READ_REQ                verified
+msg 1B 2E INFO_REQ_2E?                    inferred
+msg 1C 2D ACC_REQ_2D?                     inferred
+msg 1C 38 ACC_REQ_38?                     inferred
+msg 23 04 PERM_READ_REQ?                  inferred
+msg 31 13 GPDS_ATTACH_REQ                 ref
+msg 31 16 GPDS_DETACH_REQ                 ref
+msg 31 19 GPDS_STATUS_REQ                 verified
+msg 31 30 GPDS_CONFIGURATION_INFO_REQ     verified
+msg 31 3A GPDS_CONTEXTS_CLEAR_REQ         ref
+msg 3A 22 LIGHT_TARGET_INFO_REQ?          inferred
+msg DB 01 PNS_NAME_QUERY_REQ              verified
+msg DB 05 PNS_NAME_ADD_REQ                verified
+msg DB 07 PNS_NAME_REMOVE_REQ             verified
+
+# ---- canned replies (formerly the KTable in iscpeer.inl) ----
+reply 1B 2E 2F len=16 00 01 F0 00 00 10                   # PP: product profile bits (nsb>=1)
+reply 0A 0B 0C 00 01 04 04 00 00                          # NET_RSSI_GET
+reply 0A 36 37 00 01 2C 04 01 00                          # NET_RAT
+# NET_MODEM_REG_STATUS (0A 00) deliberately unanswered: the proposed reply made NOKIATSY panic
+# "IsiMessage: OFFS -9" (subblock shorter than its parser expects); nothing waits for it.
+reply 17 00 01 01 01 00 04 02 00                          # GSS (old id) op 0
+# 17 0A: SAEmService op 1 = battery bars (sb 0x16: [2]=7 max, [3]=1..7), op 2 = charger (sb 0x15:
+# [2]=1 not charging); NOKIATSY reads sb 0x16 too. Both sent (hack H-em).
+reply 17 0A 0B 01 02 16 04 07 07 15 04 01 00
+reply 17 08 09 01 01 13 04 01 00                          # SAEm op 0x08 (sb 0x13)
+reply 15 16 79 00 00                                      # MTC RF status: normal
+reply DB 01 02 00 01 00 01 00 00 00 00 00 31 00 33 00 00  # PNS_NAME_QUERY (GPDS)
+reply 09 19 1A 2F 24                                      # SIM read: data not available
+reply 23 04 05 len=18 00 01 01 10                         # PN_PERMANENT_DATA read

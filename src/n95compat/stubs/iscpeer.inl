@@ -303,6 +303,8 @@ void DIscPeerChannel::Queue(const TUint8* aMsg, TInt aLen)
 	TryDeliver();
 	}
 
+#include "isireplies.h"
+
 void DIscPeerChannel::Reply(TUint8 aRes, TUint8 aTid, TUint8 aMsgId, const TUint8* aData, TInt aLen)
 	{
 	TUint8 m[KMaxMsg];
@@ -381,25 +383,7 @@ void DIscPeerChannel::HandleSend(const TUint8* m, TInt aLen)
 		Reply(res, tid, 0x06, K00, 2);
 		return;
 		}
-	// --- additions from docs/n95-isc-isi-protocol-2.md §4 ---
-	struct SR { TUint8 iRes, iReq, iResp; TUint8 iLen; TUint8 iData[24]; };
-	static const SR KTable[] =
-		{
-		{ 0x1B, 0x2E, 0x2F, 16, { 0x00, 0x01, 0xF0, 0x00, 0x00, 0x10 } },		// PP: product profile bits (nsb>=1)
-		{ 0x0A, 0x0B, 0x0C, 6,  { 0x00, 0x01, 0x04, 0x04, 0x00, 0x00 } },		// NET_RSSI_GET
-		{ 0x0A, 0x36, 0x37, 6,  { 0x00, 0x01, 0x2C, 0x04, 0x01, 0x00 } },		// NET_RAT
-		// NET_MODEM_REG_STATUS (0A 00) deliberately unanswered: the proposed reply made NOKIATSY panic
-		// "IsiMessage: OFFS -9" (subblock shorter than its parser expects); nothing waits for it.
-		{ 0x17, 0x00, 0x01, 6,  { 0x01, 0x01, 0x00, 0x04, 0x02, 0x00 } },		// GSS (old id) op 0
-		// 17 0A: SAEmService (energy mgmt) op 1 = battery bars (sb 0x16: [2]=7 max, [3]=1..7 current),
-		// op 2 = charger (sb 0x15: [2]=1 -> not charging); NOKIATSY reads sb 0x16 too. Both sent (hack H-em).
-		{ 0x17, 0x0A, 0x0B, 10, { 0x01, 0x02, 0x16, 0x04, 0x07, 0x07, 0x15, 0x04, 0x01, 0x00 } },
-		{ 0x17, 0x08, 0x09, 6,  { 0x01, 0x01, 0x13, 0x04, 0x01, 0x00 } },		// SAEm op 0x08 (sb 0x13)
-		{ 0x15, 0x16, 0x79, 2,  { 0x00, 0x00 } },								// MTC RF status: normal
-		{ 0xDB, 0x01, 0x02, 14, { 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x31, 0x00, 0x33, 0x00, 0x00 } },	// PNS_NAME_QUERY (GPDS)
-		{ 0x09, 0x19, 0x1A, 2,  { 0x2F, 0x24 } },								// SIM read: data not available
-		{ 0x23, 0x04, 0x05, 18, { 0x00, 0x01, 0x01, 0x10 } },					// PN_PERMANENT_DATA read
-		};
+	// canned replies: src/n95compat/isi/isi-db.txt (generated isireplies.h, included at file scope)
 	if (res == 0x1B && id == 0x00)			// INFO_SERIAL_NUMBER_READ (IMEI) -- hack H-imei, docs/hacks.md
 		{
 		// [status INFO_OK][nsb 1][sb 0x41 IMEI_PLAIN, len 20][0][15 chars]["490154203237518"][NUL]
@@ -431,10 +415,10 @@ void DIscPeerChannel::HandleSend(const TUint8* m, TInt aLen)
 		Reply(res, tid, id + 1, d, 2);
 		return;
 		}
-	for (TUint i = 0; i < sizeof(KTable) / sizeof(KTable[0]); ++i)
-		if (KTable[i].iRes == res && KTable[i].iReq == id)
+	for (TUint i = 0; i < sizeof(KIsiReplies) / sizeof(KIsiReplies[0]); ++i)
+		if (KIsiReplies[i].iRes == res && KIsiReplies[i].iReq == id)
 			{
-			Reply(res, tid, KTable[i].iResp, KTable[i].iData, KTable[i].iLen);
+			Reply(res, tid, KIsiReplies[i].iResp, KIsiReplies[i].iData, KIsiReplies[i].iLen);
 			return;
 			}
 	Kern::Printf("ISCPEER: ch %d no reply for resource %02x msg %02x", iChannel, res, id);

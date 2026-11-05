@@ -6,6 +6,8 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 if [ -z "${SYBORG_IN_CONTAINER:-}" ]; then
+  # host side: generate the fake modem's reply table from the ISI database
+  python3 -I "$ROOT/tools/isi.py" gen-header "$ROOT/src/n95compat/stubs/isireplies.h" >/dev/null
   exec "$ROOT/scripts/in-container.sh" /work/scripts/build-n95compat.sh "$@"
 fi
 source /work/scripts/env.sh
