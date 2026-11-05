@@ -8,3 +8,10 @@
 # tone player stays NULL (the play paths check it). Key tones are silent.
 82f0e366  01f0a2eb  0020c046   # eiksrvui.dll+? sound-info ConstructL
 82f0e9c8  01f070e8  0020c046   # eiksrvui.dll re-create on prepare
+
+# H-splash-behind: SplashScreen.exe puts its window group at ordinal priority 1001 (above every
+# window) and only drops to -1000 when its 120 s timer expires; Starter then restarts it while the
+# startup sequence is unfinished, so it covers the screen forever (and its SVG logo renders empty).
+# Patch the literal 1001 -> -1000 so the splash is a bottom-most background and the startup UI
+# (notes, queries, idle) shows above it.
+833a6574  e9030000  18fcffff   # SplashScreen.exe window-group priority literal

@@ -26,20 +26,11 @@ static const SStubCtl KCtl[] =
 	{
 	{ 10, EReturn, KErrNone, 0, 0 },
 	{ 11, EWriteBlock, 0, KCaps, sizeof(KCaps) },
+	// ctl 31 = scan-line bytes (r_display export 77, behind CDisplayDriver vtable +0xb0); ScDv
+	// derives its stride from it (0 drew every row on row 0). N95 frame buffer memory is landscape:
+	// 320 px * 4 bytes (hack H-lcd-landscape, docs/hacks.md).
+	{ 31, EWriteInt, 1280, 0, 0 },
 	};
 // r_display issues synchronous requests (DoRequest 0x8001.. + WaitForRequest), e.g. screen
 // updates; the Syborg frame buffer is always live, so complete them at once.
-// Diagnostic: dump the structures behind ctl 31 (pointer in word 1) and ctl 9 (rect).
-static TInt DisplayCtlHook(DThread* aClient, TInt aFn, TAny* a1, TAny*, const TUint32* aW)
-	{
-	if (aFn == 31 && aW[1])
-		{
-		TUint32 b[12];
-		if (Kern::ThreadRawRead(aClient, (TAny*)aW[1], b, sizeof(b)) == KErrNone)
-			Kern::Printf("N95STUB: DisplayDriver ctl 31 @%08x: %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x",
-				aW[1], b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10], b[11]);
-		}
-	(void)a1;
-	return KStubNotHandled;
-	}
-NOKIA_STUB_LDD_CTLHOOK("DisplayDriver", KCtl, ETrue, DisplayCtlHook)
+NOKIA_STUB_LDD2("DisplayDriver", KCtl, 1, ETrue)
