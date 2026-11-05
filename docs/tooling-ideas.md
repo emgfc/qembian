@@ -16,6 +16,11 @@ a rough cost.
   and the module, so emulator decoding gaps (like the non-canonical `CLZ`) show up at once.
   *2026-11-05: the AknIconServer crash was first seen as a kernel fault with a confusing "far".*
   Cost: small (kernel trace in the undef handler or a QEMU TCG plugin).
+- **DOS event log**: log every DosServer event raised (id, value, raising DSY) in the serial log, next
+  to the `N95PROP:` lines, so the ISI reply → DSY → DOS event → sae key chain shows in one run.
+  *2026-11-05: the "no SIM" fix needed reading NokiaDSY and sae by hand to see that our 0x1C meant
+  "card present" and that SEC cause 0x16 is ignored.* Cost: small (a `syb_gdb brk` preset on
+  DosSrv's raise function, or a kernel-side hook on the DosServer session).
 
 ## Done
 - `tools/syb_run.py` + `tools/syb_report.py` (2026-11-05): one-command boot/screenshots/keys and a
