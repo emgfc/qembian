@@ -18,9 +18,16 @@
 //   0x8000014/0x8000005/0x8000015  node send / listener / receive: the fake DSP task acks every
 //              message (send completes 0, listener KErrCompletion, receive returns {cmd,0,0})
 //   0x8000006  cancel the listener: completes it with KErrCancel [inferred from the run]
+// Playback (raw PCM node, docs/nokia-dsp-playback.md): WAV, the startup tone and key tones arrive
+// as PCM blocks on 0x800000e; they are copied into a physically contiguous ring and played by the
+// syborg-audio device (src/qemu-syborg/hw/arm/syborg_audio.c). A 10 ms pump DFC paces the client
+// (a block's status completes once the device has room), and after the end-of-stream block has
+// played the node gets DSP message {8,0,0} = play complete. Raw-node commands (cmd 7 config,
+// 3 start, 4 pause, 1 stop, 2 record) get no reply; only the send status completes.
 //   others     return 0, write nothing (logged)
 #include "nokiastub.h"
 #include <memmodel/epoc/platform.h>
+#include "syborg.h"
 
 struct SDcdEntry { TUint8 iUuid[16]; TInt iType; TInt iPathLen; TUint16 iPath[256]; };	// path in 16-bit chars
 struct SDcdRegisterBlock { TInt iCount; const TAny* iPath; TUint8 iUuid[64][16]; TInt iType[64]; };	// 0x508
@@ -40,6 +47,9 @@ struct SNode
 	TRequestStatus* iListen;	// 0x8000005 listener, NULL when not armed
 	TBool iReplyQueued;			// a message arrived while no listener was armed
 	TUint32 iReply[3];			// raw payload handed back by 0x8000015
+	DThread* iClient;			// thread that armed the listener (for DSP-initiated messages)
+	TInt iRate, iChannels;		// raw PCM node format (ctl 4 config)
+	TBool iRaw;					// raw PCM node (commands without the 0x20000000 shared form)
 	};
 static SNode Nodes[KMaxNodes];
 static TInt NodeCount;
@@ -50,6 +60,179 @@ static SNode* Node(TAny* aToken)
 	TInt i = d >> 8;
 	return (d & 0xff) == 0 && i >= 0 && i < KMaxNodes ? &Nodes[i] : NULL;
 	}	// >= baseimage.dof (155756 bytes)
+
+
+// ---- playback engine ------------------------------------------------------------------------
+// syborg-audio registers (word index), see syborg_audio.c
+enum { KAuCtrl = 1, KAuFormat = 2, KAuRate = 3, KAuChannels = 4, KAuBufAddr = 5, KAuBufLen = 6,
+	   KAuSubmit = 7, KAuStatus = 8, KAuVolume = 14, KAuQueueFree = 15, KAuDone = 16 };
+const TInt KSlots = 8, KSlotSize = 0x4000;		// 128 KB ring of PCM slots
+const TInt KAheadSlots = 3;						// complete a client block once <= this many are queued
+const TInt KMaxReq = 8;
+struct SPcmReq
+	{
+	DThread* iClient;
+	TRequestStatus* iStatus;
+	TLinAddr iPtr;			// payload (after the 4-byte header) in the client
+	TInt iLen, iCopied;
+	TBool iEos;
+	SNode* iNode;
+	};
+static SPcmReq Req[KMaxReq];
+static TInt ReqHead, ReqCount;
+static TBool CancelAll;
+static DPlatChunkHw* Ring;
+static TPhysAddr RingPhys;
+static TUint8* RingLin;
+static TInt SlotNext, Inflight;
+static TUint32 LastDone;
+static TBool Playing;
+static SNode* EosNode;			// waiting for the device's end of stream, then {8,0,0}
+static SNode* StopNode;			// stopped by the client (cmd 1): answer {8,0,0} after the cancel
+static TDfc* PumpDfc;
+static NTimer* PumpTimer;
+
+static void Au(TInt aReg, TUint32 aVal) { WriteReg(KHwSVPAudioDevice, aReg, aVal); }
+static TUint32 AuR(TInt aReg) { return ReadReg(KHwSVPAudioDevice, aReg); }
+
+static TInt MapRate(TInt aMask)
+	{
+	static const TInt KRates[] = { 8000, 11025, 16000, 22050, 32000, 44100, 48000, 88200, 96000,
+								   12000, 24000, 64000 };
+	for (TInt i = 0; i < 12; ++i)
+		if (aMask & (1 << i))
+			return KRates[i];
+	return 8000;
+	}
+
+static void DspMessage(SNode* aNode, TUint32 aCmd)
+	{
+	// a DSP-initiated node message: delivered through the armed listener / 0x8000015
+	aNode->iReply[0] = aCmd;
+	aNode->iReply[1] = 0;
+	aNode->iReply[2] = 0;
+	if (aNode->iListen && aNode->iClient)
+		Kern::RequestComplete(aNode->iClient, aNode->iListen, KErrCompletion);
+	else
+		aNode->iReplyQueued = ETrue;
+	}
+
+static void Pump(TAny*)
+	{
+	if (!Ring)
+		return;
+	TUint32 done = AuR(KAuDone);
+	Inflight -= (TInt)(done - LastDone);
+	if (Inflight < 0)
+		Inflight = 0;
+	LastDone = done;
+	if (CancelAll)
+		{
+		CancelAll = EFalse;
+		Au(KAuCtrl, 2);					// stop: drop the device queue
+		Playing = EFalse;
+		Inflight = 0;
+		LastDone = AuR(KAuDone);
+		EosNode = NULL;
+		while (ReqCount)
+			{
+			SPcmReq& r = Req[ReqHead];
+			Kern::RequestComplete(r.iClient, r.iStatus, KErrCancel);
+			ReqHead = (ReqHead + 1) % KMaxReq;
+			--ReqCount;
+			}
+		}
+	if (StopNode)
+		{
+		Kern::Printf("N95STUB: Hwa play stopped");
+		DspMessage(StopNode, 8);		// a stopped DSP node reports {8,..} like at end of stream
+		StopNode = NULL;
+		}
+	while (ReqCount)
+		{
+		SPcmReq& r = Req[ReqHead];
+		if (!Playing)
+			{
+			Au(KAuFormat, 0);
+			Au(KAuRate, r.iNode->iRate);
+			Au(KAuChannels, r.iNode->iChannels);
+			Au(KAuCtrl, 1);
+			Playing = ETrue;
+			Kern::Printf("N95STUB: Hwa play PCM %d Hz %d ch", r.iNode->iRate, r.iNode->iChannels);
+			}
+		while (r.iCopied < r.iLen && Inflight < KSlots)
+			{
+			TInt n = Min(KSlotSize, r.iLen - r.iCopied);
+			TUint8* slot = RingLin + SlotNext * KSlotSize;
+			if (Kern::ThreadRawRead(r.iClient, (const TAny*)(r.iPtr + r.iCopied), slot, n) != KErrNone)
+				{
+				r.iCopied = r.iLen;
+				break;
+				}
+			Au(KAuBufAddr, RingPhys + SlotNext * KSlotSize);
+			Au(KAuBufLen, n);
+			Au(KAuSubmit, 1);
+			SlotNext = (SlotNext + 1) % KSlots;
+			++Inflight;
+			r.iCopied += n;
+			}
+		if (r.iCopied < r.iLen || Inflight > KAheadSlots)
+			break;						// wait for the device to play some of it
+		if (r.iEos)
+			{
+			Au(KAuCtrl, 4);				// end: report once everything queued has played
+			EosNode = r.iNode;
+			Kern::Printf("N95STUB: Hwa end of stream queued (inflight %d)", Inflight);
+			}
+		Kern::RequestComplete(r.iClient, r.iStatus, KErrNone);	// "buffer consumed"
+		ReqHead = (ReqHead + 1) % KMaxReq;
+		--ReqCount;
+		}
+	if (EosNode && (AuR(KAuStatus) & 2))
+		{
+		Kern::Printf("N95STUB: Hwa play complete");
+		DspMessage(EosNode, 8);			// {8,0,0}: RawGwc -> HwDevice Stopped() = play complete
+		EosNode = NULL;
+		Playing = EFalse;
+		}
+	if (ReqCount || Inflight || EosNode)
+		PumpTimer->OneShot(NKern::TimerTicks(10), *PumpDfc);
+	}
+
+static TInt PlaybackInit()
+	{
+	if (Ring)
+		return KErrNone;
+	NKern::ThreadEnterCS();
+	TInt r = Epoc::AllocPhysicalRam(KSlots * KSlotSize, RingPhys, 12);
+	if (r == KErrNone)
+		r = DPlatChunkHw::New(Ring, RingPhys, KSlots * KSlotSize, EMapAttrSupRw | EMapAttrFullyBlocking);
+	if (r == KErrNone)
+		{
+		PumpDfc = new TDfc(Pump, NULL, Kern::DfcQue0(), 1);
+		PumpTimer = new NTimer;
+		if (!PumpDfc || !PumpTimer)
+			r = KErrNoMemory;
+		}
+	NKern::ThreadLeaveCS();
+	if (r != KErrNone)
+		{
+		Kern::Printf("N95STUB: Hwa playback init failed %d", r);
+		Ring = NULL;
+		return r;
+		}
+	RingLin = (TUint8*)Ring->LinearAddress();
+	Au(KAuVolume, 200);
+	LastDone = AuR(KAuDone);
+	Kern::Printf("N95STUB: Hwa playback ring %d KB at phys %08x, audio device id %08x",
+				 KSlots * KSlotSize / 1024, RingPhys, AuR(0));
+	return KErrNone;
+	}
+
+static void Kick()
+	{
+	PumpDfc->Enque();
+	}
 
 static TBool SameUuid(const TUint8* a, const TUint8* b)
 	{
@@ -212,6 +395,14 @@ static TInt HwaCtl(DThread* aClient, TInt aFn, TAny* a1, TAny* a2, const TUint32
 		TInt i = NodeCount < KMaxNodes ? NodeCount++ : KMaxNodes - 1;	// reuse the last slot if full
 		Nodes[i].iListen = NULL;
 		Nodes[i].iReplyQueued = EFalse;
+		Nodes[i].iRaw = EFalse;
+		// a1 -> TBuf8<0x14>{p1 (rate mask), p0, node struct*, p2 (encoding), p3 (channels)}
+		TUint32 c[7] = {0, 0, 0, 0, 0, 0, 0};
+		Kern::ThreadRawRead(aClient, a1, c, sizeof(c));
+		Nodes[i].iRate = MapRate(c[2]);
+		Nodes[i].iChannels = c[6] == 2 ? 2 : 1;
+		Kern::Printf("N95STUB: Hwa node %d config %08x %08x %08x %08x %08x -> %d Hz %d ch", i,
+					 c[2], c[3], c[4], c[5], c[6], Nodes[i].iRate, Nodes[i].iChannels);
 		TInt tok = KNodeToken + (i << 8);
 		return Kern::ThreadRawWrite(aClient, a2, &tok, 4);
 		}
@@ -232,6 +423,7 @@ static TInt HwaCtl(DThread* aClient, TInt aFn, TAny* a1, TAny* a2, const TUint32
 		if (!n)
 			return KErrArgument;
 		n->iListen = (TRequestStatus*)l[0];
+		n->iClient = aClient;
 		if (n->iReplyQueued && n->iListen)
 			{
 			n->iReplyQueued = EFalse;
@@ -254,6 +446,21 @@ static TInt HwaCtl(DThread* aClient, TInt aFn, TAny* a1, TAny* a2, const TUint32
 		SNode* n = Node(a1);
 		if (!n)
 			return KErrArgument;
+		if (m[2] != 0x20000000)
+			{
+			// raw PCM node command (7 config, 3 start, 4 pause, 1 stop, 2 record): no DSP reply
+			n->iRaw = ETrue;
+			TRequestStatus* send = (TRequestStatus*)b[0];
+			if (send)
+				Kern::RequestComplete(aClient, send, KErrNone);
+			if (m[2] == 1 && Ring)
+				{
+				StopNode = n;
+				CancelAll = ETrue;
+				Kick();
+				}
+			return KErrNone;
+			}
 		n->iReply[0] = (eapCmd == 4) ? 4 : 0;	// u16[0] = reply command (0 = ack, 4 = query answer)
 		n->iReply[1] = 0;
 		n->iReply[2] = 0;
@@ -276,6 +483,46 @@ static TInt HwaCtl(DThread* aClient, TInt aFn, TAny* a1, TAny* a2, const TUint32
 			n->iReplyQueued = EFalse;
 			}
 		}
+		return KErrNone;
+	case 0x800000e:	// PCM block: a2 -> {TPtr8 type|len, max, ptr, TRequestStatus*, len, &out, stream}
+		{
+		TUint32 b[7] = {0, 0, 0, 0, 0, 0, 0};
+		Kern::ThreadRawRead(aClient, a2, b, sizeof(b));
+		SNode* n = Node(a1);
+		TRequestStatus* st = (TRequestStatus*)b[3];
+		TInt len = b[0] & 0x0fffffff;
+		TUint8 hdr[4] = {0, 0, 0, 0};
+		if (len >= 4)
+			Kern::ThreadRawRead(aClient, (const TAny*)b[2], hdr, 4);
+		if (!n || PlaybackInit() != KErrNone || ReqCount == KMaxReq || len < 4)
+			{
+			if (st)
+				Kern::RequestComplete(aClient, st, KErrNone);
+			return KErrNone;
+			}
+		NKern::Lock();
+		SPcmReq& r = Req[(ReqHead + ReqCount) % KMaxReq];
+		r.iClient = aClient;
+		r.iStatus = st;
+		r.iPtr = b[2] + 4;
+		r.iLen = len - 4;
+		r.iCopied = 0;
+		r.iEos = (hdr[3] & 0x10) != 0;
+		if (r.iEos || len <= 4)
+			Kern::Printf("N95STUB: Hwa PCM block len %d hdr %02x %02x %02x %02x words %08x %08x %08x", len,
+						 hdr[0], hdr[1], hdr[2], hdr[3], b[4], b[5], b[6]);
+		r.iNode = n;
+		++ReqCount;
+		NKern::Unlock();
+		Kick();
+		return KErrNone;
+		}
+	case 0x800000f:	// cancel PCM issue: pending blocks complete KErrCancel, device stops
+		if (Ring)
+			{
+			CancelAll = ETrue;
+			Kick();
+			}
 		return KErrNone;
 	case 0x8000015:	// Bal receive: a2 -> { TRequestStatus* rx, TBuf8<12>* out }
 		{
