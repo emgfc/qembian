@@ -4,7 +4,11 @@
  * Registers (word index): 0 ID, 1 BASE (guest physical; write raises BASE_UPDATE), 2 HEIGHT,
  * 3 WIDTH, 4 ORIENTATION, 5 BLANK, 6 INT_MASK (1 VSYNC, 2 BASE_UPDATE), 7 INT_CAUSE (W1C),
  * 8 BPP, 9 COLOR_ORDER, 10 BYTE_ORDER, 11 PIXEL_ORDER, 12 ROW_PITCH, 13 ENABLED,
+ * 14 PARTIAL_START, 15 PARTIAL_END (inclusive), 16 PARTIAL_MODE (bit 0 on, bit 1 full colour),
  * 0x100.. palette (256 entries).
+ * Partial mode models the N95 panel's partial-display power saving (screensaver): only the band of
+ * columns START..END of the (portrait) picture is shown, everything else is black, and without
+ * the full-colour bit the band has 8 colours (one bit per channel), like the panel's idle mode.
  * The Symbian driver programs 32 bpp, colour order 0 (little-endian 0x00RRGGBB words),
  * which is exactly the host x8r8g8b8 surface format, so rows are copied as they are.
  * Other depths are logged as unimplemented. A disabled or blanked panel keeps its picture, dimmed (property blank-dim, percent).
@@ -37,6 +41,7 @@ struct SyborgFbState {
     uint32_t palette[256];
     bool warned;
     uint32_t blank_dim;       /* brightness (percent) of a blanked/disabled panel */
+    uint32_t partial_start, partial_end, partial_mode;
 };
 
 static void syborg_fb_update_irq(SyborgFbState *s)
@@ -78,11 +83,24 @@ static bool syborg_fb_update_display(void *opaque)
         int dstride = surface_stride(surf);
         /* a blanked or disabled panel keeps its picture, just without backlight: dimmed */
         bool dim = !s->enabled || s->blank;
+        bool partial = s->partial_mode & 1;
+        bool eight = partial && !(s->partial_mode & 2);
 
         for (uint32_t y = 0; y < s->height; y++) {
             uint32_t *row = (uint32_t *)(dst + y * dstride);
             address_space_read(&address_space_memory, s->base + y * pitch,
                                MEMTXATTRS_UNSPECIFIED, row, s->width * 4);
+            if (partial) {
+                for (uint32_t x = 0; x < s->width; x++) {
+                    if (x < s->partial_start || x > s->partial_end) {
+                        row[x] = 0;
+                    } else if (eight) {
+                        uint32_t p = row[x];
+                        row[x] = (p & 0x800000 ? 0xff0000 : 0) | (p & 0x8000 ? 0xff00 : 0) |
+                                 (p & 0x80 ? 0xff : 0);
+                    }
+                }
+            }
             if (dim) {
                 for (uint32_t x = 0; x < s->width; x++) {
                     uint32_t p = row[x];
@@ -129,6 +147,9 @@ static uint64_t syborg_fb_read(void *opaque, hwaddr offset, unsigned size)
     case 11: return s->pixel_order;
     case 12: return s->row_pitch;
     case 13: return s->enabled;
+    case 14: return s->partial_start;
+    case 15: return s->partial_end;
+    case 16: return s->partial_mode;
     default: return 0;
     }
 }
@@ -157,6 +178,9 @@ static void syborg_fb_write(void *opaque, hwaddr offset, uint64_t value,
     case 11: s->pixel_order = value; break;
     case 12: s->row_pitch = value; break;
     case 13: s->enabled = value != 0; break;
+    case 14: s->partial_start = value; break;
+    case 15: s->partial_end = value; break;
+    case 16: s->partial_mode = value & 3; break;
     default: break;
     }
 }
@@ -184,7 +208,7 @@ static void syborg_fb_realize(DeviceState *dev, Error **errp)
 
 static const VMStateDescription vmstate_syborg_fb = {
     .name = "syborg-fb",
-    .version_id = 1,
+    .version_id = 2,
     .minimum_version_id = 1,
     .fields = (const VMStateField[]) {
         VMSTATE_UINT32(base, SyborgFbState),
@@ -202,6 +226,9 @@ static const VMStateDescription vmstate_syborg_fb = {
         VMSTATE_UINT32(int_status, SyborgFbState),
         VMSTATE_UINT32(need_int, SyborgFbState),
         VMSTATE_UINT32_ARRAY(palette, SyborgFbState, 256),
+        VMSTATE_UINT32_V(partial_start, SyborgFbState, 2),
+        VMSTATE_UINT32_V(partial_end, SyborgFbState, 2),
+        VMSTATE_UINT32_V(partial_mode, SyborgFbState, 2),
         VMSTATE_END_OF_LIST()
     }
 };

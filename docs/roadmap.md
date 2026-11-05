@@ -64,10 +64,8 @@ shortcut is in [hacks.md](hacks.md).
   `scripts/hybrid-boot.sh`, `romcompose.py --patches` (verified byte patches), stub control hooks.
 
 **Queue (2026-11-05, from the project owner):**
-- Startup "hands" animation missing; Startup panics `ViewSrv 11` (research: `docs/n95-startup-animation.md`).
-- Screensaver: the N95 panel has a partial-display power-save mode (only the screensaver strip is
-  lit, other rows dark). Implement it in the display stand-in / framebuffer so disabled rows show
-  black when the screensaver engages (the `DisplayDriver` control it uses is not identified yet).
+- Done (run 42): Startup "hands" animation, first-boot region/date/time queries and the idle screen (fake modem answers a definite "no SIM"). Next: Phone.exe never comes up because MmfAudioServer's resource manager needs a DSP bridge (`ehwa.ldd` stand-in, research in progress: `docs/nokia-dspbridge.md`); Starter panics `Phone.exe 2` ~30 s after the idle screen.
+- Screensaver partial display: implemented (DisplayDriver ctl 3/4/5 → Syborg fb PARTIAL_* registers, rows outside the band black, 8-colour idle mode); verified by poking the registers, not yet seen from the real screensaver (the idle screen does not stay up long enough: Phone/audio).
 - White band at rows 240–319 and a stuck "SysAp: Feature not supported" note: half-initialised UI;
   expected to go away as SysAp/Startup get their missing features. Not a display bug.
 - Done: host mouse input to the Syborg pointer is off by default on modern QEMU

@@ -176,4 +176,9 @@ inline TInt DNokiaStubFactory::Create(DLogicalChannelBase*& aChannel)
 	DECLARE_STANDARD_LDD() \
 		{ return new DNokiaStubFactory(KStubName, table, sizeof(table)/sizeof(table[0]), ETrue, completeRequests, NULL, ctlhook); }
 
+#define NOKIA_STUB_LDD_HOOKS(name, table, completeRequests, reqhook, ctlhook) \
+	_LIT(KStubName, name); \
+	DECLARE_STANDARD_LDD() \
+		{ return new DNokiaStubFactory(KStubName, table, sizeof(table)/sizeof(table[0]), ETrue, completeRequests, reqhook, ctlhook); }
+
 #define NO_CONTROLS static const SStubCtl KCtl[] = { { -1, EReturn, 0, 0, 0 } };
