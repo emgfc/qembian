@@ -5,7 +5,8 @@
  *   0x00000000 RAM (512 MB default)
  *   0xc0000000 interrupt controller -> CPU IRQ   0xc0001000 RTC   0xc0002000 timer (irq 1)
  *   0xc0003000 keyboard (2)   0xc0004000 pointer (3)   0xc0005000 framebuffer (4)
- *   0xc0006000..0xc0009000 serial 0..3 (5..8)   0xc000e000 audio (13)   0xc0010000 NVMemory (12)
+ *   0xc0006000..0xc0009000 serial 0..3 (5..8)   0xc000d000 NVMemory 2 = E: (14)
+ *   0xc000e000 audio (13)   0xc0010000 NVMemory (12)
  *   0xc0011000 platform (ID, then the device tree blob at +0x1000, 16 MB window)
  * hostfs/snapshot/virtio/nand/usbtest are not modelled; accesses to them read as zero
  * (ignore_memory_transaction_failures), like unmapped addresses on 0.9.1.
@@ -14,6 +15,7 @@
  * stub, which is what the 0.9.1 fork did too. Options:
  *   -global syborg-fb.width=W -global syborg-fb.height=H   framebuffer size (240x320 default)
  *   -drive if=mtd,format=raw,file=IMG                       NVMemory drive (C:)
+ *   -drive if=mtd,index=1,format=raw,file=IMG               second NVMemory drive (E:)
  *   -dtb FILE                                               blob served by the platform device
  *   -audiodev pipewire,id=snd0 -machine audiodev=snd0        host audio for the N95 fake DSP
  *
@@ -183,6 +185,16 @@ static void syborg_init(MachineState *machine)
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, 0xc0010000);
     sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, pic[12]);
+
+    /* second NVMemory for the N95's E: (memory card / mass memory), in the unused NAND slot */
+    dev = qdev_new(TYPE_SYBORG_NVMEM);
+    dinfo = drive_get(IF_MTD, 0, 1);
+    if (dinfo) {
+        qdev_prop_set_drive_err(dev, "drive", blk_by_legacy_dinfo(dinfo), &error_fatal);
+    }
+    sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, 0xc000d000);
+    sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, pic[14]);
 
     dev = qdev_new(TYPE_SYBORG_PLATFORM);
     plat = SYBORG_PLATFORM(dev);

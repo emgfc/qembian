@@ -1,0 +1,129 @@
+--- a/baseport/syborg/mednvmemory/syborg_mednvmemory.cpp
++++ b/baseport/syborg/mednvmemory/syborg_mednvmemory.cpp
+@@ -22,8 +22,32 @@
+ #include "syborg_mednvmemory.h"
+ #include "syborg.h"
+ 
+-_LIT(KNVMemPddName, "Media.MEDNVMEMORY");
+-_LIT(KNVMemDriveName,NVMEM1_DRIVENAME);
++// Instance parameters, overridable so that a second NVMemory device (syborg-pg: the N95 E: drive,
++// src/n95compat/mednvmem2) can be built from this source. Defaults = the original C: driver.
++#ifndef NVMEM_HWBASE
++#define NVMEM_HWBASE KHwNVMemoryDevice
++#endif
++#ifndef NVMEM_IRQ
++#define NVMEM_IRQ EIntNVMemoryDevice
++#endif
++#ifndef NVMEM_PDDNAME
++#define NVMEM_PDDNAME "Media.MEDNVMEMORY"
++#endif
++#ifndef NVMEM_MEDIADEVICE
++#define NVMEM_MEDIADEVICE EFixedMedia1
++#endif
++#ifndef NVMEM_DRIVEATT
++#define NVMEM_DRIVEATT (KDriveAttLocal|KDriveAttInternal)
++#endif
++#ifndef NVMEM_DRIVECOUNT
++#define NVMEM_DRIVECOUNT NVMEM1_DRIVECOUNT
++#define NVMEM_DRIVELIST NVMEM1_DRIVELIST
++#define NVMEM_NUMMEDIA NVMEM1_NUMMEDIA
++#define NVMEM_DRIVENAME NVMEM1_DRIVENAME
++#endif
++
++_LIT(KNVMemPddName, NVMEM_PDDNAME);
++_LIT(KNVMemDriveName,NVMEM_DRIVENAME);
+ 
+ class DPhysicalDeviceMediaNVMemory : public DPhysicalDevice
+ 	{
+@@ -140,7 +164,7 @@
+ 	__DEBUG_PRINT("DPhysicalDeviceMediaNVMemory::Validate()");
+ 	if (!Kern::QueryVersionSupported(iVersion,aVer))
+ 		return KErrNotSupported;
+-	if (aDeviceType!=EFixedMedia1)
++	if (aDeviceType!=NVMEM_MEDIADEVICE)
+ 		return KErrNotSupported;
+ 	return KErrNone;
+ 	}
+@@ -215,13 +239,13 @@
+     iTransferBufferLin = reinterpret_cast<TUint8*>(bufChunk->LinearAddress());
+ 
+   	// Inform "hardware" about the shared memory
+-  	WriteReg( KHwNVMemoryDevice, R_NVMEM_SHARED_MEMORY_BASE, iTransferBufferPhys );
+-  	WriteReg( KHwNVMemoryDevice, R_NVMEM_SHARED_MEMORY_SIZE, KNVMemTransferBufferSize );
+-  	WriteReg( KHwNVMemoryDevice, R_NVMEM_ENABLE, 1 );
++  	WriteReg( NVMEM_HWBASE, R_NVMEM_SHARED_MEMORY_BASE, iTransferBufferPhys );
++  	WriteReg( NVMEM_HWBASE, R_NVMEM_SHARED_MEMORY_SIZE, KNVMemTransferBufferSize );
++  	WriteReg( NVMEM_HWBASE, R_NVMEM_ENABLE, 1 );
+ 
+ 	// Set up interrupt service
+-  	r = Interrupt::Bind( EIntNVMemoryDevice, Isr, this );
+-  	Interrupt::Enable( EIntNVMemoryDevice );
++  	r = Interrupt::Bind( NVMEM_IRQ, Isr, this );
++  	Interrupt::Enable( NVMEM_IRQ );
+ 
+ 
+ 	__DEBUG_PRINT("<DMediaDriverNVMemory::DoCreate %d", r);
+@@ -348,7 +372,7 @@
+ 	TLocalDriveCapsV6& caps=*(TLocalDriveCapsV6*)m.RemoteDes();
+ 	caps.iType=EMediaHardDisk;
+ 	caps.iConnectionBusType=EConnectionBusInternal;
+-	caps.iDriveAtt=KDriveAttLocal|KDriveAttInternal;
++	caps.iDriveAtt=NVMEM_DRIVEATT;
+ 	caps.iMediaAtt=KMediaAttFormattable;
+ 	caps.iFileSystemId=KDriveFileSysFAT;
+ 	caps.iPartitionType=KPartitionTypeFAT16;
+@@ -486,10 +510,10 @@
+ 	__DEBUG_PRINT("DMediaDriverNVMemory::ContinueTransaction() sectoroffset: %d, sectorcount: %d, direction: %d", aTransactionSectorOffset, aTransactionSectorCount, aTransactionDirection);
+ 	if( aTransactionDirection != NVMEM_TRANSACTION_UNDEFINED )
+ 		{
+-	  	WriteReg( KHwNVMemoryDevice, R_NVMEM_TRANSACTION_OFFSET, aTransactionSectorOffset );
+-	  	WriteReg( KHwNVMemoryDevice, R_NVMEM_TRANSACTION_SIZE, aTransactionSectorCount );
+-	  	WriteReg( KHwNVMemoryDevice, R_NVMEM_TRANSACTION_DIRECTION, aTransactionDirection );
+-	  	WriteReg( KHwNVMemoryDevice, R_NVMEM_TRANSACTION_EXECUTE, aTransactionDirection );
++	  	WriteReg( NVMEM_HWBASE, R_NVMEM_TRANSACTION_OFFSET, aTransactionSectorOffset );
++	  	WriteReg( NVMEM_HWBASE, R_NVMEM_TRANSACTION_SIZE, aTransactionSectorCount );
++	  	WriteReg( NVMEM_HWBASE, R_NVMEM_TRANSACTION_DIRECTION, aTransactionDirection );
++	  	WriteReg( NVMEM_HWBASE, R_NVMEM_TRANSACTION_EXECUTE, aTransactionDirection );
+ 		}
+ 	else
+ 		{
+@@ -712,7 +736,7 @@
+ TUint32  DMediaDriverNVMemory::GetNVMemSize( void )
+ 	{
+ 	__DEBUG_PRINT("DMediaDriverNVMemory::GetNVMemSize()");
+-	TUint32 sizeInSectors = ReadReg( KHwNVMemoryDevice, R_NVMEM_NV_MEMORY_SIZE );
++	TUint32 sizeInSectors = ReadReg( NVMEM_HWBASE, R_NVMEM_NV_MEMORY_SIZE );
+ 	return sizeInSectors; 
+ 	}
+ 
+@@ -723,10 +747,10 @@
+     DMediaDriverNVMemory* nvMem = reinterpret_cast<DMediaDriverNVMemory*>(aPtr);
+ 
+ 	// Save the amount of transferred sectors. This clears the interrupt from HW as well
+-	nvMem->iLatestTransferSectorCount = ReadReg( KHwNVMemoryDevice, R_NVMEM_STATUS );
++	nvMem->iLatestTransferSectorCount = ReadReg( NVMEM_HWBASE, R_NVMEM_STATUS );
+ 
+ 	// Clear from framework
+-	Interrupt::Clear( EIntNVMemoryDevice );
++	Interrupt::Clear( NVMEM_IRQ );
+ 
+ 	nvMem->iSessionEndDfc.Add();
+ 	}
+@@ -738,7 +762,7 @@
+ 	return new DPhysicalDeviceMediaNVMemory;
+ 	}
+ 
+-static const TInt NVMemDriveNumbers[NVMEM1_DRIVECOUNT]={NVMEM1_DRIVELIST};	
++static const TInt NVMemDriveNumbers[NVMEM_DRIVECOUNT]={NVMEM_DRIVELIST};	
+ 
+ DECLARE_STANDARD_EXTENSION()
+ 	{
+@@ -762,7 +786,7 @@
+ 
+ 	if (pM)
+ 		{
+-		r=LocDrv::RegisterMediaDevice(EFixedMedia1,NVMEM1_DRIVECOUNT,&NVMemDriveNumbers[0],pM,NVMEM1_NUMMEDIA,KNVMemDriveName);
++		r=LocDrv::RegisterMediaDevice(NVMEM_MEDIADEVICE,NVMEM_DRIVECOUNT,&NVMemDriveNumbers[0],pM,NVMEM_NUMMEDIA,KNVMemDriveName);
+ 		}
+ 
+ 	pM->iMsgQ.Receive();

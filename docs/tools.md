@@ -70,6 +70,17 @@ hang can be analysed afterwards (`tools/syb_report.py build/runs/gui-last/serial
 gets its own C: drive image; the tools (`syb_run`, `syb_gdb`) start QEMU as `-name sybtool` and kill
 only those, never an interactive session.
 
+## Phone drives: `scripts/n95-drive.sh`
+
+`scripts/run-gui.sh` keeps C: (`build/n95/drive-c.img`, 64 MB) and E: (`build/n95/drive-e.img`,
+1 GB memory card) across runs; the phone formats them on first boot. With the emulator closed:
+```
+scripts/n95-drive.sh put e myapp.sisx /        # then boot, File manager -> Memory card -> open it
+scripts/n95-drive.sh ls c /data
+scripts/n95-drive.sh get e /Images/x.jpg .
+```
+Needs `mtools`. Scripted runs (`syb_run`, `syb_gdb`) use fresh per-run drives.
+
 ## Older helpers still useful
 
 - `tools/qmp.py SOCK screendump|type|key|hmp ...` (QMP client), `scripts/run-modern.sh` (plain run).

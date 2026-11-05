@@ -1,0 +1,16 @@
+// Second NVMemory media driver (E:), see mednvmem2.cpp
+#include "../../variant.mmh"
+#include "kernel/kern_ext.mmh"
+TARGET			VariantTarget(mednvmem2,pdd)
+TARGETTYPE		pdd
+SYMBIAN_BASE_SYSTEMINCLUDE(drivers)
+SYSTEMINCLUDE	AsspNKernIncludePath
+USERINCLUDE		../../mednvmemory ../../specific
+SOURCEPATH		.
+SOURCE			mednvmem2.cpp
+LIBRARY			PlatformLib
+LIBRARY			elocd.lib
+epocallowdlldata
+UID				0x100039cf 0x100000db
+VENDORID		0x70000001
+CAPABILITY		all

@@ -54,7 +54,7 @@ def main():
     time.sleep(0.5)
     qmp = os.path.join(out, 'qmp.sock')
     cmd = [os.path.join(ROOT, 'scripts', 'run-modern.sh'), '--qmp', qmp, '--name', 'sybtool',
-           '--nvmem', os.path.join(out, 'nvmemory.img'),
+           '--nvmem', os.path.join(out, 'nvmemory.img'), '--nvmem2', os.path.join(out, 'nvmemory2.img'),
            '--dtb', os.path.join(ROOT, 'build', 'n95', 'syborg-n95.dtb')]
     if a.gui:
         cmd.append('--gui')
@@ -95,6 +95,7 @@ def main():
     os.killpg(p.pid, signal.SIGKILL)
     try:
         os.remove(os.path.join(out, 'nvmemory.img'))	# the run's C: drive
+        os.remove(os.path.join(out, 'nvmemory2.img'))	# and E:
     except OSError:
         pass
     p.wait()

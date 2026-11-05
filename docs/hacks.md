@@ -62,13 +62,14 @@ stand-ins below can be checked against their code (decompile with `tools/syb_sym
 | `dvfs_interface.ldd` (hack H-dvfs) | every DoRequest (performance level) completes `KErrNone` at once; MmRmServer leaves without the driver | a power model, if ever needed |
 | `LightLdd.ldd` (`LightDrv`) + `LightPdd.pdd` (`LightDrv.pdd`) — backlight driver (hack H-lightdrv) | LDD accepts every control and completes requests at once; PDD load-only | without them SALightsService (SAServer) leaves −5 setting up a light target, HWRM never creates its light plugin and SysAp shows "Feature not supported". Real: backlight model (brightness/on-off per target), could drive the screensaver/power-save display |
 | `medrofs.pdd` | ROFS1 + ROFx served read-only from memory appended to the ROM | fine |
+| `mednvmem2.pdd` (E:) | the baseport NVMemory media driver built a second time (patch qemu-baseport 0006 makes its instance parameters overridable): second QEMU NVMemory in the unused NAND slot `0xc000d000`, irq 14, `EFixedMedia3` (2 is MEDROFS), local drive 2, removable. ESTARTCOMP maps `E: 2 ... FS_FORMAT_CORRUPT` (the N95 maps its memory card E: to local drive 1, which is our C:) | a real MMC/SD model if card insert/remove matters |
 | `lcd_n95` | see BSP | |
 
 ## ROM / configuration (rom/hybrid, tools/romcompose.py)
 
 | Hack | Real implementation |
 |---|---|
-| `Z:\sys\data\ESTARTCOMP.TXT` replaced: D: = local drive 0 (IRAM), C: = 1 (NVMemory), Z: = composite with ROFS on 8; no E: (memory card), no Y: | map the N95 drive layout if needed (mass memory E:) |
+| `Z:\sys\data\ESTARTCOMP.TXT` replaced: D: = local drive 0 (IRAM), C: = 1 (NVMemory, 64 MB FAT16), E: = 2 (second NVMemory, memory card, 1 GB FAT32), Z: = composite with ROFS on 8; no Y: | fine; drive images are persistent with `scripts/run-gui.sh` (build/n95/drive-c.img, drive-e.img), host access with `scripts/n95-drive.sh` (mtools) |
 | N95 kernel side dropped wholesale; our kernel files placed below the N95 user window | n/a |
 | Paging off: the core ROM is flattened | n/a |
 

@@ -19,4 +19,5 @@ stubs/dvfs_interface.mmp
 stubs/lightldd.mmp
 stubs/lightpdd.mmp
 medrofs/medrofs.mmp
+mednvmem2/mednvmem2.mmp
 lcd/lcd_n95.mmp

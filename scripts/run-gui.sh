@@ -5,6 +5,8 @@
 # After a hang (leave QEMU running or close it), run:
 #   tools/syb_report.py build/runs/gui-<time>/serial.log     (processes, panics, blocked IPC)
 #   python3 tools/qmp.py build/runs/gui-<time>/qmp.sock screendump build/runs/gui-<time>/hang.png
+# Drives: C: build/n95/drive-c.img (64 MB) and E: build/n95/drive-e.img (1 GB), persistent across
+# runs (DRIVE_C=/DRIVE_E= to use others); copy files in/out with scripts/n95-drive.sh while QEMU is off.
 # Sound: host PipeWire by default (AUDIO=alsa or AUDIO=sdl to switch).
 # Controls: docs/n95-controls.md (F5 left softkey / OK, F6 centre, F7 right softkey, arrows).
 set -euo pipefail
@@ -13,6 +15,7 @@ D="$ROOT/build/runs/gui-$(date +%H%M%S)"
 mkdir -p "$D"
 ln -sfn "$D" "$ROOT/build/runs/gui-last"
 echo "serial log: $D/serial.log   qmp: $D/qmp.sock   (also build/runs/gui-last)"
-exec "$ROOT/scripts/run-modern.sh" --gui --qmp "$D/qmp.sock" --serial-log "$D/serial.log" \
+exec "$ROOT/scripts/run-modern.sh" --gui \
+  --nvmem "${DRIVE_C:-$ROOT/build/n95/drive-c.img}" --nvmem2 "${DRIVE_E:-$ROOT/build/n95/drive-e.img}" --qmp "$D/qmp.sock" --serial-log "$D/serial.log" \
   --dtb "$ROOT/build/n95/syborg-n95.dtb" "${ROM:-$ROOT/build/n95/hybrid.img}" \
   -audiodev "${AUDIO:-pipewire},id=snd0" -machine audiodev=snd0 "$@"
