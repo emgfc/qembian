@@ -4,11 +4,13 @@
  * Registers (word index): 0 ID, 1 BASE (guest physical; write raises BASE_UPDATE), 2 HEIGHT,
  * 3 WIDTH, 4 ORIENTATION, 5 BLANK, 6 INT_MASK (1 VSYNC, 2 BASE_UPDATE), 7 INT_CAUSE (W1C),
  * 8 BPP, 9 COLOR_ORDER, 10 BYTE_ORDER, 11 PIXEL_ORDER, 12 ROW_PITCH, 13 ENABLED,
- * 14 PARTIAL_START, 15 PARTIAL_END (inclusive), 16 PARTIAL_MODE (bit 0 on, bit 1 full colour),
+ * 14 PARTIAL_START, 15 PARTIAL_END (inclusive), 16 PARTIAL_MODE (bit 0 on, bit 1 full colour,
+ *   bit 2 the band is a range of rows; clear = a range of columns),
  * 0x100.. palette (256 entries).
- * Partial mode models the N95 panel's partial-display power saving (screensaver): only the band of
- * columns START..END of the (portrait) picture is shown, everything else is black, and without
- * the full-colour bit the band has 8 colours (one bit per channel), like the panel's idle mode.
+ * Partial mode models the N95 panel's partial-display power saving (screensaver): only the band
+ * START..END (rows or columns of the picture, as the display driver maps the panel rows for the
+ * current rotation) is shown, everything else is black, and without the full-colour bit the band
+ * has 8 colours (one bit per channel), like the panel's idle mode.
  * The Symbian driver programs 32 bpp, colour order 0 (little-endian 0x00RRGGBB words),
  * which is exactly the host x8r8g8b8 surface format, so rows are copied as they are.
  * Other depths are logged as unimplemented. A disabled or blanked panel keeps its picture, dimmed (property blank-dim, percent).
@@ -85,14 +87,16 @@ static bool syborg_fb_update_display(void *opaque)
         bool dim = !s->enabled || s->blank;
         bool partial = s->partial_mode & 1;
         bool eight = partial && !(s->partial_mode & 2);
+        bool rows = s->partial_mode & 4;
 
         for (uint32_t y = 0; y < s->height; y++) {
             uint32_t *row = (uint32_t *)(dst + y * dstride);
             address_space_read(&address_space_memory, s->base + y * pitch,
                                MEMTXATTRS_UNSPECIFIED, row, s->width * 4);
             if (partial) {
+                bool row_out = rows && (y < s->partial_start || y > s->partial_end);
                 for (uint32_t x = 0; x < s->width; x++) {
-                    if (x < s->partial_start || x > s->partial_end) {
+                    if (row_out || (!rows && (x < s->partial_start || x > s->partial_end))) {
                         row[x] = 0;
                     } else if (eight) {
                         uint32_t p = row[x];
@@ -180,7 +184,7 @@ static void syborg_fb_write(void *opaque, hwaddr offset, uint64_t value,
     case 13: s->enabled = value != 0; break;
     case 14: s->partial_start = value; break;
     case 15: s->partial_end = value; break;
-    case 16: s->partial_mode = value & 3; break;
+    case 16: s->partial_mode = value & 7; break;
     default: break;
     }
 }

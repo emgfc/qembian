@@ -323,3 +323,11 @@ Minimal "needed now" change set: keep ctl 10/11/31/9 as they are, fix caps word 
 words 4/5 = 0, make 0x8002/0x8003 validate their argument, and add the partial-display trio
 (ctl 3/4/5 with state) before the screensaver is reached. Everything in the "later" rows is
 about not lying to TV-out/posting/DSB clients.
+
+## 5. Correction from runtime (2026-11-05)
+
+The stand-in first mapped the ctl 3 band to picture columns always, assuming the 270° portrait
+rotation set at boot. At runtime WSERV switches the rotation index with req 0x8003 (e.g. 3 → 0
+before the screensaver shows), and the screensaver then passes its UI **Y** range. The band is
+in native panel rows: picture rows at rotation index 0/2, picture columns at 1/3. The stand-in
+now tracks the rotation index and tells the frame buffer which (PARTIAL_MODE bit 2).

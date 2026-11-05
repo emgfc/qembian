@@ -6,8 +6,11 @@
 // (ctl 8/9) need no copy.
 //
 //   ctl 3 {start,end,fullColour}  partial display (screensaver): only panel rows start..end lit.
-//                                 Panel rows = UI X columns here (portrait picture, 270 rotation);
-//                                 programmed into the Syborg fb (PARTIAL_* registers)
+//                                 Panel rows are rows of the native landscape panel, so in the
+//                                 picture they are rows at rotation index 0/2 and columns at 1/3
+//                                 (WSERV switches rotation with req 0x8003; the screensaver passes
+//                                 its UI Y range at 0/2 and X range at 1/3 accordingly).
+//                                 Programmed into the Syborg fb (PARTIAL_* registers)
 //   ctl 4                         cancel partial display
 //   ctl 5 -> TInt                 partial display active
 //   ctl 10 (screen by value)      select screen: only 0
@@ -41,18 +44,25 @@ static const TUint32 KCaps[26] =
 	0, 0			// +96/+100
 	};
 
-// partial-display state (one panel)
+// partial-display state (one panel) and the current rotation index (req 0x8003)
 static TInt PartialActive;
+static TUint PartialStart, PartialEnd;
+static TBool PartialFullColour;
+static TUint Rotation = 0;
 
 // Syborg fb partial-display registers (src/qemu-syborg/hw/arm/syborg_fb.c)
 enum { KFbPartialStart = 14, KFbPartialEnd = 15, KFbPartialMode = 16 };
 
 static void SetPartial(TBool aOn, TUint aStart, TUint aEnd, TBool aFullColour)
 	{
+	PartialActive = aOn;
+	PartialStart = aStart;
+	PartialEnd = aEnd;
+	PartialFullColour = aFullColour;
+	TBool rows = (Rotation & 1) == 0;	// panel rows are picture rows unless rotated by 90/270
 	WriteReg(KHwBaseClcd, KFbPartialStart, aStart);
 	WriteReg(KHwBaseClcd, KFbPartialEnd, aEnd);
-	WriteReg(KHwBaseClcd, KFbPartialMode, (aOn ? 1 : 0) | (aFullColour ? 2 : 0));
-	PartialActive = aOn;
+	WriteReg(KHwBaseClcd, KFbPartialMode, (aOn ? 1 : 0) | (aFullColour ? 2 : 0) | (rows ? 4 : 0));
 	}
 
 static TInt DisplayCtl(DThread* aClient, TInt aFn, TAny* a1, TAny*, const TUint32* aWords)
@@ -63,8 +73,9 @@ static TInt DisplayCtl(DThread* aClient, TInt aFn, TAny* a1, TAny*, const TUint3
 		if (aWords[0] >= aWords[1] || aWords[1] >= 240)
 			return KErrArgument;
 		SetPartial(ETrue, aWords[0], aWords[1], aWords[2] != 0);
-		Kern::Printf("N95STUB: DisplayDriver partial display rows %d..%d %s", aWords[0], aWords[1],
-					 aWords[2] ? "full colour" : "8 colours");
+		Kern::Printf("N95STUB: DisplayDriver partial display panel rows %d..%d %s, rotation %d -> picture %s",
+					 aWords[0], aWords[1], aWords[2] ? "full colour" : "8 colours", Rotation,
+					 (Rotation & 1) ? "columns" : "rows");
 		return KErrNone;
 	case 4:
 		SetPartial(EFalse, 0, 0, EFalse);
@@ -83,7 +94,13 @@ static TInt DisplayReq(DThread*, TInt aReq, const TUint32* aArgs)
 		{
 	case 0x8001: return aArgs[0] == 0 ? KErrNone : KErrNotSupported;
 	case 0x8002: return aArgs[0] == 1 ? KErrNone : KErrNotSupported;
-	case 0x8003: return aArgs[0] == 1 || aArgs[0] > 3 ? KErrNotSupported : KErrNone;
+	case 0x8003:
+		if (aArgs[0] == 1 || aArgs[0] > 3)
+			return KErrNotSupported;
+		Rotation = aArgs[0];
+		if (PartialActive)		// the panel band stays, its place in the picture moves
+			SetPartial(ETrue, PartialStart, PartialEnd, PartialFullColour);
+		return KErrNone;
 		}
 	return KStubNotHandled;
 	}
