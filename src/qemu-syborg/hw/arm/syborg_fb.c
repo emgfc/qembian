@@ -7,7 +7,7 @@
  * 0x100.. palette (256 entries).
  * The Symbian driver programs 32 bpp, colour order 0 (little-endian 0x00RRGGBB words),
  * which is exactly the host x8r8g8b8 surface format, so rows are copied as they are.
- * Other depths are logged as unimplemented. A disabled or blanked panel shows black.
+ * Other depths are logged as unimplemented. A disabled or blanked panel keeps its picture, dimmed (property blank-dim, percent).
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
@@ -36,7 +36,7 @@ struct SyborgFbState {
     uint32_t int_enable, int_status, need_int;
     uint32_t palette[256];
     bool warned;
-    bool shown_dark;          /* blank/disabled panel already painted black */
+    uint32_t blank_dim;       /* brightness (percent) of a blanked/disabled panel */
 };
 
 static void syborg_fb_update_irq(SyborgFbState *s)
@@ -65,18 +65,8 @@ static bool syborg_fb_update_display(void *opaque)
         qemu_console_resize(s->con, s->width, s->height);
         surf = qemu_console_surface(s->con);
     }
-    if (!s->enabled || s->blank || !s->base) {
-        /* a disabled or blanked panel shows nothing: paint it black (once per change) */
-        if (!s->shown_dark) {
-            memset(surface_data(surf), 0, surface_stride(surf) * surface_height(surf));
-            qemu_console_update(s->con, 0, 0, s->width, s->height);
-            s->shown_dark = true;
-        }
-        return true;
-    }
-    s->shown_dark = false;
-    if (s->bpp != 32) {
-        if (!s->warned) {
+    if (!s->base || s->bpp != 32) {
+        if (s->bpp != 32 && s->base && !s->warned) {
             qemu_log_mask(LOG_UNIMP, "syborg-fb: %u bpp not implemented\n", s->bpp);
             s->warned = true;
         }
@@ -86,11 +76,21 @@ static bool syborg_fb_update_display(void *opaque)
         uint32_t pitch = s->row_pitch ? s->row_pitch : s->width * 4;
         uint8_t *dst = surface_data(surf);
         int dstride = surface_stride(surf);
+        /* a blanked or disabled panel keeps its picture, just without backlight: dimmed */
+        bool dim = !s->enabled || s->blank;
 
         for (uint32_t y = 0; y < s->height; y++) {
+            uint32_t *row = (uint32_t *)(dst + y * dstride);
             address_space_read(&address_space_memory, s->base + y * pitch,
-                               MEMTXATTRS_UNSPECIFIED, dst + y * dstride,
-                               s->width * 4);
+                               MEMTXATTRS_UNSPECIFIED, row, s->width * 4);
+            if (dim) {
+                for (uint32_t x = 0; x < s->width; x++) {
+                    uint32_t p = row[x];
+                    row[x] = (((p >> 16) & 0xff) * s->blank_dim / 100) << 16 |
+                             (((p >> 8) & 0xff) * s->blank_dim / 100) << 8 |
+                             ((p & 0xff) * s->blank_dim / 100);
+                }
+            }
         }
     }
     qemu_console_update(s->con, 0, 0, s->width, s->height);
@@ -209,6 +209,8 @@ static const VMStateDescription vmstate_syborg_fb = {
 static const Property syborg_fb_properties[] = {
     DEFINE_PROP_UINT32("width", SyborgFbState, width, 240),
     DEFINE_PROP_UINT32("height", SyborgFbState, height, 320),
+    /* like a panel with its backlight off: the picture stays, dimmed (0 = black) */
+    DEFINE_PROP_UINT32("blank-dim", SyborgFbState, blank_dim, 25),
 };
 
 static void syborg_fb_class_init(ObjectClass *oc, const void *data)
