@@ -41,6 +41,11 @@ tools/syb_gdb.py brk 0x838f1340 --when-thread HWRM --print 'TheScheduler.iCurren
 tools/syb_gdb.py sample --at 12 --n 5      # mode, current thread, symbolised PC/LR/stack chain
 tools/syb_gdb.py thread --at 15
 ```
+Each probe first prints `PROBE <loc> at <addr> <symbol>`; when nothing fires, the tail of gdb's own
+output (`build/runs/gdb-<cmd>.gdb.txt`) is shown instead of silence. At a kernel-mode stop inside an
+exec call the user call site is printed (`user pc <module+off> (9.2 exec S0a ChannelRequest)`), so a
+kernel panic such as `KERN-EXEC 0` names its caller: `brk 'K::PanicCurrentThread(int)' --when-thread X`
+(bad-handle panics go there directly, not through `K::PanicKernExec`).
 Boots the ROM as it is (`build/n95/hybrid.img`) with the gdbstub, loads the kernel's DWARF
 (`_syborg_ekern.exe.sym` at code 0x80003000, data 0xc8000000), so kernel expressions work; names
 the current thread from `TheScheduler`; kills stray QEMUs first. Output also in

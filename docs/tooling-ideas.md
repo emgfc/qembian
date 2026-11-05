@@ -21,16 +21,12 @@ a rough cost.
   *2026-11-05: the "no SIM" fix needed reading NokiaDSY and sae by hand to see that our 0x1C meant
   "card present" and that SEC cause 0x16 is ignored.* Cost: small (a `syb_gdb brk` preset on
   DosSrv's raise function, or a kernel-side hook on the DosServer session).
-- **KERN-EXEC call-site logger**: when the kernel panics a thread with KERN-EXEC (bad handle etc.),
-  log the user PC/LR and the exec number (`NKern::ThreadGetUserContext` in `K::PanicCurrentThread`).
-  *2026-11-05: MmRmServerThread's KERN-EXEC 0 after the DSP-bridge controls took a long static hunt
-  for the call site.* Cost: small kernel patch + kernel package rebuild.
-- **Fix `syb_gdb` kernel-symbol breakpoints**: a breakpoint on `K::PanicCurrentThread` resolved via
-  `_syborg_ekern.exe.sym` (+0x80003000-0x8000) landed in SHA-256 code at run time, so the .sym file or
-  the address formula does not match the ROM's kernel. Check which ELF the ROM's ekern comes from.
-  *2026-11-05.* Cost: small.
 
 ## Done
+- `tools/syb_gdb.py` fixes (2026-11-05): stack reads clipped at the end of the supervisor stack (they
+  failed silently, so `--stack` and kernel-symbol probes looked broken; the kernel .sym mapping was
+  fine), user call site + 9.2 exec name at kernel-mode stops (replaces the "KERN-EXEC call-site
+  logger" idea), probe address confirmation and gdb output on "no hits".
 - `tools/syb_run.py` + `tools/syb_report.py` (2026-11-05): one-command boot/screenshots/keys and a
   structured report incl. the "likely blocked" IPC wait list.
 - `tools/syb_gdb.py` (2026-11-05): leave tracer with module filter, breakpoints with kernel

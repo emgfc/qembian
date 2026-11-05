@@ -56,15 +56,57 @@ def thread_name():
 def reg(r):
     return int(gdb.parse_and_eval('$' + r)) & 0xffffffff
 
-def chain(n=96, keep=8):
-    sp = reg('sp')
+def stack_words(n=96):
+    """up to n words from sp, stopping at the end of mapped memory (a supervisor stack is often
+    only a few words deep at an exec call: reading 96 words in one go used to fail silently)"""
+    sp, mem = reg('sp'), b''
+    step = 64
+    while len(mem) < 4 * n:
+        try:
+            mem += bytes(gdb.selected_inferior().read_memory(sp + len(mem), step))
+        except Exception:
+            if step == 4:
+                break
+            step = 4
+    return [int.from_bytes(mem[i:i+4], 'little') for i in range(0, len(mem) - 3, 4)]
+
+EXEC92 = {}
+try:
+    for _l in open(%(tools)r + '/exec92/exec92.map'):
+        _f = _l.split()
+        if len(_f) >= 2 and _f[0][:1] in 'FS' and len(_f[0]) == 3:
+            EXEC92[_f[0]] = _f[1]
+except OSError:
+    pass
+
+def user_site():
+    """at a kernel-mode stop inside an exec call: the user return PC is the last word of the
+    supervisor stack; the exec number is in the SWI just before it"""
+    if reg('cpsr') & 0x1f == 0x10:
+        return None
+    ws = stack_words(512)
+    if not ws:
+        return None
+    pc = ws[-1]
+    m = R.module_at(pc & ~1)
+    if not m:
+        return None
+    s = 'user pc ' + R.describe(pc, short=True)
     try:
-        mem = bytes(gdb.selected_inferior().read_memory(sp, 4 * n))
+        if not pc & 1:
+            insn = int.from_bytes(bytes(gdb.selected_inferior().read_memory(pc - 4, 4)), 'little')
+            if insn >> 24 == 0xef:
+                n = insn & 0xffffff
+                key = '%%s%%02x' %% ('F' if n & 0x800000 else 'S', n & 0xff)
+                s += ' (9.2 exec %%s %%s)' %% (key, EXEC92.get(key, '?'))
     except Exception:
-        return []
+        pass
+    return s
+
+def chain(n=96, keep=8):
+    ws = stack_words(n)
     out = []
-    for k in range(n):
-        w = int.from_bytes(mem[4*k:4*k+4], 'little')
+    for k, w in enumerate(ws):
         m = R.module_at(w & ~1)
         if m and (w & ~1) < m['text']:
             d = R.describe(w, short=True)
@@ -79,6 +121,12 @@ class Probe(gdb.Breakpoint):
         super().__init__(loc, type=gdb.BP_HARDWARE_BREAKPOINT, internal=False)
         self.kind = kind
         self.hits = 0
+        try:
+            a = int(gdb.parse_and_eval('(unsigned int)&%%s' %% loc.lstrip('*')) if not loc.startswith('*0x')
+                    else int(loc[1:], 16))
+            emit('PROBE %%s at %%08x %%s' %% (loc, a, R.describe(a, short=True)))
+        except Exception as e:
+            emit('PROBE %%s (address not resolved here: %%s)' %% (loc, e))
     def stop(self):
         th = thread_name()
         if CFG.get('when_thread') and CFG['when_thread'] not in th:
@@ -99,6 +147,9 @@ class Probe(gdb.Breakpoint):
             self.hits += 1
             emit('BRK %%08x  %%s  r0=%%08x r1=%%08x r2=%%08x r3=%%08x lr=%%s' %% (
                 reg('pc'), th, reg('r0'), reg('r1'), reg('r2'), reg('r3'), R.describe(reg('lr'), short=True)))
+            us = user_site()
+            if us:
+                emit('    ' + us)
             for e in CFG.get('print', []):
                 try:
                     emit('    %%s = %%s' %% (e, gdb.parse_and_eval(e)))
@@ -175,6 +226,7 @@ def main():
     a = ap.parse_args()
     os.makedirs(os.path.join(ROOT, 'build', 'runs'), exist_ok=True)
     log = os.path.join(ROOT, 'build', 'runs', 'gdb-%s.log' % a.cmd)
+    gdbout = os.path.join(ROOT, 'build', 'runs', 'gdb-%s.gdb.txt' % a.cmd)
     open(log, 'w').close()
     cfg = {'log': log, 'max': a.max, 'err': a.err, 'print': a.print, 'stack': a.stack,
            'when_thread': a.when_thread, 'modules': a.modules.split(',') if a.modules else None}
@@ -184,9 +236,10 @@ def main():
             loc = resolve('User::Leave(int)' if a.cmd == 'leaves' else a.loc)
             kind = 'leave' if a.cmd == 'leaves' else 'brk'
             q = start_qemu(True, a.secs)
-            subprocess.run(gdb_cmds(cfg, ['-ex', 'source ' + py, '-ex', 'python Probe(%r, %r)' % (loc, kind),
-                                          '-ex', 'continue']), timeout=a.secs + 20,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            with open(gdbout, 'w') as go:
+                subprocess.run(gdb_cmds(cfg, ['-ex', 'source ' + py, '-ex', 'python Probe(%r, %r)' % (loc, kind),
+                                              '-ex', 'continue']), timeout=a.secs + 20,
+                               stdout=go, stderr=subprocess.STDOUT)
         else:
             q = start_qemu(False, max(a.secs, a.at + a.n * (a.interval + 1) + 5))
             time.sleep(max(0, a.at - 2))
@@ -201,7 +254,14 @@ def main():
         os.unlink(py)
         if not a.keep:
             subprocess.run(['pkill', '-x', 'qemu-system-arm'])
-    print(open(log).read(), end='')
+    text = open(log).read()
+    print(text, end='')
+    if a.cmd in ('leaves', 'brk') and 'BRK' not in text and 'LEAVE' not in text:
+        print('no hits in %ss (gdb output: %s):' % (a.secs, os.path.relpath(gdbout, ROOT)))
+        try:
+            print(''.join([l for l in open(gdbout).readlines() if l.strip()][-8:]), end='')
+        except OSError:
+            pass
 
 
 if __name__ == '__main__':
