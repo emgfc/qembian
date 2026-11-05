@@ -16,7 +16,7 @@ python3 -I tools/romcompose.py --ours build/rom-hybrid/syborg_hybrid_kernel_ARMV
   --file Sys/Data/ESTARTCOMP.TXT=rom/hybrid/ESTARTCOMP.TXT \
   --rofs build/n95/rofs1.img --rofs build/n95/rofs2.img --patches rom/hybrid/code-patches.txt > /dev/null
 python3 -I tools/dtb_set.py external/oss.FCL.sf.adapt.Qemu/baseport/syborg/syborg.dtb build/n95/syborg-n95.dtb \
-  framebuffer:width=320 framebuffer:height=240 > /dev/null
+  framebuffer:width=240 framebuffer:height=320 > /dev/null
 mkdir -p build/run
 echo "serial log: $SERIAL   (close the QEMU window or Ctrl-C to stop)"
 SYBORG_DTB=/work/build/n95/syborg-n95.dtb exec scripts/run.sh --gui --serial-log "/work/$SERIAL" build/n95/hybrid-run.img

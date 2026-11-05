@@ -27,9 +27,9 @@ static const SStubCtl KCtl[] =
 	{ 10, EReturn, KErrNone, 0, 0 },
 	{ 11, EWriteBlock, 0, KCaps, sizeof(KCaps) },
 	// ctl 31 = scan-line bytes (r_display export 77, behind CDisplayDriver vtable +0xb0); ScDv
-	// derives its stride from it (0 drew every row on row 0). N95 frame buffer memory is landscape:
-	// 320 px * 4 bytes (hack H-lcd-landscape, docs/hacks.md).
-	{ 31, EWriteInt, 1280, 0, 0 },
+	// derives its stride from it (0 drew every row on row 0). ScDv draws portrait (the display
+	// driver claims hardware rotation), so: 240 px * 4 bytes (hack H-lcd-stride, docs/hacks.md).
+	{ 31, EWriteInt, 960, 0, 0 },
 	};
 // r_display issues synchronous requests (DoRequest 0x8001.. + WaitForRequest), e.g. screen
 // updates; the Syborg frame buffer is always live, so complete them at once.
