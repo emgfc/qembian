@@ -1,0 +1,55 @@
+--- a/baseport/syborg/fb/syborg_fb.cpp
++++ b/baseport/syborg/fb/syborg_fb.cpp
+@@ -66,12 +66,22 @@
+ 
+ void DLcdPowerHandler::DisplayOff()
+ {
++#ifdef SYBORG_FB_N95
++  // N95 hybrid hack H-lcd-alwayson (docs/hacks.md): log and keep the panel on, so that a
++  // display-off request (screen saver, light/power policy) never freezes the picture.
++  Kern::Printf("N95LCD: display off requested (ignored)");
++  iDisplayOn = EFalse;
++  return;
++#endif
+   PowerDownLcd();
+   iDisplayOn = EFalse;
+ }
+ 
+ void DLcdPowerHandler::SwitchDisplay(TBool aSecure)
+  {
++#ifdef SYBORG_FB_N95
++   Kern::Printf("N95LCD: switch display secure=%d (was %d)", aSecure, iSecureDisplay);
++#endif
+    if(aSecure)
+ 	 {
+ 	   if(!iSecureDisplay)
+@@ -116,6 +126,9 @@
+ 
+ void DLcdPowerHandler::PowerUpLcd(TBool aSecure)
+ {
++#ifdef SYBORG_FB_N95
++  Kern::Printf("N95LCD: power up secure=%d base %08x", aSecure, aSecure ? iSecurevRamPhys : ivRamPhys);
++#endif
+ 
+   WriteReg(iPortAddr, FB_ENABLED, 0);
+   WriteReg(iPortAddr, FB_BASE, aSecure ? iSecurevRamPhys : ivRamPhys);
+@@ -281,6 +294,9 @@
+ 
+ 	iSecureVideoInfo = iVideoInfo;
+ 	iSecureVideoInfo.iVideoAddress = (TInt)pV2;
++#ifdef SYBORG_FB_N95
++	Kern::Printf("N95LCD: video lin %08x phys %08x, secure lin %08x phys %08x", pV, ivRamPhys, pV2, iSecurevRamPhys);
++#endif
+ 	
+ 	return KErrNone;
+ }
+@@ -288,6 +304,9 @@
+ 
+ TInt DLcdPowerHandler::SetDisplayMode(TInt aMode)
+ {
++#ifdef SYBORG_FB_N95
++  Kern::Printf("N95LCD: set display mode %d", aMode);
++#endif
+   if(aMode < 0 || aMode >= KConfigLcdNumberOfDisplayModes)
+ 	return KErrArgument;
+ 
