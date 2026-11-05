@@ -23,13 +23,17 @@ struct SStubCtl { TInt iFn; TStubAction iAction; TInt iValue; const TAny* iData;
 // KStubNotHandled to fall back to the table/default. aArgs = the two DoRequest argument words.
 const TInt KStubNotHandled = 0x7fff0000;
 typedef TInt (*TStubRequestHook)(DThread* aClient, TInt aReq, const TUint32* aArgs);
+// optional per-device control hook: called before the table with the first 4 words at a1 (if
+// readable); return a value to return it from DoControl, or KStubNotHandled to fall through.
+typedef TInt (*TStubControlHook)(DThread* aClient, TInt aFn, TAny* a1, TAny* a2, const TUint32* aWords);
 
 class DNokiaStubFactory : public DLogicalDevice
 	{
 public:
 	DNokiaStubFactory(const TDesC& aName, const SStubCtl* aCtl, TInt aCount, TBool aChannels, TBool aCompleteRequests,
-					  TStubRequestHook aHook = NULL)
-		: iName(aName), iCtl(aCtl), iCount(aCount), iChannels(aChannels), iCompleteRequests(aCompleteRequests), iHook(aHook)
+					  TStubRequestHook aHook = NULL, TStubControlHook aCtlHook = NULL)
+		: iName(aName), iCtl(aCtl), iCount(aCount), iChannels(aChannels), iCompleteRequests(aCompleteRequests), iHook(aHook),
+		  iCtlHook(aCtlHook)
 		{
 		iVersion = TVersion(255, 255, 0xffff);	// accept any client version
 		iParseMask = KDeviceAllowUnit | KDeviceAllowInfo;
@@ -49,6 +53,7 @@ public:
 	TBool iChannels;
 	TBool iCompleteRequests;	// DoRequest(): complete at once with KErrNone, else leave pending
 	TStubRequestHook iHook;
+	TStubControlHook iCtlHook;
 	};
 
 class DNokiaStubChannel : public DLogicalChannelBase
@@ -99,6 +104,16 @@ public:
 		TInt rr = KErrArgument;
 		if (((TLinAddr)a1 & 3) == 0 && (TLinAddr)a1 >= 0x1000)
 			rr = Kern::ThreadRawRead(&Kern::CurrentThread(), a1, w, sizeof(w));
+		if (iF->iCtlHook)
+			{
+			TInt hr = iF->iCtlHook(&Kern::CurrentThread(), aFn, a1, a2, w);
+			if (hr != KStubNotHandled)
+				{
+				Kern::Printf("N95STUB: %S u%d ctl %d a1=%08x a2=%08x [%08x %08x %08x %08x] hook %d",
+							 &iF->iName, iUnit, aFn, a1, a2, w[0], w[1], w[2], w[3], hr);
+				return hr;
+				}
+			}
 		const SStubCtl* c = NULL;
 		for (TInt i=0; i<iF->iCount; ++i)
 			if (iF->iCtl[i].iFn == aFn)
@@ -155,5 +170,10 @@ inline TInt DNokiaStubFactory::Create(DLogicalChannelBase*& aChannel)
 	_LIT(KStubName, name); \
 	DECLARE_STANDARD_LDD() \
 		{ return new DNokiaStubFactory(KStubName, table, sizeof(table)/sizeof(table[0]), ETrue, ETrue, hook); }
+
+#define NOKIA_STUB_LDD_CTLHOOK(name, table, completeRequests, ctlhook) \
+	_LIT(KStubName, name); \
+	DECLARE_STANDARD_LDD() \
+		{ return new DNokiaStubFactory(KStubName, table, sizeof(table)/sizeof(table[0]), ETrue, completeRequests, NULL, ctlhook); }
 
 #define NO_CONTROLS static const SStubCtl KCtl[] = { { -1, EReturn, 0, 0, 0 } };

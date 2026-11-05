@@ -11,7 +11,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 if [ -z "${SYBORG_IN_CONTAINER:-}" ]; then
-  CONTAINER_ARGS="${SYBORG_DTB:+-e SYBORG_DTB=$SYBORG_DTB}${SYBORG_GDB:+ -e SYBORG_GDB=1 -p 127.0.0.1:1234:1234}" exec "$ROOT/scripts/in-container.sh" /work/scripts/boot-test.sh "$@"
+  CONTAINER_ARGS="${SYBORG_DTB:+-e SYBORG_DTB=$SYBORG_DTB}${SYBORG_GDB:+ -e SYBORG_GDB=$SYBORG_GDB -p 127.0.0.1:1234:1234}" exec "$ROOT/scripts/in-container.sh" /work/scripts/boot-test.sh "$@"
 fi
 
 SECS=60; ROM=""; OUT=""; TYPE=()
@@ -44,6 +44,7 @@ sleep 1
 RUNDIR="$OUT/run"; mkdir -p "$RUNDIR"; cd "$RUNDIR"
 qargs=(-M "$DTB" -kernel "$ROM_ABS" -L "$QI/share/qemu" -serial "file:$OUT/serial0.log" -monitor null)
 [ -n "${SYBORG_GDB:-}" ] && qargs+=(-s)   # SYBORG_GDB=1: gdbstub on 127.0.0.1:1234 (no wait)
+[ "${SYBORG_GDB:-}" = wait ] && qargs+=(-S)   # SYBORG_GDB=wait: also halt until gdb continues
 echo ">> qemu-system-arm ${qargs[*]}" | tee "$OUT/qemu.log"
 "$QI/bin/qemu-system-arm" "${qargs[@]}" >>"$OUT/qemu.log" 2>&1 &
 QPID=$!

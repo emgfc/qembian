@@ -29,4 +29,17 @@ static const SStubCtl KCtl[] =
 	};
 // r_display issues synchronous requests (DoRequest 0x8001.. + WaitForRequest), e.g. screen
 // updates; the Syborg frame buffer is always live, so complete them at once.
-NOKIA_STUB_LDD2("DisplayDriver", KCtl, 1, ETrue)
+// Diagnostic: dump the structures behind ctl 31 (pointer in word 1) and ctl 9 (rect).
+static TInt DisplayCtlHook(DThread* aClient, TInt aFn, TAny* a1, TAny*, const TUint32* aW)
+	{
+	if (aFn == 31 && aW[1])
+		{
+		TUint32 b[12];
+		if (Kern::ThreadRawRead(aClient, (TAny*)aW[1], b, sizeof(b)) == KErrNone)
+			Kern::Printf("N95STUB: DisplayDriver ctl 31 @%08x: %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x",
+				aW[1], b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10], b[11]);
+		}
+	(void)a1;
+	return KStubNotHandled;
+	}
+NOKIA_STUB_LDD_CTLHOOK("DisplayDriver", KCtl, ETrue, DisplayCtlHook)
