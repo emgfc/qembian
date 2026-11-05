@@ -123,3 +123,60 @@ time to ESHELL on both).
 
 **Side benefits:** a modern gdbstub; TCG plugins for tracing without serial output; record/replay;
 a modern base for option A (OMAP2420/N800 machine code still exists in QEMU).
+
+## Phase −1 results: quick wins on QEMU 0.9.1 (2026-11-05)
+
+Benchmark: `scripts/measure-boot.sh` (hybrid ROM, panic-only trace, host-side timestamps of
+serial milestones; results appended to `build/logs/boot-times.tsv`).
+
+| Configuration | WSERV starts | HWRM light request |
+|---|---|---|
+| 0.9.1 as built | 10.0 s | 66.8 s |
+| + TLB invalidate-by-MVA flushes only the affected pages (instead of the whole TLB) | 10.0 s | 66.7 s |
+| + `-tb-size 256` | 10.0 s | 66.8 s |
+| 4 KB soft-MMU pages (`TARGET_PAGE_BITS 12`) | no kernel output at all (boot breaks; not investigated) | |
+
+QEMU uses 100% of one host core throughout, yet the milestone times do not move: this part of
+the boot is **paced by guest timers and timeouts** (fake-modem waits, start-up delays, an idle
+loop that keeps the CPU busy), not by emulation speed. Consequences:
+- neither the quick wins nor a modern QEMU will shorten the timer-paced stretches; a modern
+  QEMU helps the CPU-bound work (drawing, heavy kernel tracing, application start-up);
+- **snapshots** (resume a booted state) are the bigger iteration win, so VMState is part of
+  every new device from the start.
+The per-page invalidate is kept for reference as `patches/qemu-unused/0001-per-mva-tlb-invalidate.patch`;
+the legacy build stays unmodified.
+
+Also seen: with the panic-only trace the hybrid boot stops progressing after ~80 s (no
+RightsServer/Startup milestones within 30 min), while traced runs get further. A timing-dependent
+problem in the N95 bring-up, tracked separately.
+
+## Phase 0 results: Syborg board on QEMU 11.1.3 (2026-11-05)
+
+Code: `src/qemu-syborg/hw/arm/` (new GPL-2.0-or-later files, written from the guest register
+descriptions and the 0.9.1 plugin behaviour; NVMemory written from the guest driver only, the
+EPL plugin/library were not copied). Build: `scripts/build-qemu-modern.sh` (host-native, tarball
+pinned and signature-checked in `sources.lock`). Run: `scripts/run-modern.sh [--gui] [--qmp SOCK]
+[--gdb|--gdb-wait] [--dtb FILE] ROM.img`; QMP helper `tools/qmp.py` (screendump PNG, typing,
+keys, savevm/loadvm). Devices: interrupt controller, timer, RTC, 4 serial ports, framebuffer
+(32 bpp), keyboard (set-1 scancodes), pointer (absolute), NVMemory (`-drive if=mtd`), platform
+(DTB at +0x1000). All have VMState. Not modelled: hostfs (its server exits −44), snapshot,
+virtio, NAND.
+
+Results:
+- Text-shell ROM: same serial output as 0.9.1; ESHELL on screen; `dir` typed via QMP lists the
+  freshly formatted C: drive.
+- N95 hybrid ROM, benchmark (`scripts/measure-boot.sh --qemu modern`):
+
+| Run | WSERV | HWRM light | RightsServer DRM | Startup UI phase |
+|---|---|---|---|---|
+| QEMU 0.9.1 | 10.1 s | 66.7 s | never (stalls) | never |
+| QEMU 11.1.3 | 11.3 s | 62.0 s | 97.8 s | 149.8 s |
+
+  The modern run reaches the same screen as the best traced 0.9.1 runs (status pane over the
+  splash) in ~2.5 minutes; 0.9.1 stalls after ~80 s when untraced (likely an emulation or timing
+  problem specific to 0.9.1; not investigated further).
+- Idle CPU: the Syborg idle routine used the ARMv6 CP15 wait-for-interrupt, a NOP on ARMv7, so
+  modern QEMU spun at 100%. Baseport patch `qemu-baseport/0004` adds the ARMv7 `WFI`; both QEMUs
+  now idle at 0%.
+- Wall time to the milestones is still dominated by guest timers/timeouts, so raw speed-up is
+  modest on this boot; the CPU-bound parts (and snapshots, next) are where the new QEMU pays off.

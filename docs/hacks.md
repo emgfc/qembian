@@ -26,6 +26,7 @@ Keep this file up to date with every new hack.
 | **H-lcd-stride:** `DisplayDriver` ctl 31 (scan-line bytes, r_display export 77) returns 960 = 240 px × 4; ScDv draws portrait into the 240×320 frame buffer (the display driver claims hardware rotation, and the Nokia ScDv does not rotate in memory). An earlier landscape attempt (stride 1280, 320×240 fb) showed the UI upright but cut off — screenshot `build/evidence/run33-first-ui-landscape-stride.png` (local only) | `d_display.cpp`; `fb/syborg_fb.cpp` swaps a landscape device to portrait if ever configured (patch qemu-baseport 0003) | real stride/rotation semantics of the N95 display driver |
 | Board is 240×320 via a patched DTB | `tools/dtb_set.py`, `SYBORG_DTB` | fine |
 | Screen rotation: caps claim rotations 90/180/270 supported but nothing rotates | `d_display.cpp` caps +36/+40/+44 | check how scdv rotates; the N95 runs mode 1 at rotation 270 (the picture may come out sideways) |
+| ARMv7 `WFI` added to `SyborgWFIIdle` after the ARMv6 CP15 wait-for-interrupt | `specific/interrupts.cia` (patch qemu-baseport 0004) | fine as is (not really a hack) |
 
 ## N95 hardware stand-ins (src/n95compat/stubs)
 

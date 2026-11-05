@@ -1,0 +1,216 @@
+/*
+ * Syborg (Symbian Virtual Platform) board for modern QEMU.
+ *
+ * Memory map (fixed by the Symbian baseport's syborg.h, same as the 0.9.1-symbian DTS):
+ *   0x00000000 RAM (512 MB default)
+ *   0xc0000000 interrupt controller -> CPU IRQ   0xc0001000 RTC   0xc0002000 timer (irq 1)
+ *   0xc0003000 keyboard (2)   0xc0004000 pointer (3)   0xc0005000 framebuffer (4)
+ *   0xc0006000..0xc0009000 serial 0..3 (5..8)   0xc0010000 NVMemory (12)
+ *   0xc0011000 platform (ID, then the device tree blob at +0x1000, 16 MB window)
+ * hostfs/snapshot/virtio/nand/usbtest are not modelled; accesses to them read as zero
+ * (ignore_memory_transaction_failures), like unmapped addresses on 0.9.1.
+ *
+ * The ROM image is loaded with -kernel as a raw image at 0x10000 with the standard ARM boot
+ * stub, which is what the 0.9.1 fork did too. Options:
+ *   -global syborg-fb.width=W -global syborg-fb.height=H   framebuffer size (240x320 default)
+ *   -drive if=mtd,format=raw,file=IMG                       NVMemory drive (C:)
+ *   -dtb FILE                                               blob served by the platform device
+ *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ */
+#include "qemu/osdep.h"
+#include "qemu/units.h"
+#include "qemu/log.h"
+#include "qemu/error-report.h"
+#include "qapi/error.h"
+#include "hw/core/boards.h"
+#include "hw/core/sysbus.h"
+#include "hw/core/irq.h"
+#include "hw/core/qdev-properties.h"
+#include "hw/arm/boot.h"
+#include "hw/arm/machines-qom.h"
+#include "system/address-spaces.h"
+#include "system/system.h"
+#include "system/blockdev.h"
+#include "system/block-backend.h"
+#include "chardev/char-fe.h"
+#include "target/arm/cpu-qom.h"
+#include "qom/object.h"
+#include "syborg.h"
+
+/* ---- platform device ---- */
+
+OBJECT_DECLARE_SIMPLE_TYPE(SyborgPlatformState, SYBORG_PLATFORM)
+
+#define PLATFORM_TREE_OFFSET 0x1000
+
+struct SyborgPlatformState {
+    SysBusDevice parent_obj;
+    MemoryRegion iomem;
+    uint8_t *dtb;
+    uint32_t dtb_size;
+};
+
+static uint64_t syborg_platform_read(void *opaque, hwaddr offset, unsigned size)
+{
+    SyborgPlatformState *s = opaque;
+
+    if (offset >= PLATFORM_TREE_OFFSET) {
+        uint64_t v = 0;
+        offset -= PLATFORM_TREE_OFFSET;
+        for (unsigned i = 0; i < size; i++) {
+            if (offset + i < s->dtb_size) {
+                v |= (uint64_t)s->dtb[offset + i] << (8 * i);
+            }
+        }
+        return v;
+    }
+    switch (offset >> 2) {
+    case 0: return SYBORG_ID_PLATFORM;
+    case 1: return PLATFORM_TREE_OFFSET;
+    default:
+        qemu_log_mask(LOG_GUEST_ERROR, "syborg-platform: bad read 0x%x\n", (int)offset);
+        return 0;
+    }
+}
+
+static void syborg_platform_write(void *opaque, hwaddr offset, uint64_t value,
+                                  unsigned size)
+{
+    qemu_log_mask(LOG_GUEST_ERROR, "syborg-platform: write 0x%x ignored\n", (int)offset);
+}
+
+static const MemoryRegionOps syborg_platform_ops = {
+    .read = syborg_platform_read,
+    .write = syborg_platform_write,
+    .endianness = DEVICE_LITTLE_ENDIAN,
+    .valid.min_access_size = 1,
+    .valid.max_access_size = 4,
+};
+
+static void syborg_platform_realize(DeviceState *dev, Error **errp)
+{
+    SyborgPlatformState *s = SYBORG_PLATFORM(dev);
+
+    memory_region_init_io(&s->iomem, OBJECT(s), &syborg_platform_ops, s,
+                          "syborg-platform", 0x1000000);
+    sysbus_init_mmio(SYS_BUS_DEVICE(s), &s->iomem);
+}
+
+static void syborg_platform_class_init(ObjectClass *oc, const void *data)
+{
+    DEVICE_CLASS(oc)->realize = syborg_platform_realize;
+}
+
+static const TypeInfo syborg_platform_info = {
+    .name = TYPE_SYBORG_PLATFORM,
+    .parent = TYPE_SYS_BUS_DEVICE,
+    .instance_size = sizeof(SyborgPlatformState),
+    .class_init = syborg_platform_class_init,
+};
+
+/* ---- machine ---- */
+
+static struct arm_boot_info syborg_binfo = {
+    .loader_start = 0x0,
+    .board_id = 0,
+};
+
+static void syborg_init(MachineState *machine)
+{
+    MemoryRegion *sysmem = get_system_memory();
+    Object *cpuobj;
+    DeviceState *intc, *dev;
+    qemu_irq pic[32];
+    DriveInfo *dinfo;
+    SyborgPlatformState *plat;
+
+    cpuobj = object_new(machine->cpu_type);
+    /* 0.9.1 had no TrustZone: keep the CPU without EL3 so CP15 behaves the same */
+    if (object_property_find(cpuobj, "has_el3")) {
+        object_property_set_bool(cpuobj, "has_el3", false, &error_fatal);
+    }
+    qdev_realize(DEVICE(cpuobj), NULL, &error_fatal);
+
+    memory_region_add_subregion(sysmem, 0, machine->ram);
+
+    intc = qdev_new(TYPE_SYBORG_INTC);
+    qdev_prop_set_uint32(intc, "num-interrupts", 32);
+    sysbus_realize_and_unref(SYS_BUS_DEVICE(intc), &error_fatal);
+    sysbus_mmio_map(SYS_BUS_DEVICE(intc), 0, 0xc0000000);
+    sysbus_connect_irq(SYS_BUS_DEVICE(intc), 0,
+                       qdev_get_gpio_in(DEVICE(cpuobj), ARM_CPU_IRQ));
+    for (int i = 0; i < 32; i++) {
+        pic[i] = qdev_get_gpio_in(intc, i);
+    }
+
+    sysbus_create_simple(TYPE_SYBORG_RTC, 0xc0001000, NULL);
+
+    dev = qdev_new(TYPE_SYBORG_TIMER);
+    qdev_prop_set_uint32(dev, "frequency", 100000);
+    sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, 0xc0002000);
+    sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, pic[1]);
+
+    sysbus_create_simple(TYPE_SYBORG_KEYBOARD, 0xc0003000, pic[2]);
+    sysbus_create_simple(TYPE_SYBORG_POINTER, 0xc0004000, pic[3]);
+    sysbus_create_simple(TYPE_SYBORG_FB, 0xc0005000, pic[4]);
+
+    for (int i = 0; i < 4; i++) {
+        dev = qdev_new(TYPE_SYBORG_SERIAL);
+        qdev_prop_set_chr(dev, "chardev", serial_hd(i));
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, 0xc0006000 + i * 0x1000);
+        sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, pic[5 + i]);
+    }
+
+    dev = qdev_new(TYPE_SYBORG_NVMEM);
+    dinfo = drive_get(IF_MTD, 0, 0);
+    if (dinfo) {
+        qdev_prop_set_drive_err(dev, "drive", blk_by_legacy_dinfo(dinfo), &error_fatal);
+    } else {
+        warn_report("syborg: no NVMemory drive (-drive if=mtd,format=raw,file=...)");
+    }
+    sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, 0xc0010000);
+    sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, pic[12]);
+
+    dev = qdev_new(TYPE_SYBORG_PLATFORM);
+    plat = SYBORG_PLATFORM(dev);
+    if (machine->dtb) {
+        gsize len = 0;
+        g_autoptr(GError) err = NULL;
+        gchar *data = NULL;
+        if (!g_file_get_contents(machine->dtb, &data, &len, &err)) {
+            error_report("syborg: cannot read dtb %s: %s", machine->dtb, err->message);
+            exit(1);
+        }
+        plat->dtb = (uint8_t *)data;
+        plat->dtb_size = len;
+    }
+    sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, 0xc0011000);
+
+    syborg_binfo.ram_size = machine->ram_size;
+    arm_load_kernel(ARM_CPU(cpuobj), machine, &syborg_binfo);
+}
+
+static void syborg_machine_init(MachineClass *mc)
+{
+    mc->desc = "Syborg (Symbian Virtual Platform, Cortex-A8)";
+    mc->init = syborg_init;
+    mc->max_cpus = 1;
+    mc->ignore_memory_transaction_failures = true;
+    mc->default_cpu_type = ARM_CPU_TYPE_NAME("cortex-a8");
+    mc->default_ram_size = 512 * MiB;
+    mc->default_ram_id = "syborg.ram";
+}
+
+DEFINE_MACHINE_ARM("syborg", syborg_machine_init)
+
+static void syborg_register_types(void)
+{
+    type_register_static(&syborg_platform_info);
+}
+
+type_init(syborg_register_types)

@@ -1,0 +1,82 @@
+--- a/qemu-symbian-svp/target-arm/cpu.h
++++ b/qemu-symbian-svp/target-arm/cpu.h
+@@ -399,6 +399,8 @@
+ /* The ARM MMU allows 1k pages.  */
+ /* ??? Linux doesn't actually use these, and they're deprecated in recent
+    architecture revisions.  Maybe a configure option to disable them.  */
++/* syborg-pg: 12 here (4k soft-MMU pages) stops the Symbian boot before the
++   first kernel output; not investigated (the modern QEMU port replaces this).  */
+ #define TARGET_PAGE_BITS 10
+ #endif
+ 
+--- a/qemu-symbian-svp/target-arm/helper.c
++++ b/qemu-symbian-svp/target-arm/helper.c
+@@ -1027,6 +1027,37 @@
+     return code | (domain << 4);
+ }
+ 
++/* syborg-pg: invalidate the soft-TLB entries an ARMv6/v7 "TLB invalidate by MVA"
++   can cover. The soft TLB holds every mapping as TARGET_PAGE_SIZE (1k) pages, so a
++   section (1M/16M), 64k or 4k page is several entries: look at the current page
++   tables and flush the whole TLB for sections or an empty L1 slot (the section may
++   just have been unmapped), all 1k pieces of a 64k page, else of the 4k page.  */
++static void tlb_flush_mva(CPUState *env, uint32_t mva)
++{
++    uint32_t desc, l2;
++    int i;
++
++    if (!(env->cp15.c1_sys & (1 << 23))) {   /* not the v6 table format */
++        tlb_flush(env, 1);
++        return;
++    }
++    desc = ldl_phys(get_level1_table_address(env, mva));
++    if ((desc & 3) != 1) {                    /* fault, section or supersection */
++        tlb_flush(env, 1);
++        return;
++    }
++    l2 = ldl_phys((desc & 0xfffffc00) | ((mva >> 10) & 0x3fc));
++    if ((l2 & 3) == 1) {                      /* 64k page */
++        mva &= 0xffff0000;
++        for (i = 0; i < 0x10000; i += TARGET_PAGE_SIZE)
++            tlb_flush_page(env, mva + i);
++        return;
++    }
++    mva &= 0xfffff000;                        /* 4k page */
++    for (i = 0; i < 0x1000; i += TARGET_PAGE_SIZE)
++        tlb_flush_page(env, mva + i);
++}
++
+ static int get_phys_addr_v6(CPUState *env, uint32_t address, int access_type,
+ 			    int is_user, uint32_t *phys_ptr, int *prot)
+ {
+@@ -1471,25 +1502,16 @@
+             tlb_flush(env, 0);
+             break;
+         case 1: /* Invalidate single TLB entry.  */
+-#if 0
+-            /* ??? This is wrong for large pages and sections.  */
+-            /* As an ugly hack to make linux work we always flush a 4K
+-               pages.  */
+-            val &= 0xfffff000;
+-            tlb_flush_page(env, val);
+-            tlb_flush_page(env, val + 0x400);
+-            tlb_flush_page(env, val + 0x800);
+-            tlb_flush_page(env, val + 0xc00);
+-#else
+-            tlb_flush(env, 1);
+-#endif
++            /* syborg-pg: flush only the entries this MVA can cover (see
++               tlb_flush_mva) instead of the whole TLB.  */
++            tlb_flush_mva(env, val);
+             break;
+         case 2: /* Invalidate on ASID.  */
+             tlb_flush(env, val == 0);
+             break;
+         case 3: /* Invalidate single entry on MVA.  */
+-            /* ??? This is like case 1, but ignores ASID.  */
+-            tlb_flush(env, 1);
++            /* Like case 1 but for all ASIDs; the soft TLB is not tagged.  */
++            tlb_flush_mva(env, val);
+             break;
+         default:
+             goto bad_reg;

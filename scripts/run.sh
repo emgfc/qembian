@@ -33,6 +33,7 @@ if [ -z "${SYBORG_IN_CONTAINER:-}" ]; then
   extra=()
   [ $GDB != 0 ] && extra+=(-p 127.0.0.1:1234:1234)
   [ -n "${SYBORG_DTB:-}" ] && extra+=(-e SYBORG_DTB=$SYBORG_DTB)
+  [ -n "${SYBORG_QEMU_ARGS:-}" ] && extra+=(-e SYBORG_QEMU_ARGS=$SYBORG_QEMU_ARGS)
   if [ $GUI = 1 ]; then
     extra+=(-e DISPLAY="${DISPLAY:-:0}" -v /tmp/.X11-unix:/tmp/.X11-unix)
     [ -n "${XAUTHORITY:-}" ] && extra+=(-e XAUTHORITY=/xauth -v "$XAUTHORITY:/xauth:ro")
@@ -66,6 +67,8 @@ if [ $GUI = 0 ]; then
 fi
 [ $GDB = 1 ] && qargs+=(-s -S)
 [ $GDB = 2 ] && qargs+=(-s)
+# SYBORG_QEMU_ARGS: extra QEMU options, comma-separated (no spaces), e.g. "-tb-size,256"
+[ -n "${SYBORG_QEMU_ARGS:-}" ] && qargs+=(${SYBORG_QEMU_ARGS//,/ })
 
 echo ">> qemu-system-arm ${qargs[*]}" >&2
 if [ -n "$TIMEOUT" ]; then

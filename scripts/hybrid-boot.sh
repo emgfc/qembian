@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 # Option 1 loop: (re)build our Syborg kernel side, compose it with the N95 user side
 # (9.2 exec personality on), boot headless and summarise serial output.
-#   scripts/hybrid-boot.sh [--no-build] [--secs N] [--trace MASK] [--out DIR] [--type CMD]...
+#   scripts/hybrid-boot.sh [--no-build|--compose-only] [--secs N] [--trace MASK] [--out DIR] [--type CMD]...
 # Needs build/n95/core-flat.img from scripts/n95-inventory.sh.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"; cd "$ROOT"
-BUILD=1; SECS=60; TRACE=0x80000000; OUT=build/boot-test/hybrid; TYPE=()
+BUILD=1; COMPOSE_ONLY=0; SECS=60; TRACE=0x80000000; OUT=build/boot-test/hybrid; TYPE=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --no-build) BUILD=0 ;;
+    --compose-only) BUILD=0; COMPOSE_ONLY=1 ;;
     --secs) SECS="$2"; shift ;;
     --trace) TRACE="$2"; shift ;;
     --out) OUT="$2"; shift ;;
@@ -30,6 +31,7 @@ python3 -I tools/romcompose.py --ours build/rom-hybrid/syborg_hybrid_kernel_ARMV
   --rofs build/n95/rofs1.img --rofs build/n95/rofs2.img --patches rom/hybrid/code-patches.txt
 python3 -I tools/dtb_set.py external/oss.FCL.sf.adapt.Qemu/baseport/syborg/syborg.dtb build/n95/syborg-n95.dtb \
   framebuffer:width=240 framebuffer:height=320 > /dev/null
+[ $COMPOSE_ONLY = 1 ] && exit 0
 rm -rf "$OUT"
 SYBORG_DTB=/work/build/n95/syborg-n95.dtb SYBORG_GDB=${SYBORG_GDB:-} scripts/boot-test.sh --secs "$SECS" --out "$OUT" "${TYPE[@]}" build/n95/hybrid.img > build/logs/hybrid-boot.txt 2>&1 || true
 L="$OUT/serial0.log"
