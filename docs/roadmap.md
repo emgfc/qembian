@@ -63,6 +63,13 @@ shortcut is in [hacks.md](hacks.md).
 - Tooling added: `tools/pcsample.py` (guest PC sampling), `SYBORG_GDB=1|wait` for
   `scripts/hybrid-boot.sh`, `romcompose.py --patches` (verified byte patches), stub control hooks.
 
+**Audio (paused 2026-11-05, owner's call):** QEMU `syborg-audio` device (PCM, tones, MP3/AAC via
+FFmpeg; `scripts/run-gui.sh` plays through PipeWire), DSP stand-in streams the raw PCM node (startup
+jingle works on `build/n95/hybrid-exp.img`, composed with the key-sound/startup-tone byte patches off).
+Open: key tones (DevSound request refused; audio-route reply 77/01→09 added, unverified), AAC/MP3
+nodes untested (trigger: Profiles → ringing tone preview), working ROM still has the audio patches.
+Details: docs/nokia-dsp-playback.md, docs/hacks.md (H-dspbridge).
+
 **Queue (2026-11-05, from the project owner):**
 - Done (run 42): Startup "hands" animation, first-boot region/date/time queries and the idle screen (fake modem answers a definite "no SIM"). Done (run 44): Phone.exe comes up (DSP bridge + DVFS stand-ins let MmfAudioServer start), publishes 213, the phone-ready skip patch is gone and the full Active Standby idle screen stays up.
 - Screensaver partial display: implemented (DisplayDriver ctl 3/4/5 → Syborg fb PARTIAL_* registers, rows outside the band black, 8-colour idle mode); verified by poking the registers, not yet seen from the real screensaver (the idle screen does not stay up long enough: Phone/audio).
