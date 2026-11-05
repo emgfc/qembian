@@ -1,0 +1,31 @@
+--- a/baseport/syborg/specific/highrestimer.h	2026-11-06 00:08:22.127861481 +0100
++++ b/baseport/syborg/specific/highrestimer.h	2026-11-06 00:08:22.151005424 +0100
+@@ -47,21 +47,18 @@
+  * measured by the free running timer will get out of kilter. This affects t_cputime from e32test
+  * amongst other things.
+  */
+-//#define GET_HIGH_RES_TICK_COUNT(Rd) asm("nop");
+-// Hi-jacking r10 for tmp, not good if Rd is R10 -- grepping the the kernel shows it's not (for now)
++// syborg-pg: the fast counter is the RTC's 32768 Hz COUNT32K register (word 5), one read. The N95
++// user side (its hal.dll) reports EFastCounterFrequency = 32768 regardless of the kernel, so the
++// counter must run at that rate (was: LATCH=1 then DATA_LOW, a 1 MHz counter, which made
++// FastCounter-paced apps run unthrottled).
+ #define GET_HIGH_RES_TICK_COUNT(Rd)						         \
+-  asm("push {r10}");										     \
+-  asm("mov r10, #1");										     \
+-  asm("ldr "#Rd", =%a0"               : : "i" (KHwBaseRtc + 4)); \
+-  asm("str r10, ["#Rd", #%a0]"        : : "i" (0));			     \
+-  asm("pop {r10}");                                              \
+-  asm("ldr "#Rd", =%a0"               : : "i" (KHwBaseRtc + 8)); \
+-  asm("ldr "#Rd", ["#Rd", #%a0]"      : : "i" (0));              
++  asm("ldr "#Rd", =%a0"               : : "i" (KHwBaseRtc + 20)); \
++  asm("ldr "#Rd", ["#Rd", #%a0]"      : : "i" (0));
+ 
+ /**
+  * The frequency of the timer in Hz.
+  */
+-const TInt KHighResTimerFrequency = 1000000;
++const TInt KHighResTimerFrequency = 32768;
+ 
+ /**
+  * Macro indicating that the timer counts up if defined.

@@ -11,6 +11,9 @@
   --key T:K       send a key chord at T seconds, QKeyCode names joined by '-' (e.g. 30:ret, 31:ctrl-c)
   --type T:TEXT   type TEXT at T seconds
   --out DIR       output directory (default build/runs/<label>)
+  --keep-drives D reuse and keep C: (D/nvmemory.img), E: (D/nvmemory2.img) and the RTC offset
+                  (D/rtc-offset) across runs, like scripts/run-gui.sh; default: fresh per run
+                  (fresh RTC offset = host time)
 
 Writes DIR/serial.log (each line prefixed with seconds since start), DIR/shot-<T>.png,
 DIR/report.txt (tools/syb_report.py) and prints the report.
@@ -34,6 +37,7 @@ def main():
     ap.add_argument('--out')
     ap.add_argument('--label', default=time.strftime('run-%H%M%S'))
     ap.add_argument('--gui', action='store_true')
+    ap.add_argument('--keep-drives', metavar='DIR')
     ap.add_argument('--report-args', nargs='*', default=[])
     a = ap.parse_args()
     global ROM_PATH
@@ -53,14 +57,17 @@ def main():
     subprocess.run(['pkill', '-f', 'qemu-system-arm.*-name sybtool'])	# only our own QEMUs
     time.sleep(0.5)
     qmp = os.path.join(out, 'qmp.sock')
+    ddir = os.path.abspath(a.keep_drives) if a.keep_drives else out
+    os.makedirs(ddir, exist_ok=True)
     cmd = [os.path.join(ROOT, 'scripts', 'run-modern.sh'), '--qmp', qmp, '--name', 'sybtool',
-           '--nvmem', os.path.join(out, 'nvmemory.img'), '--nvmem2', os.path.join(out, 'nvmemory2.img'),
+           '--nvmem', os.path.join(ddir, 'nvmemory.img'), '--nvmem2', os.path.join(ddir, 'nvmemory2.img'),
            '--dtb', os.path.join(ROOT, 'build', 'n95', 'syborg-n95.dtb')]
     if a.gui:
         cmd.append('--gui')
     cmd.append(os.path.abspath(ROM_PATH))
     # sound goes to a file in the run folder (the N95 fake DSP plays through syborg-audio)
-    cmd += ['-audiodev', 'wav,id=snd0,path=' + os.path.join(out, 'audio.wav'), '-machine', 'audiodev=snd0']
+    cmd += ['-audiodev', 'wav,id=snd0,path=' + os.path.join(out, 'audio.wav'), '-machine', 'audiodev=snd0',
+            '-global', 'syborg-rtc.offset-file=' + os.path.join(ddir, 'rtc-offset')]
     p = subprocess.Popen(cmd, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                          stdin=subprocess.DEVNULL, start_new_session=True)
     t0 = time.time()
@@ -93,11 +100,12 @@ def main():
     time.sleep(max(0, a.secs - (time.time() - t0)))
     subprocess.run([sys.executable, qmp_tool, qmp, 'screendump', os.path.join(out, 'shot-final.png')])
     os.killpg(p.pid, signal.SIGKILL)
-    try:
-        os.remove(os.path.join(out, 'nvmemory.img'))	# the run's C: drive
-        os.remove(os.path.join(out, 'nvmemory2.img'))	# and E:
-    except OSError:
-        pass
+    if not a.keep_drives:
+        for f in ('nvmemory.img', 'nvmemory2.img'):	# the run's C: and E: drives
+            try:
+                os.remove(os.path.join(out, f))
+            except OSError:
+                pass
     p.wait()
     th.join(2)
     log.close()

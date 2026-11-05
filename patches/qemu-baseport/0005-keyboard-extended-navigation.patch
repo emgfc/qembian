@@ -1,0 +1,67 @@
+--- a/baseport/syborg/keyboard/syborg_keyboard.h
++++ b/baseport/syborg/keyboard/syborg_keyboard.h
+@@ -76,6 +76,8 @@
+   };
+ };
+ 
++// Syborg folds the PC set-1 E0 prefix into bit 7. Map the extended
++// navigation keys as well as their non-extended numeric-keypad aliases.
+ const TUint8 KConvertCode[] =
+   {
+ 	/*00*/ EStdKeyNull,
+@@ -247,8 +249,8 @@
+ 	/*99*/ EStdKeyNull,
+ 	/*9a*/ EStdKeyNull,
+ 	/*9b*/ EStdKeyNull,
+-	/*9c*/ EStdKeyNull,
+-	/*9d*/ EStdKeyNull,
++	/*9c*/ EStdKeyEnter,
++	/*9d*/ EStdKeyRightCtrl,
+ 	/*9e*/ EStdKeyNull,
+ 	/*9f*/ EStdKeyNull,
+ 
+@@ -274,10 +276,10 @@
+ 	/*b2*/ EStdKeyNull,
+ 	/*b3*/ EStdKeyNull,
+ 	/*b4*/ EStdKeyNull,
+-	/*b5*/ EStdKeyNull,
++	/*b5*/ EStdKeyForwardSlash,
+ 	/*b6*/ EStdKeyNull,
+ 	/*b7*/ EStdKeyNull,
+-	/*b8*/ EStdKeyNull,
++	/*b8*/ EStdKeyRightAlt,
+ 	/*b9*/ EStdKeyNull,
+ 	/*ba*/ EStdKeyNull,
+ 	/*bb*/ EStdKeyNull,
+@@ -293,20 +295,20 @@
+ 	/*c4*/ EStdKeyNull,
+ 	/*c5*/ EStdKeyNull,
+ 	/*c6*/ EStdKeyNull,
+-	/*c7*/ EStdKeyNull,
+-	/*c8*/ EStdKeyNull,
+-	/*c9*/ EStdKeyNull,
++	/*c7*/ EStdKeyHome,
++	/*c8*/ EStdKeyUpArrow,
++	/*c9*/ EStdKeyPageUp,
+ 	/*ca*/ EStdKeyNull,
+-	/*cb*/ EStdKeyNull,
++	/*cb*/ EStdKeyLeftArrow,
+ 	/*cc*/ EStdKeyNull,
+-	/*cd*/ EStdKeyNull,
++	/*cd*/ EStdKeyRightArrow,
+ 	/*ce*/ EStdKeyNull,
+-	/*cf*/ EStdKeyNull,
+-
+-  	/*d0*/ EStdKeyNull,
+-	/*d1*/ EStdKeyNull,
+-	/*d2*/ EStdKeyNull,
+-	/*d3*/ EStdKeyNull,
++	/*cf*/ EStdKeyEnd,
++
++  	/*d0*/ EStdKeyDownArrow,
++	/*d1*/ EStdKeyPageDown,
++	/*d2*/ EStdKeyInsert,
++	/*d3*/ EStdKeyDelete,
+ 	/*d4*/ EStdKeyNull,
+ 	/*d5*/ EStdKeyNull,
+ 	/*d6*/ EStdKeyNull,

@@ -6,6 +6,7 @@
  * 8 BPP, 9 COLOR_ORDER, 10 BYTE_ORDER, 11 PIXEL_ORDER, 12 ROW_PITCH, 13 ENABLED,
  * 14 PARTIAL_START, 15 PARTIAL_END (inclusive), 16 PARTIAL_MODE (bit 0 on, bit 1 full colour,
  *   bit 2 the band is a range of rows; clear = a range of columns),
+ * 17 FRAME_COUNT (read: vsyncs since reset), 18 REFRESH_RATE (read: Hz, 0 = no vsync timer),
  * 0x100.. palette (256 entries).
  * Partial mode models the N95 panel's partial-display power saving (screensaver): only the band
  * START..END (rows or columns of the picture, as the display driver maps the panel rows for the
@@ -13,6 +14,10 @@
  * has 8 colours (one bit per channel), like the panel's idle mode.
  * The Symbian driver programs 32 bpp, colour order 0 (little-endian 0x00RRGGBB words),
  * which is exactly the host x8r8g8b8 surface format, so rows are copied as they are.
+ * VSYNC (INT_CAUSE bit 0) comes from a fixed-rate timer on the virtual clock (property refresh-rate,
+ * Hz, default 60), like the panel's tearing-effect/refresh signal, not from the host display
+ * refresh (which may be slower, faster or absent when headless); the N95 display stand-in paces
+ * CDirectScreenBitmap::EndUpdate on it. BASE_UPDATE is still raised at the next host refresh.
  * Other depths are logged as unimplemented. A disabled or blanked panel keeps its picture, dimmed (property blank-dim, percent).
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
@@ -28,6 +33,7 @@
 #include "migration/vmstate.h"
 #include "ui/console.h"
 #include "qom/object.h"
+#include "qemu/timer.h"
 #include "syborg.h"
 
 OBJECT_DECLARE_SIMPLE_TYPE(SyborgFbState, SYBORG_FB)
@@ -44,11 +50,32 @@ struct SyborgFbState {
     bool warned;
     uint32_t blank_dim;       /* brightness (percent) of a blanked/disabled panel */
     uint32_t partial_start, partial_end, partial_mode;
+    uint32_t refresh_rate;    /* vsync rate in Hz (0 = none) */
+    uint32_t frame_count;
+    int64_t next_vsync;       /* QEMU_CLOCK_VIRTUAL ns */
+    QEMUTimer *vsync_timer;
 };
 
 static void syborg_fb_update_irq(SyborgFbState *s)
 {
     qemu_set_irq(s->irq, (s->int_status & s->int_enable) != 0);
+}
+
+static void syborg_fb_vsync(void *opaque)
+{
+    SyborgFbState *s = opaque;
+    int64_t period = NANOSECONDS_PER_SECOND / s->refresh_rate;
+    int64_t now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+
+    s->frame_count++;
+    s->int_status |= 1;
+    syborg_fb_update_irq(s);
+    /* fixed grid; if the VM was paused or starved, skip the missed frames instead of bursting */
+    s->next_vsync += period;
+    if (s->next_vsync <= now) {
+        s->next_vsync = now + period - (now - s->next_vsync) % period;
+    }
+    timer_mod(s->vsync_timer, s->next_vsync);
 }
 
 static bool syborg_fb_update_display(void *opaque)
@@ -60,9 +87,6 @@ static bool syborg_fb_update_display(void *opaque)
     if (s->need_int) {
         s->int_status |= 2;
         s->need_int = 0;
-    }
-    if (!s->blank) {
-        s->int_status |= 1;
     }
     if (s->int_status != old) {
         syborg_fb_update_irq(s);
@@ -154,6 +178,8 @@ static uint64_t syborg_fb_read(void *opaque, hwaddr offset, unsigned size)
     case 14: return s->partial_start;
     case 15: return s->partial_end;
     case 16: return s->partial_mode;
+    case 17: return s->frame_count;
+    case 18: return s->refresh_rate;
     default: return 0;
     }
 }
@@ -208,11 +234,16 @@ static void syborg_fb_realize(DeviceState *dev, Error **errp)
     s->need_int = 1;
     s->con = qemu_graphic_console_create(dev, 0, &syborg_fb_gfx_ops, s);
     qemu_console_resize(s->con, s->width, s->height);
+    if (s->refresh_rate) {
+        s->vsync_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, syborg_fb_vsync, s);
+        s->next_vsync = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + NANOSECONDS_PER_SECOND / s->refresh_rate;
+        timer_mod(s->vsync_timer, s->next_vsync);
+    }
 }
 
 static const VMStateDescription vmstate_syborg_fb = {
     .name = "syborg-fb",
-    .version_id = 2,
+    .version_id = 3,
     .minimum_version_id = 1,
     .fields = (const VMStateField[]) {
         VMSTATE_UINT32(base, SyborgFbState),
@@ -233,6 +264,8 @@ static const VMStateDescription vmstate_syborg_fb = {
         VMSTATE_UINT32_V(partial_start, SyborgFbState, 2),
         VMSTATE_UINT32_V(partial_end, SyborgFbState, 2),
         VMSTATE_UINT32_V(partial_mode, SyborgFbState, 2),
+        VMSTATE_UINT32_V(frame_count, SyborgFbState, 3),
+        VMSTATE_INT64_V(next_vsync, SyborgFbState, 3),
         VMSTATE_END_OF_LIST()
     }
 };
@@ -242,6 +275,8 @@ static const Property syborg_fb_properties[] = {
     DEFINE_PROP_UINT32("height", SyborgFbState, height, 320),
     /* like a panel with its backlight off: the picture stays, dimmed (0 = black) */
     DEFINE_PROP_UINT32("blank-dim", SyborgFbState, blank_dim, 25),
+    /* panel refresh / vsync rate (N95: assumed 60 Hz, not measured) */
+    DEFINE_PROP_UINT32("refresh-rate", SyborgFbState, refresh_rate, 60),
 };
 
 static void syborg_fb_class_init(ObjectClass *oc, const void *data)

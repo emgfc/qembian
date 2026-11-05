@@ -10,6 +10,18 @@
  * 0.9.1 plugin (host start time in microseconds minus the virtual clock in nanoseconds); the
  * guest only uses LATCH=1 / DATA_LOW as a free-running 1 MHz counter.
  *
+ * syborg-pg extension: register 4 WALL = calendar time in UTC seconds since 2000-01-01, read and
+ * written by the baseport's Syborg::(Set)SystemTimeInSecondsFrom2000 (kernel hardware RTC).
+ * WALL = QEMU rtc clock (host time, honours -rtc base=/clock=) + wall_offset. A guest write moves
+ * wall_offset, so a date/time set on the phone keeps running from the new value. With the
+ * property offset-file=PATH the offset (decimal seconds) is loaded at start and rewritten on every
+ * guest write, which persists the phone's time across QEMU restarts like a battery-backed RTC.
+ * Register 5 COUNT32K = free-running 32768 Hz counter (virtual clock), one read, no latch: the
+ * kernel's fast counter (NKern::FastCounter, User::FastCounter). The N95's hal.dll reports
+ * EFastCounterFrequency = 32768 (its OMAP 32 kHz timer) without asking the kernel, so the counter
+ * must really run at that rate or apps that pace frames with it run unthrottled. LATCH=1 (1 MHz)
+ * stays for the original Syborg baseport.
+ *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
@@ -18,6 +30,7 @@
 #include "qemu/timer.h"
 #include "qapi/error.h"
 #include "hw/core/sysbus.h"
+#include "system/system.h"
 #include "hw/core/irq.h"
 #include "hw/core/ptimer.h"
 #include "hw/core/qdev-properties.h"
@@ -189,7 +202,31 @@ struct SyborgRtcState {
     MemoryRegion iomem;
     int64_t offset;
     uint64_t data;
+    int64_t wall_offset;   /* guest UTC seconds minus rtc_clock seconds */
+    char *offset_file;
 };
+
+#define SECS_1970_TO_2000 946684800LL
+
+static int64_t syborg_rtc_host_secs2000(void)
+{
+    return qemu_clock_get_ns(rtc_clock) / NANOSECONDS_PER_SECOND - SECS_1970_TO_2000;
+}
+
+static void syborg_rtc_save_offset(SyborgRtcState *s)
+{
+    g_autofree char *txt = NULL;
+    g_autoptr(GError) err = NULL;
+
+    if (!s->offset_file || !*s->offset_file) {
+        return;
+    }
+    txt = g_strdup_printf("%" PRId64 "\n", s->wall_offset);
+    if (!g_file_set_contents(s->offset_file, txt, -1, &err)) {
+        qemu_log_mask(LOG_UNIMP, "syborg-rtc: cannot write %s: %s\n",
+                      s->offset_file, err->message);
+    }
+}
 
 static uint64_t syborg_rtc_read(void *opaque, hwaddr offset, unsigned size)
 {
@@ -199,6 +236,9 @@ static uint64_t syborg_rtc_read(void *opaque, hwaddr offset, unsigned size)
     case 0: return SYBORG_ID_RTC;
     case 2: return (uint32_t)s->data;
     case 3: return (uint32_t)(s->data >> 32);
+    case 4: return (uint32_t)(int32_t)(syborg_rtc_host_secs2000() + s->wall_offset);
+    case 5: return (uint32_t)muldiv64(qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL), 32768,
+                                      NANOSECONDS_PER_SECOND);
     default: return 0;
     }
 }
@@ -227,6 +267,10 @@ static void syborg_rtc_write(void *opaque, hwaddr offset, uint64_t value,
     case 3:
         s->data = (s->data & 0xffffffffull) | ((uint64_t)value << 32);
         break;
+    case 4:
+        s->wall_offset = (int64_t)(int32_t)value - syborg_rtc_host_secs2000();
+        syborg_rtc_save_offset(s);
+        break;
     default:
         break;
     }
@@ -250,15 +294,28 @@ static void syborg_rtc_realize(DeviceState *dev, Error **errp)
     sysbus_init_mmio(SYS_BUS_DEVICE(s), &s->iomem);
     /* same (mixed-unit) initialisation as the 0.9.1 plugin */
     s->offset = start_s * 1000000 - qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+
+    s->wall_offset = 0;
+    if (s->offset_file && *s->offset_file) {
+        g_autofree char *txt = NULL;
+        if (g_file_get_contents(s->offset_file, &txt, NULL, NULL)) {
+            s->wall_offset = g_ascii_strtoll(txt, NULL, 10);
+        }
+    }
 }
+
+static const Property syborg_rtc_properties[] = {
+    DEFINE_PROP_STRING("offset-file", SyborgRtcState, offset_file),
+};
 
 static const VMStateDescription vmstate_syborg_rtc = {
     .name = "syborg-rtc",
-    .version_id = 1,
-    .minimum_version_id = 1,
+    .version_id = 2,
+    .minimum_version_id = 2,
     .fields = (const VMStateField[]) {
         VMSTATE_INT64(offset, SyborgRtcState),
         VMSTATE_UINT64(data, SyborgRtcState),
+        VMSTATE_INT64(wall_offset, SyborgRtcState),
         VMSTATE_END_OF_LIST()
     }
 };
@@ -269,6 +326,7 @@ static void syborg_rtc_class_init(ObjectClass *oc, const void *data)
 
     dc->realize = syborg_rtc_realize;
     dc->vmsd = &vmstate_syborg_rtc;
+    device_class_set_props(dc, syborg_rtc_properties);
 }
 
 static const TypeInfo syborg_timer_types[] = {

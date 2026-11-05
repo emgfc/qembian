@@ -6,3 +6,5 @@
 *.log
 !docs/evidence/*.log
 __pycache__/
+/linuxboot/linux-stable-nokia-tablets/
+/linuxboot/rapuyama-linux/

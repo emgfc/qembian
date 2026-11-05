@@ -12,13 +12,15 @@
   syb_gdb.py thread [--at T]       name of the thread running at T seconds
 
 Options common to all: --no-compose (default: reuse build/n95/hybrid.img as is), --keep (leave
-QEMU running). The kernel's DWARF (_syborg_ekern.exe.sym) is loaded at its ROM/data addresses,
+QEMU running), --keep-drives DIR (boot with DIR/nvmemory.img, nvmemory2.img and rtc-offset, as
+written by syb_run.py --keep-drives; default: fresh drives, RTC = host time). The kernel's DWARF (_syborg_ekern.exe.sym) is loaded at its ROM/data addresses,
 so kernel expressions work in --print (e.g. TheScheduler.iCurrentThread->iPriority).
 Output goes to stdout and build/runs/gdb-<cmd>.log.
 """
 import argparse, json, os, subprocess, sys, tempfile, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DRIVES = None
 sys.path.insert(0, os.path.join(ROOT, 'tools'))
 REL = os.path.join(ROOT, 'build', 'epocroot', 'epoc32', 'release', 'armv5', 'udeb')
 KSYM = os.path.join(REL, '_syborg_ekern.exe.sym')
@@ -202,8 +204,12 @@ def start_qemu(wait, secs):
     cmd = [os.path.join(ROOT, 'scripts', 'run-modern.sh'), '--timeout', str(int(secs) + 5), '--name', 'sybtool',
            '--gdb-wait' if wait else '--gdb', '--dtb', os.path.join(ROOT, 'build', 'n95', 'syborg-n95.dtb'),
            '--qmp', QMP_SOCK,
+           *(['--nvmem', os.path.join(DRIVES, 'nvmemory.img'), '--nvmem2', os.path.join(DRIVES, 'nvmemory2.img')]
+             if DRIVES else []),
            '--serial-log', os.path.join(ROOT, 'build', 'runs', 'gdb-serial.log'),
            os.path.abspath(ROM_PATH)]
+    if DRIVES:
+        cmd += ['-global', 'syborg-rtc.offset-file=' + os.path.join(DRIVES, 'rtc-offset')]
     p = subprocess.Popen(cmd, cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                          stdin=subprocess.DEVNULL, start_new_session=True)
     time.sleep(2)
@@ -246,11 +252,13 @@ def main():
     ap.add_argument('--n', type=int, default=10)
     ap.add_argument('--interval', type=float, default=1)
     ap.add_argument('--keep', action='store_true')
+    ap.add_argument('--keep-drives', metavar='DIR')
     ap.add_argument('--key', action='append', default=[], help='T:KEYS, QMP key chord at T s (wall clock)')
     ap.add_argument('--rom', default=os.path.join(ROOT, 'build', 'n95', 'hybrid.img'))
     a = ap.parse_args()
-    global ROM_PATH
+    global ROM_PATH, DRIVES
     ROM_PATH = a.rom
+    DRIVES = os.path.abspath(a.keep_drives) if a.keep_drives else None
     os.makedirs(os.path.join(ROOT, 'build', 'runs'), exist_ok=True)
     log = os.path.join(ROOT, 'build', 'runs', 'gdb-%s.log' % a.cmd)
     gdbout = os.path.join(ROOT, 'build', 'runs', 'gdb-%s.gdb.txt' % a.cmd)

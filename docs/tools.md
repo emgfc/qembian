@@ -8,6 +8,7 @@ Quick reference for people and agents. All tools run on the host from the projec
 tools/syb_run.py --secs 30 --shot 5 --shot 15            # compose (IPC trace on), boot, report
 tools/syb_run.py --trace 0x80000000 --secs 20            # quiet/fast trace mask
 tools/syb_run.py --no-compose --key 20:ret --type 25:abc # reuse ROM, send keys/text at times
+tools/syb_run.py --no-compose --keep-drives build/runs/D  # reuse C:/E:/RTC offset across runs
 ```
 Writes `build/runs/<label>/` with `serial.log` (seconds-prefixed lines), `shot-*.png`,
 `report.txt`. The report (`tools/syb_report.py LOG [--full] [--ipc-errors]`, works on any serial
@@ -47,6 +48,8 @@ output (`build/runs/gdb-<cmd>.gdb.txt`) is shown instead of silence. At a kernel
 exec call the user call site is printed (`user pc <module+off> (9.2 exec S0a ChannelRequest)`), so a
 kernel panic such as `KERN-EXEC 0` names its caller: `brk 'K::PanicCurrentThread(int)' --when-thread X`
 (bad-handle panics go there directly, not through `K::PanicKernExec`).
+`--keep-drives DIR` boots with the drives and RTC offset of a `syb_run.py --keep-drives DIR` run
+(for probes that need a phone past its first boot).
 Boots the ROM as it is (`build/n95/hybrid.img`) with the gdbstub, loads the kernel's DWARF
 (`_syborg_ekern.exe.sym` at code 0x80003000, data 0xc8000000), so kernel expressions work; names
 the current thread from `TheScheduler`; kills stray QEMUs first. Output also in
@@ -79,7 +82,12 @@ scripts/n95-drive.sh put e myapp.sisx /        # then boot, File manager -> Memo
 scripts/n95-drive.sh ls c /data
 scripts/n95-drive.sh get e /Images/x.jpg .
 ```
-Needs `mtools`. Scripted runs (`syb_run`, `syb_gdb`) use fresh per-run drives.
+Needs `mtools`. Scripted runs (`syb_run`, `syb_gdb`) use fresh per-run drives unless given
+`--keep-drives DIR`.
+
+Clock: the phone's time is host time plus the offset in `build/n95/rtc-offset`, which QEMU rewrites
+whenever the date/time is changed on the phone (survives restarts; delete the file to return to
+host time). `-rtc base=...` on the QEMU command line shifts the host base.
 
 ## Older helpers still useful
 
@@ -88,3 +96,17 @@ Needs `mtools`. Scripted runs (`syb_run`, `syb_gdb`) use fresh per-run drives.
 - `tools/xipdis.py` (objdump with import names), `tools/research/xip_importers.py`.
 - `tools/rofs.py`, `tools/e32load.py` (ROFS files, RAM-loaded images to ELF).
 - `scripts/measure-boot.sh --qemu modern` (milestone timings, `build/logs/boot-times.tsv`).
+
+## Native test apps: `src/n95apps/`
+
+`src/n95apps/dsbtest/build.sh` builds `build/n95apps/dsbtest.exe` on the host (GCC 14 symbianelf +
+elf2e32_next, S60 3rd FP1 SDK headers and 9.2 `.dso` only) and its menu registration
+`dsbtest_reg.rsc` (rcomp in the container, see the build log of 2026-11-06). Install with QEMU off:
+```
+DRIVE_C=... scripts/n95-drive.sh put c build/n95apps/dsbtest.exe /sys/bin
+DRIVE_C=... scripts/n95-drive.sh put c build/n95apps/obj-dsbtest/dsbtest_reg.rsc /private/10003a3f/import/apps
+```
+It appears in Menu → Applications. It measures `CDirectScreenBitmap` EndUpdate pacing and prints
+`DSBTEST:` lines (fast counter, NTickCount, fps) to the serial log. No C++ EH runtime: it opens a
+trap level with `User::MarkCleanupStack()` so cleanup-stack pushes work, but a leave panics.
+Approach for app development and debugging in general: [app-dev-debugging.md](app-dev-debugging.md).

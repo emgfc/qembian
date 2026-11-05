@@ -65,7 +65,7 @@ shortcut is in [hacks.md](hacks.md).
 
 **Audio (paused 2026-11-05, owner's call):** QEMU `syborg-audio` device (PCM, tones, MP3/AAC via
 FFmpeg; `scripts/run-gui.sh` plays through PipeWire), DSP stand-in streams the raw PCM node (startup
-jingle works on `build/n95/hybrid-exp.img`, composed with the key-sound/startup-tone byte patches off).
+jingle works on `build/n95/hybrid-exp.img`, composed with the key-sound/startup-tone byte patches off by `scripts/compose-exp.sh`).
 Open: key tones (DevSound request refused; audio-route reply 77/01→09 added, unverified), AAC/MP3
 nodes untested (trigger: Profiles → ringing tone preview), working ROM still has the audio patches.
 Details: docs/nokia-dsp-playback.md, docs/hacks.md (H-dspbridge).

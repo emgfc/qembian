@@ -1,0 +1,42 @@
+--- a/baseport/syborg/specific/assp.cpp	2026-11-05 23:18:32.362313907 +0100
++++ b/baseport/syborg/specific/assp.cpp	2026-11-05 23:18:47.418077790 +0100
+@@ -179,9 +179,23 @@
+ 	return EStartupColdReset;
+ }
+ 
++// syborg-pg: hardware RTC = QEMU syborg-rtc register 4 (WALL, UTC seconds since 2000-01-01;
++// host time plus an offset that QEMU persists with -global syborg-rtc.offset-file=...).
++const TUint8 KSyborgRtcWall = 4;
++
++// Initial-time hook: the default one (P::DefaultInitialTime) ignores the RTC on a cold start and
++// every QEMU launch is one, so the clock always restarted at the ROM timestamp.
++static TInt SyborgInitialTime()
++{
++	TInt s = (TInt)ReadReg(KHwBaseRtc, KSyborgRtcWall);
++	Kern::Printf("SYBRTC: initial time %d s from 2000", s);
++	return s < 0 ? KErrCorrupt : s;	// negative = before 2000: fall back to the ROM timestamp
++}
++
+ EXPORT_C void Syborg::Init1()
+ {
+ 	__DEBUG_PRINT("Syborg::Init1()");
++	Kern::SetInitialTimeHandler(SyborgInitialTime);	// before K::StartTickQueue (K::Init3)
+ 
+ 	// Enable the CLCD in the System registers
+ 	SyborgInterrupt::Init1();
+@@ -269,12 +283,14 @@
+ 
+ EXPORT_C TInt Syborg::SystemTimeInSecondsFrom2000(TInt& aTime)
+ {
++	aTime = (TInt)ReadReg(KHwBaseRtc, KSyborgRtcWall);
+ 	__KTRACE_OPT(KHARDWARE,Kern::Printf("RTC READ: %d",aTime));
+ 	return KErrNone;
+ }
+ 
+ EXPORT_C TInt Syborg::SetSystemTimeInSecondsFrom2000(TInt aTime)
+ {
+-	__KTRACE_OPT(KHARDWARE,Kern::Printf("Set RTC: %d",aTime));					// do this here to allow the value to be loaded...
++	Kern::Printf("SYBRTC: set %d (was %d)", aTime, (TInt)ReadReg(KHwBaseRtc, KSyborgRtcWall));
++	WriteReg(KHwBaseRtc, KSyborgRtcWall, (TUint32)aTime);
+ 	return KErrNone;
+ }

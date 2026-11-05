@@ -22,6 +22,13 @@ a rough cost.
   "card present" and that SEC cause 0x16 is ignored.* Cost: small (a `syb_gdb brk` preset on
   DosSrv's raise function, or a kernel-side hook on the DosServer session).
 
+- **ISI reply-layout extractor**: for a client handler of a response, decode the ISIMSG field
+  accessors it calls (`#165`/`#255`/... take a field id that maps to a fixed offset, `#303` finds a
+  subblock) into "offset → accepted values", so a fake-modem reply can be written in one go.
+  *2026-11-05: the RTC status reply `19 0B` took four boot-and-probe rounds because the field ids
+  (0 → [10], 18 → sb+2) looked like raw offsets.* Cost: small (table of the ISIMSG accessor
+  switch statements + a disassembly walk in `tools/isi.py`).
+
 ## Done
 - `tools/syb_gdb.py` fixes (2026-11-05): stack reads clipped at the end of the supervisor stack (they
   failed silently, so `--stack` and kernel-symbol probes looked broken; the kernel .sym mapping was

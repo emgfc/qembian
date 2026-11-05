@@ -1,0 +1,8 @@
+// Menu registration for dsbtest.exe (C:\private\10003a3f\import\apps\dsbtest_reg.rsc)
+#include <appinfo.rh>
+UID2 KUidAppRegistrationResourceFile
+UID3 0xE0001DB5
+RESOURCE APP_REGISTRATION_INFO
+	{
+	app_file = "dsbtest";
+	}

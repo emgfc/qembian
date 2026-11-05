@@ -219,7 +219,7 @@ Values are what the N95 8GB (product 0x29, panel 0x5b, screen 0) returns.
 | 0 | +0 | `+0x1a4 != 1` | 1 | display present (type is not "none") |
 | 1 | +4 | client process priority == 650 (`EPriorityWindowServer`) | 1 for WSERV | caller is the window server |
 | 2 | +8 | +0x294 | 1 | **direct-screen-bitmap buffers supported** — ScDv stores `!word2`; with 0 its `CDirectScreenBitmap` allocates its own memory instead of using ctl 0x17/0x18/0x19 + req 0x2003/0x2004 (`FUN_80878c20`) |
-| 3 | +12 | const | 0 | |
+| 3 | +12 | const | 0 | `r_display` keeps the block at `this+0x18`; word 3 (`this+0x24`) non-zero = DSB info word 1 is an `RChunk` handle + word 6 offset (ord45); 0 = word 1 is the address (V) |
 | 4 | +16 | +0x290 | 0 | partial-width (x-range) panel updates |
 | 5 | +20 | +0x28c | 0 | update retry strategy (ctl 9 retry counter +0x31c) |
 | 6 | +24 | +0x68 | 240, **320 after rotation 270** | current height |
@@ -286,7 +286,7 @@ posting clients, **n/a** = not needed.
 |---|---|---|---|
 | caps word 0 (+0) | 1 | 1 (V) | now, already right |
 | caps word 1 (+4) | 0 | 1 when the client process priority is 650 (WSERV), else 0 (V); ScDv does not read it — optional | n/a |
-| caps word 2 (+8) | 0 | real = 1, but **keep 0**: with 0 ScDv's DSB uses heap memory and never calls 0x17/0x18/0x19/0x2003/0x2004 (V). Set to 1 only together with a real DSB implementation | later |
+| caps word 2 (+8) | **1** (2026-11-06) | 1 as on the device: ScDv's `CDirectScreenBitmap` uses ctl 0x17/0x18/0x19 + req 0x2003/0x2004, implemented in the stand-in (DSB, see below) | done |
 | caps words 4, 5 (+16, +20) | 1, 1 | **0, 0** (V: +0x290/+0x28c are 0 on this product); ScDv does not read them | low |
 | caps words 6, 7 (+24, +28) | 0, 0 | height/width in current orientation: 240/320 before, 320/240 after req 0x8003 with index 1 or 3 (V); not read by ScDv | low |
 | caps word 8 (+32) | 0 | **240** (max partial lines) (V) — `power_save_display_mode` ord5 reports it to the screensaver | saver |
@@ -304,17 +304,18 @@ posting clients, **n/a** = not needed.
 | ctl 5 | ignored | write TInt = partial active (0/1) (V) | saver |
 | ctl 6 | ignored | write a 24-bit panel ID (any value, e.g. 0) (V); einfolcdplugin prints it | low |
 | ctl 7 | ignored, 0 | accept index 0..3, return 0 (V) | n/a |
-| ctl 0x1a | ignored (ScDv then reads 0) | write the rotation index last set by 0x8003 (V). **Risk**: `r_display` ord59 then swaps HAL X/Y for callers (CDirectScreenBitmap etc.); ScDv's main path keeps its own rotation. Enable and test | medium |
+| ctl 0x1a | **implemented** (2026-11-06): writes the rotation index of the last req 0x8003 | `r_display` ord59 (vtable +0xac) swaps HAL's native 320×240 to the current 240×320 with it; without it `CDirectScreenBitmap::Create(0,0,240,320)` failed -6 (V). The UI was unaffected in tests | done |
 | ctl 0x1b | ignored | return 4096 (V) | n/a |
 | ctl 0x21 | ignored | copy-without-transfer → 0 (DSB only) | later |
-| ctl 0x17 / 0x18 / 0x19 | ignored, 0 | **must not return 0 silently** for 0x18 (ScDv would use garbage buffer info). Return KErrNotSupported (-5) for 0x17/0x18 or implement DSB (allocate a chunk, fill the 7-word info) | later |
+| ctl 0x17 / 0x18 / 0x19 | **implemented** (2026-11-06) | 0x17 create (rect `{x\|w<<16, y\|h<<16}`, a2 1 = double buffer, 2 = incremental), 0x18 BeginUpdate info `{mode 11, address, w, h, w*4, 5, 0}` (-39 while a buffer is begun), 0x19 release. The address is a global user-accessible mapping (`DPlatChunkHw`, `EMapAttrUserRw`), because `r_display` ord45 only treats word 1 as an `RChunk` handle (adding word 6) when **caps word 3** (`this+0x24`, caps are copied to `this+0x18`) is non-zero, and the N95 reports 0 there (V) | done |
 | ctl 0xc–0x16, 0x1c, 0x1e, 0x20, 0x25–0x2a (TV-out/posting) | ignored, 0 | real driver without TV-out returns -1/-18/-5; return **KErrNotSupported (-5)** so TvOutConfig/CamCtrl take their "no TV-out" paths instead of believing they succeeded | later |
 | unknown fn | 0 | -5 (V) | low |
 | req 0x8002 | complete 0 | complete 0 for a1 == 1 (16MU); KErrNotSupported for anything else (our fb is 32 bpp; real would also accept 0 = 64K) (V for the real check) | now |
 | req 0x8003 | complete 0 | complete 0 for a1 ∈ {0,2,3} and remember it (for ctl 0x1a and caps 6/7); **KErrNotSupported for a1 == 1** (V) | now |
 | req 0x8001 | complete 0 | complete 0 for a1 == 0 (self-test passes), KErrNotSupported for 1/2 (V) | low |
 | req 0x23 | completes at once (stub completes every request) | **must stay pending** (notification); complete KErrCancel on ctl 0x24, cancel, close (V). An immediate completion would make a TV-out/mode notifier spin. Add `{KStubRequest\|0x23, EPendRequest}` and a hook for ctl 0x24 | later |
-| req 0x2001–0x2004, 0x8004/0x8005 | complete 0 | complete **KErrNotSupported** (posting/TV-out absent); 0x2003/0x2004 only matter once DSB (caps word 2) is implemented | later |
+| req 0x2003 / 0x2004 | **implemented** (2026-11-06) | EndUpdate whole / rect (a1 → packed rect, screen coordinates): the posted buffer is copied into the frame buffer at the next vsync (Syborg fb INT_CAUSE bit 0, fixed rate `syborg-fb.refresh-rate`, default 60 Hz) and the request completes then. Measured with `src/n95apps/dsbtest`: 60.0 fps, 16.5–16.9 ms per frame, also for back-to-back EndUpdates | done |
+| req 0x2001, 0x2002, 0x8004/0x8005 | complete 0 | complete **KErrNotSupported** (posting/TV-out absent) | later |
 | DoCancel | logged only | complete pending 0x23 with KErrCancel; clear partial mode if this channel set it (V) | later |
 | factory | version any, units any | real: version 1.1.1540, `KDeviceAllowUnit`, units mask 1; client opens with KNullUnit — current permissive settings are fine | n/a |
 | HAL (`lcd_n95` BSP, not this stub) | native 320×240, display-off ignored | matches the real driver's HAL size reporting (V). The real driver honours `EDisplayHalSetState 0` (panel sleep) and `SetBacklightOn/SetDisplayBrightness` (needs cap WriteDeviceData, power status > 1); `ModeCount 2`, `MaxBrightness 100`, `Colors 0x1000000`, stride 320 × bpp | H-lcd-alwayson review |

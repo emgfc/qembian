@@ -60,6 +60,10 @@ Results:
 
 ## Running
 
+For the N95 hybrid on modern QEMU, see [N95 controls](docs/n95-controls.md):
+F5/F6/F7 are left softkey/select/right softkey, F8 opens the applications menu.
+The guide also covers the arrow-key fix and the numeric-keypad workaround.
+
 ```sh
 scripts/run.sh --fixture --timeout 30          # prebuilt PDK ROM; serial0 on stdout, headless
 scripts/run.sh                                 # our ROM, headless (the shell is on the framebuffer, so use boot-test or --gui)
