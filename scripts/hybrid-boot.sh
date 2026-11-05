@@ -31,7 +31,7 @@ python3 -I tools/romcompose.py --ours build/rom-hybrid/syborg_hybrid_kernel_ARMV
 python3 -I tools/dtb_set.py external/oss.FCL.sf.adapt.Qemu/baseport/syborg/syborg.dtb build/n95/syborg-n95.dtb \
   framebuffer:width=240 framebuffer:height=320 > /dev/null
 rm -rf "$OUT"
-SYBORG_DTB=/work/build/n95/syborg-n95.dtb scripts/boot-test.sh --secs "$SECS" --out "$OUT" "${TYPE[@]}" build/n95/hybrid.img > build/logs/hybrid-boot.txt 2>&1 || true
+SYBORG_DTB=/work/build/n95/syborg-n95.dtb SYBORG_GDB=${SYBORG_GDB:-} scripts/boot-test.sh --secs "$SECS" --out "$OUT" "${TYPE[@]}" build/n95/hybrid.img > build/logs/hybrid-boot.txt 2>&1 || true
 L="$OUT/serial0.log"
 echo "== serial: $(wc -l < "$L") lines; EXEC92 lines:"; grep -a 'EXEC92' "$L" | sort | uniq -c | head -30 || true
 echo "== processes created:"; grep -a -o 'AddThread [^ ]*::Main to [^ ]*' "$L" | awk '{print $4}' | tr '\n' ' '; echo

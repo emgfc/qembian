@@ -1,0 +1,25 @@
+--- a/kernel/eka/kernel/sthread.cpp
++++ b/kernel/eka/kernel/sthread.cpp
+@@ -719,10 +719,22 @@
+ 		__KTRACE_OPT2(KPANIC,KSCHED,Kern::Printf("Thread %O Killed %d",this,iExitReason));
+ 		}
+ #endif
++	// N95 hybrid hack (docs/hacks.md, H-critical-exit): with the 9.2 personality on, a system-
++	// critical/permanent *user* thread that dies (typically because a Nokia kernel driver we drop
++	// is missing, e.g. MmfAudioServer's resource manager without the DSP bridge) is logged and
++	// allowed to exit instead of faulting the kernel. File server and kernel threads still fault.
++	TBool n95Spare = Exec92Enabled && iThreadType==EThreadUser && iOwningProcess
++		&& iOwningProcess != K::TheFileServerProcess;
++	if (n95Spare && (iFlags & (KThreadFlagSystemPermanent|KThreadFlagSystemCritical)))
++		Kern::Printf("N95HACK: system-%s thread %O exited (type %d reason %d); not faulting",
++			(iFlags & KThreadFlagSystemPermanent) ? "permanent" : "critical", this, iExitType, iExitReason);
++	else
++		{
+ 	if (iExitType!=EExitKill && (iFlags & (KThreadFlagSystemPermanent|KThreadFlagSystemCritical)))
+ 		K::Fault(K::ESystemThreadPanic);
+ 	if (iFlags & KThreadFlagSystemPermanent)
+ 		K::Fault(K::EPermanentThreadExit);
++		}
+ 	if (this==K::EventThread)
+ 		K::Fault(K::EThrdEventHookDied);
+ 

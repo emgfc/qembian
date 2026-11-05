@@ -410,10 +410,10 @@ void DIscPeerChannel::HandleSend(const TUint8* m, TInt aLen)
 		Reply(res, tid, 0x2A, m + 10, aLen - 10);
 		return;
 		}
-	if (res == KResSim && id == 0x1F)		// SIM language preference: status "data not available"
+	if (res == KResSim && (id == 0x1F || id == 0x1D))	// SIM language pref / READ_IMSI: "data not available"
 		{
 		TUint8 d[2] = { aLen > 10 ? m[10] : (TUint8)0, 0x24 };
-		Reply(res, tid, 0x20, d, 2);
+		Reply(res, tid, id + 1, d, 2);
 		return;
 		}
 	for (TUint i = 0; i < sizeof(KTable) / sizeof(KTable[0]); ++i)
