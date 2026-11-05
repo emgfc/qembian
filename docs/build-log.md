@@ -164,7 +164,10 @@ The plan is in [roadmap.md](roadmap.md) and the firmware facts in
 | 20 | RightsServer `USER 130` after SecEnv request 6 | DrmBb5KeyStorage mode 3 with empty input reads the device certificate chain (`[len][DER]` records); our identity copy returned 0 bytes and `FUN_0000823a` indexed the record array at −1 | dummy self-signed cert chain (H-secenv-cert) |
 | 21 | RightsServer: "Great Success!! Crypto PA is used for DRM", then waits on ETel for the IMEI: ISI `1B 00` unanswered | | fake IMEI reply (H-imei) |
 | 22 | "DRM BB5 data is OK in this HW"; then `09 1D` (READ_IMSI) unanswered; boot continues: `DcfRepSrv`, `DRMHELPERSERVER`, `MmfAudioServer` start; then **`FAULT: KERN 0x50`** (1400 s; found by `tools/pcsample.py`: guest PC parked in FIQ-mode fault loop) | KERN 80 = `EPermanentThreadExit`: `MmfAudioServer::MmRmServerThread` (system-permanent) exits −1 because `Bal.dll` cannot load `EHWAOMAP.pdd`/`EHWA.ldd` (DSP bridge, dropped kernel side) | IMSI "not available"; H-critical-exit (patch 0003) |
-| 23 (current) | | | |
+| 23 | Starter now completes its list (`sae`, `SysAp`, `Phone`, `Idle`, `screensaver`, `startup` …) but only because Avkon keeps crashing: MmfAudioServer dies (no DSP) → EikSrvs' key-sound server gets −1 → EikSrvs exits → akncapserver `USER 0` → retried 4× | H-critical-exit lets it continue | DSP bridge stand-ins (H-dspbridge): bridge attach still fails; MmRm also needs `dvfs_interface.ldd` |
+| 24 | same loop | `eiksrvui.dll` creates `CMdaAudioToneUtility` per tone | H-keysound-nommf code patch (`romcompose.py --patches`) |
+| 25 | EikSrvs and akncapserver stay up; splash dismissed; then idle: Starter waits for akncapserver's rendezvous; akncapserver waits for `!HWRMServer`, which blocks in construction on SAServer request `0x2000000A` → light adaptation ISI `3A 22` unanswered | | H-light reply |
+| 26 (current) | | | |
 
 What already works in run 13, all N95 binaries on our kernel ([boot summary](evidence/e1/hybrid-boot-summary.txt)) ([trace excerpt](evidence/e1/hybrid-serial-excerpt.txt),
 [loaded code segments](evidence/e1/hybrid-codesegs-loaded.txt), [exec call counts](evidence/e1/hybrid-exec-call-counts.txt)):

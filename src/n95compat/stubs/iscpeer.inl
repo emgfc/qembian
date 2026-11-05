@@ -405,6 +405,18 @@ void DIscPeerChannel::HandleSend(const TUint8* m, TInt aLen)
 		Reply(res, tid, 0x01, d, sizeof(d));
 		return;
 		}
+	if (res == 0x3A && aLen > 10)			// PN_LIGHT (SALightsService) -- hack H-light, docs/hacks.md
+		{
+		// 0x22 target info: reply 0x23 [status 0][count = req[11]][the request's 0x16 subblocks echoed]
+		// (the parser matches the target names KBD/KBD2/MMKEYS/DISPLAY/... at subblock+4).
+		// Other light requests: reply id+1 echoing the request data with the first byte = 0 (OK).
+		TUint8 d[128];
+		TInt n = aLen - 10 > (TInt)sizeof(d) ? (TInt)sizeof(d) : aLen - 10;
+		memcpy(d, m + 10, n);
+		d[0] = 0;
+		Reply(res, tid, id + 1, d, n);
+		return;
+		}
 	if (res == 0x1B && id == 0x29)			// PP read: echo the request's subblocks (values 0)
 		{
 		Reply(res, tid, 0x2A, m + 10, aLen - 10);
