@@ -423,6 +423,14 @@ static TInt HwaCtl(DThread* aClient, TInt aFn, TAny* a1, TAny* a2, const TUint32
 		Kern::ThreadRawRead(aClient, a1, c, sizeof(c));
 		Nodes[i].iRate = MapRate(c[2]);
 		Nodes[i].iChannels = c[6] == 2 ? 2 : 1;
+		if (Nodes[i].iKind == ENodeRaw)
+			{
+			// The raw PCM node carries 44.1 kHz interleaved stereo (measured: samples alternate between
+			// two smooth channels; the startup tone's pitch matches G#5 only at 44.1 kHz); the node
+			// config word (4) is not a sample-rate mask, so the DSP side has a fixed format
+			Nodes[i].iRate = 44100;
+			Nodes[i].iChannels = 2;
+			}
 		Kern::Printf("N95STUB: Hwa node %d kind %d (uuid %08x) config %08x %08x %08x %08x %08x -> %d Hz %d ch",
 					 i, Nodes[i].iKind, LastDefUuid, c[2], c[3], c[4], c[5], c[6], Nodes[i].iRate, Nodes[i].iChannels);
 		TInt tok = KNodeToken + (i << 8);
@@ -465,6 +473,15 @@ static TInt HwaCtl(DThread* aClient, TInt aFn, TAny* a1, TAny* a2, const TUint32
 		if (m[2] == 0x20000000 && m[3])
 			Kern::ThreadRawRead(aClient, (TAny*)m[3], &eapCmd, 2);	// payload u16[0]
 		Kern::Printf("N95STUB: Hwa node send cmd %08x ptr %08x len %d eap %d", m[2], m[3], m[4], eapCmd);
+		if (m[2] == 0x20000000 && m[3] && m[4] && eapCmd != 1)
+			{
+			TUint16 pl[40];
+			TInt nb = Min((TInt)m[4], (TInt)sizeof(pl));
+			Kern::ThreadRawRead(aClient, (TAny*)m[3], pl, nb);
+			for (TInt j = 0; j < nb / 2; j += 10)
+				Kern::Printf("N95STUB: Hwa eap %d +%02d: %04x %04x %04x %04x %04x %04x %04x %04x %04x %04x", eapCmd, j * 2,
+							 pl[j], pl[j+1], pl[j+2], pl[j+3], pl[j+4], pl[j+5], pl[j+6], pl[j+7], pl[j+8], pl[j+9]);
+			}
 		SNode* n = Node(a1);
 		if (!n)
 			return KErrArgument;
