@@ -38,6 +38,7 @@ RAM-loaded ROFS code is not indexed (see `tools/e32load.py`).
 tools/syb_gdb.py leaves --modules HWRMServer,SALights --max 10   # who leaves, with which error
 tools/syb_gdb.py brk 'User::Leave(int)' --print '$r0' --stack --max 3
 tools/syb_gdb.py brk 0x838f1340 --when-thread HWRM --print 'TheScheduler.iCurrentThread->iPriority'
+tools/syb_gdb.py leaves --err -14 --key 60:f5 --key 140:right   # QMP keys (wall clock) during a probe
 tools/syb_gdb.py sample --at 12 --n 5      # mode, current thread, symbolised PC/LR/stack chain
 tools/syb_gdb.py thread --at 15
 ```

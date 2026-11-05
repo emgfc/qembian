@@ -178,11 +178,30 @@ def gdb_cmds(cfg, extra):
             '-ex', 'target remote 127.0.0.1:1234'] + extra
 
 
+QMP_SOCK = os.path.join(ROOT, 'build', 'runs', 'gdb-qmp.sock')
+
+
+def send_keys(keys):
+    """--key T:K: send QMP key chords at T seconds of wall clock after QEMU start (the guest runs
+    slower under gdb, so allow some margin)"""
+    import threading
+    def run():
+        t0 = time.time()
+        for spec in sorted(keys, key=lambda k: float(k.split(':', 1)[0])):
+            t, k = spec.split(':', 1)
+            time.sleep(max(0, float(t) - (time.time() - t0)))
+            subprocess.run([sys.executable, os.path.join(ROOT, 'tools', 'qmp.py'), QMP_SOCK, 'key', k],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if keys:
+        threading.Thread(target=run, daemon=True).start()
+
+
 def start_qemu(wait, secs):
     subprocess.run(['pkill', '-f', 'qemu-system-arm.*-name sybtool'])
     time.sleep(0.5)
     cmd = [os.path.join(ROOT, 'scripts', 'run-modern.sh'), '--timeout', str(int(secs) + 5), '--name', 'sybtool',
            '--gdb-wait' if wait else '--gdb', '--dtb', os.path.join(ROOT, 'build', 'n95', 'syborg-n95.dtb'),
+           '--qmp', QMP_SOCK,
            '--serial-log', os.path.join(ROOT, 'build', 'runs', 'gdb-serial.log'),
            os.path.abspath(ROM_PATH)]
     p = subprocess.Popen(cmd, cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -227,6 +246,7 @@ def main():
     ap.add_argument('--n', type=int, default=10)
     ap.add_argument('--interval', type=float, default=1)
     ap.add_argument('--keep', action='store_true')
+    ap.add_argument('--key', action='append', default=[], help='T:KEYS, QMP key chord at T s (wall clock)')
     ap.add_argument('--rom', default=os.path.join(ROOT, 'build', 'n95', 'hybrid.img'))
     a = ap.parse_args()
     global ROM_PATH
@@ -243,6 +263,7 @@ def main():
             loc = resolve('User::Leave(int)' if a.cmd == 'leaves' else a.loc)
             kind = 'leave' if a.cmd == 'leaves' else 'brk'
             q = start_qemu(True, a.secs)
+            send_keys(a.key)
             with open(gdbout, 'w') as go:
                 subprocess.run(gdb_cmds(cfg, ['-ex', 'source ' + py, '-ex', 'python Probe(%r, %r)' % (loc, kind),
                                               '-ex', 'continue']), timeout=a.secs + 20,
