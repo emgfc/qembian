@@ -83,3 +83,43 @@ What would help, in order of effect:
    help.
 3. Kernel-side, in our build: check whether the Syborg kernel can use ASIDs instead of full TLB
    flushes on ARMv6/v7 (only useful if QEMU 0.9.1 models ASID-tagged TLBs, which is doubtful).
+
+## Plan: porting the Syborg board to a modern QEMU
+
+Not started; recorded 2026-11-05 for later.
+
+**Work items**
+1. **Machine:** a new QEMU board with the `syborg.dts` memory map (512 MB RAM at 0, devices from
+   0xC0000000). It uses the existing `cortex-a8` CPU (VFP on), loads the raw ROM at physical
+   0x10000, and adds the reset stub that jumps there, as `arm_load_kernel` does in 0.9.1.
+2. **Devices in C** (modern qdev/sysbus API; register semantics copied from the 0.9.1 Python
+   plugins and C files):
+   - Required: interrupt controller (32 lines), timer ×2, RTC, serial ×4, framebuffer (32 bpp
+     onto a QEMU display surface, size from the board config), keyboard (PC scancodes FIFO),
+     pointer (absolute), NVMemory block device (C: drive, file-backed), platform/control block.
+   - Later: hostfs, snapshot, NAND, virtio-net, virtio-audio.
+   Mainline QEMU is believed to have once carried C Syborg devices (around 0.12–1.x); check git
+   history for a starting point.
+3. **Packaging:** pin a modern QEMU release in `sources.lock`; keep the board as patches under
+   `patches/qemu-modern/`; build it on the host or a modern container. The run side then needs no
+   Python 2.6 or Debian 6.
+4. **Validation:** text-shell ROM to ESHELL; hybrid ROM to the same stage as on 0.9.1; then compare
+   boot times.
+
+**Effort:** about 2–4 focused days. Most of the risk is in matching register semantics exactly
+(interrupt status/clear, timer reload, framebuffer format) and in Cortex-A8 CP15 details.
+
+**Why it should be faster** (QEMU 0.9.1's TCG is where the CPU goes, see the measurement above):
+- larger translation cache, direct block chaining and better code generation (fewer
+  `tb_find_slow` misses)
+- per-mode TLBs with dynamic sizing and a victim TLB, and an inlined lookup fast path: the
+  multiple memory model's TLB flush on every task switch costs far less (`tlb_fill` /
+  `get_phys_addr` dominated the 0.9.1 profile)
+- better translation of ARMv6/v7, VFP and exclusives
+
+No hardware acceleration exists for 32-bit ARM guests on x86 hosts, and MTTCG does not help a
+single-core guest. The speed-up is unmeasured; validate with a minimal spike (the text-shell ROM's
+time to ESHELL on both).
+
+**Side benefits:** a modern gdbstub; TCG plugins for tracing without serial output; record/replay;
+a modern base for option A (OMAP2420/N800 machine code still exists in QEMU).
