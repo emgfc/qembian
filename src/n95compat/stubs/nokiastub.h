@@ -19,12 +19,17 @@ enum TStubAction { EWriteInt, EComplete, EReturn, EWriteBlock, EPendRequest };
 const TInt KStubRequest = 0x10000;
 // EWriteBlock: copy iSize bytes from iData to a1 (e.g. a capabilities structure)
 struct SStubCtl { TInt iFn; TStubAction iAction; TInt iValue; const TAny* iData; TInt iSize; };
+// optional per-device request hook: return KErrNone..KErrXxx to complete the request with it, or
+// KStubNotHandled to fall back to the table/default. aArgs = the two DoRequest argument words.
+const TInt KStubNotHandled = 0x7fff0000;
+typedef TInt (*TStubRequestHook)(DThread* aClient, TInt aReq, const TUint32* aArgs);
 
 class DNokiaStubFactory : public DLogicalDevice
 	{
 public:
-	DNokiaStubFactory(const TDesC& aName, const SStubCtl* aCtl, TInt aCount, TBool aChannels, TBool aCompleteRequests)
-		: iName(aName), iCtl(aCtl), iCount(aCount), iChannels(aChannels), iCompleteRequests(aCompleteRequests)
+	DNokiaStubFactory(const TDesC& aName, const SStubCtl* aCtl, TInt aCount, TBool aChannels, TBool aCompleteRequests,
+					  TStubRequestHook aHook = NULL)
+		: iName(aName), iCtl(aCtl), iCount(aCount), iChannels(aChannels), iCompleteRequests(aCompleteRequests), iHook(aHook)
 		{
 		iVersion = TVersion(255, 255, 0xffff);	// accept any client version
 		iParseMask = KDeviceAllowUnit | KDeviceAllowInfo;
@@ -43,6 +48,7 @@ public:
 	TInt iCount;
 	TBool iChannels;
 	TBool iCompleteRequests;	// DoRequest(): complete at once with KErrNone, else leave pending
+	TStubRequestHook iHook;
 	};
 
 class DNokiaStubChannel : public DLogicalChannelBase
@@ -67,6 +73,7 @@ public:
 				Kern::ThreadRawRead(&Kern::CurrentThread(), a2, args, sizeof(args));
 			TBool pend = !iF->iCompleteRequests;
 			TInt result = KErrNone;
+			TInt hr = iF->iHook ? iF->iHook(&Kern::CurrentThread(), ~aFn, args) : KStubNotHandled;
 			for (TInt i=0; i<iF->iCount; ++i)
 				if (iF->iCtl[i].iFn == (KStubRequest | ~aFn))
 					{
@@ -75,6 +82,8 @@ public:
 					else if (iF->iCtl[i].iAction == EComplete)
 						{ pend = EFalse; result = iF->iCtl[i].iValue; }
 					}
+			if (hr != KStubNotHandled)
+				{ pend = EFalse; result = hr; }
 			Kern::Printf("N95STUB: %S u%d request 0x%x args %08x %08x %s %d by %O", &iF->iName, iUnit, ~aFn,
 						 args[0], args[1], pend ? "pending" : "completed", result, &Kern::CurrentThread());
 			if (!pend && s)
@@ -142,5 +151,9 @@ inline TInt DNokiaStubFactory::Create(DLogicalChannelBase*& aChannel)
 	DECLARE_STANDARD_LDD() \
 		{ return new DNokiaStubFactory(KStubName, table, sizeof(table)/sizeof(table[0]), channels, completeRequests); }
 #define NOKIA_STUB_LDD(name, table, channels) NOKIA_STUB_LDD2(name, table, channels, EFalse)
+#define NOKIA_STUB_LDD_HOOK(name, table, hook) \
+	_LIT(KStubName, name); \
+	DECLARE_STANDARD_LDD() \
+		{ return new DNokiaStubFactory(KStubName, table, sizeof(table)/sizeof(table[0]), ETrue, ETrue, hook); }
 
 #define NO_CONTROLS static const SStubCtl KCtl[] = { { -1, EReturn, 0, 0, 0 } };

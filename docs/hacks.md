@@ -36,7 +36,7 @@ Keep this file up to date with every new hack.
 | `custom.ldd` (`Custom`) | controls 32/2/1 return 0 (normal startup mode); everything else returns 0 untouched | real startup reasons, power/reset controls |
 | `sosadlserver.ldd` | channel accepts everything | unknown purpose |
 | `d_display.ldd` (`DisplayDriver`) | caps block: only +0/+16/+20 = 1 (caller defaults), +60 = 1 (16MU), rotations; all requests completed immediately; controls other than 10/11 ignored | real display driver semantics (update/vsync requests, brightness, power) |
-| `secldd.ldd` (`SecEnv`) | request 2 ("wait for next job") stays pending; crypto/storage requests 3/4/5/6/7/16 complete `KErrNotSupported`; others complete `KErrNone` | no secure environment exists; DRM content will not work. RightsServer is restarted (twice) after failing |
+| `secldd.ldd` (`SecEnv`) | request 2 ("wait for next job") stays pending; request 6 (SecEnv.dll export 17, "process data in a secure-environment app", used by DrmBb5KeyStorage to wrap/unwrap DRM keys) is an **identity transform**: input copied to output, out length = in length; requests 3/4/5/7/16 complete `KErrNotSupported`; others complete `KErrNone` | no secure environment exists; DRM-protected content will not decrypt. Failing request 6 made RightsServer exit −5 → DRMHelperServer panicked → AknSkinSrv → EikSrvs → AknCapServer → Starter all waited forever |
 | `medrofs.pdd` | ROFS1 + ROFx served read-only from memory appended to the ROM | fine |
 | `lcd_n95` | see BSP | |
 
@@ -51,4 +51,4 @@ Keep this file up to date with every new hack.
 ## Known remaining non-fatal failures
 
 - `mc_useragent.exe` panics `KERN-EXEC 0` early (crash-monitor helper, ignored).
-- `RightsServer.EXE` restarts (secure environment unavailable).
+- `RightsServer.EXE` restarted when SecEnv request 6 failed (fixed by the identity hack; check it no longer happens).
