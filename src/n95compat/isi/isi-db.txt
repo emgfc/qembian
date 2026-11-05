@@ -22,6 +22,7 @@ res 31 PN_GPDS                verified
 res 32 PN_NOKIA_32            verified  # unknown Nokia resource, NOKIATSY handles 1,2,10,11,13
 res 35 PN_UNKNOWN_35          inferred
 res 3A PN_LIGHT               inferred  # SALightsService targets KBD/KBD2/MMKEYS/DISPLAY/...
+res 47 PN_LIGHT_CTRL?         inferred  # SALightsService FUN_8091ee7e: req 06 [03][on/off], resp 07 [status], ind 08
 res 54 PN_UNKNOWN_54          inferred
 res 62 PN_EPOC_INFO           ref
 res D9 PN_PIPE                ref
@@ -58,6 +59,8 @@ msg 31 19 GPDS_STATUS_REQ                 verified
 msg 31 30 GPDS_CONFIGURATION_INFO_REQ     verified
 msg 31 3A GPDS_CONTEXTS_CLEAR_REQ         ref
 msg 3A 22 LIGHT_TARGET_INFO_REQ?          inferred
+msg 47 06 LIGHT_CTRL_SET_REQ?             inferred  # resp 07: byte 10 = status (0 = ok)
+msg 47 08 LIGHT_CTRL_IND?                 inferred
 msg DB 01 PNS_NAME_QUERY_REQ              verified
 msg DB 05 PNS_NAME_ADD_REQ                verified
 msg DB 07 PNS_NAME_REMOVE_REQ             verified
@@ -77,3 +80,4 @@ reply 15 16 79 00 00                                      # MTC RF status: norma
 reply DB 01 02 00 01 00 01 00 00 00 00 00 31 00 33 00 00  # PNS_NAME_QUERY (GPDS)
 reply 09 19 1A 2F 24                                      # SIM read: data not available
 reply 23 04 05 len=18 00 01 01 10                         # PN_PERMANENT_DATA read
+reply 47 06 07 00 00                                      # light control set: status OK (SysAp->HWRM->SAServer waited on this)
