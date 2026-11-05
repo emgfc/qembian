@@ -46,3 +46,19 @@ Start from the QEMU 0.9.1 `n800` machine (OMAP2420, Menelaus, OneNAND, CBUS, I2C
 modelled). Boot the flat N95 core image directly, skipping NOLO and XZIP. Then add Nokia-specific
 devices in the order Nokia's EKERN touches them: GAPE, STI, the display and keypad path, the ISC
 modem link (fake CMT peer), DVFS, the PowerVR and DSP bridge stubs.
+
+**Status 2026-11-05 (overnight, unattended):** runs 20–31 in [build-log.md](build-log.md); every
+shortcut is in [hacks.md](hacks.md).
+- Starter now runs its whole start list without crashing: `sae`, `SysAp`, `Phone`, `Idle`,
+  `screensaver`, `startup`, `alarmserver`, `aknnfysrv`, `PhoneServer`, … (Avkon servers stable).
+- Unblocked on the way: DRM key storage (dummy device cert), IMEI/IMSI/light/energy-management ISI
+  replies, MmfAudioServer's permanent thread dying (no DSP; kernel spares it, key-sound server
+  patched to run without MMF).
+- **Display:** the path works (WSERV → ScDv 16MU device at our frame buffer, hardware rotation via
+  `DisplayDriver`). The screen stays dark because (a) the splash logo renders empty and (b) no
+  other window is drawn yet: SplashScreen keeps being dismissed and restarted by Starter, i.e. the
+  startup sequence (Startup.exe / SysAp) has not reached the idle state.
+- Next: find who sets `KPSUidStartup` (0x101F8766) key 0x301 and why the startup app does not
+  finish (kernel `N95PROP:` trace, patch 0004); then why AknIconServer renders SVG icons empty.
+- Tooling added: `tools/pcsample.py` (guest PC sampling), `SYBORG_GDB=1|wait` for
+  `scripts/hybrid-boot.sh`, `romcompose.py --patches` (verified byte patches), stub control hooks.

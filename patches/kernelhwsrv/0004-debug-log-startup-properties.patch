@@ -1,0 +1,14 @@
+--- a/kernel/eka/kernel/sproperty.cpp
++++ b/kernel/eka/kernel/sproperty.cpp
+@@ -1003,6 +1003,11 @@
+ 		NKern::UnlockSystem();
+ 		return KErrNotFound;
+ 		}
++#ifdef _DEBUG
++	// N95 hybrid debug (docs/hacks.md): log startup-category properties (KPSUidStartup)
++	if (iCategory == 0x101f8766)
++		Kern::Printf("N95PROP: %O sets 101f8766/%x = %d", TheCurrentThread, iKey, aValue);
++#endif
+ 	if (aProcess && !CheckSetRights(aProcess, __PLATSEC_DIAGNOSTIC_STRING("Checked whilst trying to Set a Publish and Subscribe Property")))
+ 		{
+ 		NKern::UnlockSystem();
