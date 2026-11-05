@@ -97,6 +97,7 @@ external/ downloads/ cache/ build/    generated, git-ignored
 - [docs/research.md](docs/research.md): sources, branches, toolchains, dependency graph, what is and isn't available
 - [docs/build-log.md](docs/build-log.md): every build problem hit, its cause and its fix
 - [docs/architecture.md](docs/architecture.md): virtual board, ROM, boot sequence, build pipeline
+- [docs/emulator-options.md](docs/emulator-options.md): why QEMU-style full-system emulation, dynarmic/Unicorn trade-offs, measured QEMU 0.9.1 hot spots
 - [docs/roadmap.md](docs/roadmap.md): decided plan, option 1 (9.2 exec personality) then option A (OMAP2420 emulation), with step exit criteria
 - [docs/n95-firmware-inventory.md](docs/n95-firmware-inventory.md): what is in the RM-320 firmware, measured
 - [docs/n95-compatibility.md](docs/n95-compatibility.md): feasibility of running N95 userspace, approach comparison, next experiment
