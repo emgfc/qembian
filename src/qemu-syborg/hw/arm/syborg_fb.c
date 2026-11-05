@@ -7,7 +7,7 @@
  * 0x100.. palette (256 entries).
  * The Symbian driver programs 32 bpp, colour order 0 (little-endian 0x00RRGGBB words),
  * which is exactly the host x8r8g8b8 surface format, so rows are copied as they are.
- * Other depths are logged as unimplemented.
+ * Other depths are logged as unimplemented. A disabled or blanked panel shows black.
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
@@ -36,6 +36,7 @@ struct SyborgFbState {
     uint32_t int_enable, int_status, need_int;
     uint32_t palette[256];
     bool warned;
+    bool shown_dark;          /* blank/disabled panel already painted black */
 };
 
 static void syborg_fb_update_irq(SyborgFbState *s)
@@ -59,20 +60,27 @@ static bool syborg_fb_update_display(void *opaque)
     if (s->int_status != old) {
         syborg_fb_update_irq(s);
     }
+    surf = qemu_console_surface(s->con);
+    if (surface_width(surf) != (int)s->width || surface_height(surf) != (int)s->height) {
+        qemu_console_resize(s->con, s->width, s->height);
+        surf = qemu_console_surface(s->con);
+    }
     if (!s->enabled || s->blank || !s->base) {
+        /* a disabled or blanked panel shows nothing: paint it black (once per change) */
+        if (!s->shown_dark) {
+            memset(surface_data(surf), 0, surface_stride(surf) * surface_height(surf));
+            qemu_console_update(s->con, 0, 0, s->width, s->height);
+            s->shown_dark = true;
+        }
         return true;
     }
+    s->shown_dark = false;
     if (s->bpp != 32) {
         if (!s->warned) {
             qemu_log_mask(LOG_UNIMP, "syborg-fb: %u bpp not implemented\n", s->bpp);
             s->warned = true;
         }
         return true;
-    }
-    surf = qemu_console_surface(s->con);
-    if (surface_width(surf) != (int)s->width || surface_height(surf) != (int)s->height) {
-        qemu_console_resize(s->con, s->width, s->height);
-        surf = qemu_console_surface(s->con);
     }
     {
         uint32_t pitch = s->row_pitch ? s->row_pitch : s->width * 4;

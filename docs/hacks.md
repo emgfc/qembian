@@ -4,6 +4,11 @@ Every shortcut taken to get the N95 user side booting on our kernel, listed so i
 later. Ordered by subsystem. "Real" means what a faithful implementation would do instead.
 Keep this file up to date with every new hack.
 
+Note (review 2026-11-05): Nokia's own kernel-side drivers (`d_display.ldd`, `nokiaiscdriver.ldd`,
+`custom.ldd`, `LightLdd.ldd`, `secldd.ldd`, ...) are still in the firmware image
+(`build/n95/core-flat.img`, dropped only from the composed ROM). The guessed values in the
+stand-ins below can be checked against their code (decompile with `tools/syb_sym.py fn`).
+
 ## Kernel (patches/kernelhwsrv)
 
 | Hack | Where | Real implementation |
@@ -15,7 +20,7 @@ Keep this file up to date with every new hack.
 | Personality is global (ROM header flag), all user threads get 9.2 tables | `sthread.cpp`, `sinit.cpp` | per-process selection if our own user binaries are ever mixed in |
 | Debug traces `REQC` (request completions) and `IPCRD` (server reads of client descriptors) | `sutils.cpp`, `sipc.cpp` (patch 0002) | keep for debugging; udeb only |
 | **H-critical-exit:** with the 9.2 personality on, a system-critical/permanent *user* thread (not the file server) that exits is logged `N95HACK: system-… thread … exited` and allowed to die instead of `KERN 80` (`EPermanentThreadExit`) / `ESystemThreadPanic` Exceptions in such threads are handled the same way (patch 0006: the thread is panicked, PC/LR/fault address logged as `N95HACK: exception in system-critical thread …`) | `sthread.cpp` (patch 0003) | stand-ins for the missing drivers so those threads survive. First hit: `MmfAudioServer::MmRmServerThread` dies −1 because `Bal.dll` loads PDD `EHWAOMAP` + LDD `EHWA` (TI DSP/BIOS bridge, driven through `bridgeapi.dll`, ~5 k lines of client API): **no audio** until a bridge stand-in exists |
-| ARMv6 exclusive monitor not cleared on context switch (ARMv5 kernel) | not handled | `clrex`/dummy `strex` in the scheduler for ARMv6+ CPUs |
+| ~~ARMv6 exclusive monitor not cleared on context switch~~ **resolved (review 2026-11-05):** the Cortex-A8 build defines `__CPU_ARM_HAS_WORKING_CLREX`; every exception/interrupt entry executes `CLREX` (`nkern/arm/vectors.cia`, `include/nkern/arm/entry.h`) | — | nothing to do |
 
 ## Modern QEMU (patches/qemu-modern, src/qemu-syborg)
 
@@ -29,10 +34,10 @@ Keep this file up to date with every new hack.
 |---|---|---|
 | VFP enabled for GCCE builds (was RVCT-only); no `evfp.dll` | `variant.mmh` (patch 0002) | verify lazy VFP context switching under load; add VFP support code if exceptions appear |
 | LCD reports 32 bpp, 2 modes, current mode 1 (N95 numbering: 0 = 64K, 1 = 16MU) | `lcd_n95` build of `fb/syborg_fb.cpp` (patch 0001 macros) | a real mode 0 (16 bpp) if anything switches modes |
-| **H-lcd-alwayson:** `lcd_n95` (macro `SYBORG_FB_N95`) logs `N95LCD:` power/secure/mode changes and the frame buffer addresses, and ignores display-off (panel never blanked) | `fb/syborg_fb.cpp` (patch qemu-baseport 0003) | honour display off once the UI works (screen saver / backlight policy) |
+| **H-lcd-alwayson:** `lcd_n95` (macro `SYBORG_FB_N95`) logs `N95LCD:` power/secure/mode changes and the frame buffer addresses, and ignores display-off (panel never blanked). The QEMU device itself now implements blanking properly (blank/disabled panel shows black, review 2026-11-05), so dropping this hack is a one-line change once power policy is understood | `fb/syborg_fb.cpp` (patch qemu-baseport 0003), `src/qemu-syborg/hw/arm/syborg_fb.c` | honour display off (screen saver / backlight policy; partial-display mode for the screensaver) |
 | **H-lcd-native-landscape + stride:** the N95 panel is natively landscape and wsini.ini gets the 240×320 UI through rotation 270 done by the display controller (`DisplayDriver` claims hardware rotation). `lcd_n95` reports the native size 320×240 through HAL while the frame buffer memory stays portrait 240×320 with 960-byte lines; `DisplayDriver` ctl 31 (scan-line bytes) = 960. Reporting 240×320 natively made ScDv draw a 320×240 picture into 240-pixel rows (bottom quarter never drawn, content shifted) | `fb/syborg_fb.cpp` (patch qemu-baseport 0003), `d_display.cpp` | real display-controller model if anything reads the rotation state |
 | Board is 240×320 via a patched DTB | `tools/dtb_set.py`, `SYBORG_DTB` | fine |
-| Screen rotation: caps claim rotations 90/180/270 supported but nothing rotates | `d_display.cpp` caps +36/+40/+44 | check how scdv rotates; the N95 runs mode 1 at rotation 270 (the picture may come out sideways) |
+| Rotation caps (+36/+40/+44) claim hardware rotation; part of H-lcd-native-landscape (ScDv draws portrait into memory, the "controller" would rotate) | `d_display.cpp` | check against Nokia's own `d_display.ldd` (still in the firmware image) |
 | ARMv7 `WFI` added to `SyborgWFIIdle` after the ARMv6 CP15 wait-for-interrupt | `specific/interrupts.cia` (patch qemu-baseport 0004) | fine as is (not really a hack) |
 
 ## N95 hardware stand-ins (src/n95compat/stubs)
@@ -73,7 +78,7 @@ Byte patches on N95 binaries in the composed ROM; original bytes are verified at
 | **H-keysound-nommf:** `blx CMdaAudioToneUtility::NewL` → `movs r0,#0; nop` (2 sites) so the key-sound server keeps a NULL tone player instead of leaving −1 when MMFAudioServer cannot start (no DSP) | `eiksrvui.dll` 0x82f0e366, 0x82f0e9c8 | working audio (MMF with a fake DSP/DevSound). Risk: the tone player's prepare-complete callback dereferences without a check, but it is only invoked by a live player; key tones are silent |
 | **H-startuptone-nommf:** `blx CMdaAudioPlayerUtility::NewFilePlayerL` → `movs r0,#0; nop` in `CStartupTone::ConstructL`: no startup-tone player (opening it blocked Startup's main thread in a synchronous MMF call → `ViewSrv 11` after 10 s); `Play()` returns `KErrNotReady` and Startup falls back to a (silent) key sound | `startup.exe` 0x833a93c4; analysis in `docs/n95-startup-animation.md` | working audio |
 | H-keysound-nommf (continued): the two tone-play helpers return at once (`bx lr`) | `eiksrvui.dll` 0x82f0ea94, 0x82f0eac8 | working audio |
-| **H-splash-behind:** SplashScreen window-group priority literal 1001 → −1000 | `SplashScreen.exe` 0x833a6574 | none needed once startup completes (Startup.exe normally takes over the screen before the splash's 120 s timeout); the splash logo (SVG) also renders empty — AknIconServer/SVG to investigate |
+| **H-splash-behind:** SplashScreen window-group priority literal 1001 → −1000 | `SplashScreen.exe` 0x833a6574 | none needed once startup completes (Startup.exe normally takes over the screen before the splash's 120 s timeout); the splash logo renders correctly since the CLZ fix (AknIconServer); re-check whether this patch is still needed once Startup completes |
 
 ## Known remaining non-fatal failures
 
