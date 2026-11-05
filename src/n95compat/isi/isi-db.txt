@@ -41,6 +41,7 @@ msg 0B 00 AUDIO_REQ_00?                   inferred  # resp 01 = ok (byte 10 stor
 msg 0B 14 AUDIO_REQ_14?                   inferred  # resp 15: Aamm passes only the tid on (0x80881110 is 0x16)
 msg 0B 19 AUDIO_REQ_19?                   inferred  # resp 1A: observer OK (0x808110ca)
 msg 15 01 MTC_STATE_REQ                   ref
+msg 08 01 SEC_CODE_STATE_REQ?             inferred  # NOKIATSY phone-lock query (Autolock); resp 02 OK [10]=state, 03 fail
 msg 77 01 AUDIO_ROUTE_REQ?                inferred  # resp 09 = route ready (AudioServer request 22 completes); 02 = status only
 msg 15 02 MTC_STATE_QUERY_REQ             verified
 msg 15 03 MTC_POWER_OFF_REQ               ref
@@ -98,3 +99,4 @@ reply 0B 00 01 01 00                                      # audio server start (
 reply 0B 14 15 00 00                                      # audio setup (Aamm dispatch 0x8088108a: resp 15 -> observer(tid))
 reply 0B 19 1A 00 00                                      # audio setup (resp 1A -> observer OK)
 reply 77 01 09 00 00                                      # audio route ready: without it every play hangs (first) or gets KErrInUse (docs/nokia-dsp-playback.md)
+reply 08 01 02 00 00                                      # lock code state: [10]=0 -> lock status unlocked, setting disabled (NOKIATSY 0x808c8b7c); unanswered -> Autolock 'operation time-out'
