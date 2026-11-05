@@ -236,11 +236,13 @@ TInt DIscPeerChannel::Control(TInt aFn, TAny* a1)
 		HandleSend(m.Ptr(), m.Length());
 		return KErrNone;
 		}
-	case 21:	// channel info {channel, TDes8* out}: (device, object)
+	case 21:	// channel info {channel, TDes8* out}: 16-bit big-endian object id
 		{
+		// Aamm.DLL (0x808803dc) reads the two bytes as a big-endian value and requires <= 255
+		// (User::Invariant at 0x80881e8a); mc_isiserver uses only the low byte. So {0, object}.
 		ReadArgs(a1, w, 2);
 		TBuf8<2> info;
-		info.Append(KDevApe);
+		info.Append(0);
 		info.Append((TUint8)w[0]);
 		return Kern::ThreadDesWrite(iClient, (TAny*)w[1], info, 0);
 		}
