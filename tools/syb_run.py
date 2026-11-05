@@ -59,6 +59,8 @@ def main():
     if a.gui:
         cmd.append('--gui')
     cmd.append(os.path.abspath(ROM_PATH))
+    # sound goes to a file in the run folder (the N95 fake DSP plays through syborg-audio)
+    cmd += ['-audiodev', 'wav,id=snd0,path=' + os.path.join(out, 'audio.wav'), '-machine', 'audiodev=snd0']
     p = subprocess.Popen(cmd, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                          stdin=subprocess.DEVNULL, start_new_session=True)
     t0 = time.time()

@@ -32,9 +32,10 @@ config SYBORG
     depends on TCG && ARM
     select PTIMER
 EOF
-grep -q 'CONFIG_SYBORG' "$SRC/hw/arm/meson.build" || \
-  sed -i "1a arm_common_ss.add(when: 'CONFIG_SYBORG', if_true: files('syborg.c', 'syborg_intc.c', 'syborg_timer.c', 'syborg_serial.c', 'syborg_fb.c', 'syborg_input.c', 'syborg_nvmem.c'))" \
-    "$SRC/hw/arm/meson.build"
+# (re)write the meson line so that new board files are picked up
+sed -i "/CONFIG_SYBORG/d" "$SRC/hw/arm/meson.build"
+FILES=$(cd src/qemu-syborg/hw/arm && ls syborg*.c | sed "s/.*/'&'/" | paste -sd, -)
+sed -i "1a arm_common_ss.add(when: 'CONFIG_SYBORG', if_true: files($FILES))" "$SRC/hw/arm/meson.build"
 
 mkdir -p "$B/build"
 cd "$B/build"

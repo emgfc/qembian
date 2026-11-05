@@ -18,6 +18,7 @@
 #define TYPE_SYBORG_POINTER  "syborg-pointer"
 #define TYPE_SYBORG_NVMEM    "syborg-nvmem"
 #define TYPE_SYBORG_PLATFORM "syborg-platform"
+#define TYPE_SYBORG_AUDIO    "syborg-audio"
 
 /* Device ID register values (register 0 of each device). */
 #define SYBORG_ID_INTC     0xc51d0000
@@ -30,5 +31,6 @@
 #define SYBORG_ID_FB       0xc51d0006   /* the 0.9.1 plugin answers ...06, not ...07 */
 #define SYBORG_ID_NVMEM    0xdeadbeef
 #define SYBORG_ID_PLATFORM 0xc51d1000
+#define SYBORG_ID_AUDIO    0xc51d0010   /* ours: output for the N95 fake DSP */
 
 #endif

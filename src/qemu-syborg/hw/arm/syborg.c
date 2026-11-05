@@ -5,7 +5,7 @@
  *   0x00000000 RAM (512 MB default)
  *   0xc0000000 interrupt controller -> CPU IRQ   0xc0001000 RTC   0xc0002000 timer (irq 1)
  *   0xc0003000 keyboard (2)   0xc0004000 pointer (3)   0xc0005000 framebuffer (4)
- *   0xc0006000..0xc0009000 serial 0..3 (5..8)   0xc0010000 NVMemory (12)
+ *   0xc0006000..0xc0009000 serial 0..3 (5..8)   0xc000e000 audio (13)   0xc0010000 NVMemory (12)
  *   0xc0011000 platform (ID, then the device tree blob at +0x1000, 16 MB window)
  * hostfs/snapshot/virtio/nand/usbtest are not modelled; accesses to them read as zero
  * (ignore_memory_transaction_failures), like unmapped addresses on 0.9.1.
@@ -15,6 +15,7 @@
  *   -global syborg-fb.width=W -global syborg-fb.height=H   framebuffer size (240x320 default)
  *   -drive if=mtd,format=raw,file=IMG                       NVMemory drive (C:)
  *   -dtb FILE                                               blob served by the platform device
+ *   -audiodev pipewire,id=snd0 -machine audiodev=snd0        host audio for the N95 fake DSP
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
@@ -156,6 +157,14 @@ static void syborg_init(MachineState *machine)
     sysbus_create_simple(TYPE_SYBORG_POINTER, 0xc0004000, pic[3]);
     sysbus_create_simple(TYPE_SYBORG_FB, 0xc0005000, pic[4]);
 
+    dev = qdev_new(TYPE_SYBORG_AUDIO);
+    if (machine->audiodev) {
+        qdev_prop_set_string(dev, "audiodev", machine->audiodev);
+    }
+    sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, 0xc000e000);
+    sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, pic[13]);
+
     for (int i = 0; i < 4; i++) {
         dev = qdev_new(TYPE_SYBORG_SERIAL);
         qdev_prop_set_chr(dev, "chardev", serial_hd(i));
@@ -198,6 +207,7 @@ static void syborg_init(MachineState *machine)
 static void syborg_machine_init(MachineClass *mc)
 {
     mc->desc = "Syborg (Symbian Virtual Platform, Cortex-A8)";
+    machine_add_audiodev_property(mc);
     mc->init = syborg_init;
     mc->max_cpus = 1;
     mc->ignore_memory_transaction_failures = true;
