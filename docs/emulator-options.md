@@ -46,8 +46,9 @@ QEMU's TCG is the practical speed ceiling.
 3. **A custom emulator on dynarmic:** a large project that only makes sense if the project ever
    moves to a hybrid HLE design, which is not the current plan.
 
-A cheaper intermediate step is to replace the hot Python plugins inside QEMU 0.9.1 with C devices
-(see "Python device plugins" below).
+Replacing the Python plugins inside QEMU 0.9.1 with C devices was considered as a cheaper step,
+but the measurement below shows they are not where the time goes; it would mainly remove the
+Python 2.6 dependency.
 
 ## Python device plugins in QEMU 0.9.1-symbian: measured, not the bottleneck
 
