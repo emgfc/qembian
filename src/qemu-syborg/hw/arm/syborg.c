@@ -228,12 +228,12 @@ static void syborg_init(MachineState *machine)
 
 static void syborg_machine_init(MachineClass *mc)
 {
-    mc->desc = "Syborg (Symbian Virtual Platform, Cortex-A8)";
+    mc->desc = "Syborg (Symbian Virtual Platform) as a virtual N95: ARM1136 r0p2 (-cpu cortex-a8 for the old A8 builds)";
     machine_add_audiodev_property(mc);
     mc->init = syborg_init;
     mc->max_cpus = 1;
     mc->ignore_memory_transaction_failures = true;
-    mc->default_cpu_type = ARM_CPU_TYPE_NAME("cortex-a8");
+    mc->default_cpu_type = ARM_CPU_TYPE_NAME("arm1136-r2");   /* the N95 OMAP2420 core (r0p2); kernel built __CPU_ARM1136__ (patch 0011) */
     mc->default_ram_size = 168 * MiB;     /* must match the bootstrap (KHwRamSizeMb, patch 0010) */
     mc->default_ram_id = "syborg.ram";
 }

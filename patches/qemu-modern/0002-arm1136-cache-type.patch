@@ -1,0 +1,20 @@
+--- a/target/arm/tcg/cpu32.c	2026-11-06 00:45:28.794076560 +0100
++++ b/target/arm/tcg/cpu32.c	2026-11-06 00:45:28.815788864 +0100
+@@ -124,7 +124,7 @@
+     cpu->reset_fpsid = 0x410120b4;
+     cpu->isar.mvfr0 = 0x11111111;
+     cpu->isar.mvfr1 = 0x00000000;
+-    cpu->ctr = 0x1dd20d2;
++    cpu->ctr = 0x1d992992; /* syborg-pg: 32K I/D, 4-way, 32B lines, VIPT aliasing (OMAP2420 / N800 kernel log); was 0x1dd20d2 (ctype 0, invalid on v6) */
+     cpu->reset_sctlr = 0x00050078;
+     SET_IDREG(isar, ID_PFR0, 0x111);
+     SET_IDREG(isar, ID_PFR1, 0x1);
+@@ -156,7 +156,7 @@
+     cpu->reset_fpsid = 0x410120b4;
+     cpu->isar.mvfr0 = 0x11111111;
+     cpu->isar.mvfr1 = 0x00000000;
+-    cpu->ctr = 0x1dd20d2;
++    cpu->ctr = 0x1d992992; /* syborg-pg: 32K I/D, 4-way, 32B lines, VIPT aliasing (OMAP2420 / N800 kernel log); was 0x1dd20d2 (ctype 0, invalid on v6) */
+     cpu->reset_sctlr = 0x00050078;
+     SET_IDREG(isar, ID_PFR0, 0x111);
+     SET_IDREG(isar, ID_PFR1, 0x1);

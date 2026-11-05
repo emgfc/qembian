@@ -1,0 +1,47 @@
+diff -ru a/baseport/syborg/config.inc b/baseport/syborg/config.inc
+--- a/baseport/syborg/config.inc	2026-11-06 00:42:53.422880802 +0100
++++ b/baseport/syborg/config.inc	2026-11-06 00:42:53.444742432 +0100
+@@ -20,8 +20,8 @@
+ 
+ ; Include one of these to select the CPU
+ ;	GBLL	CFG_CPU_ARM926J
+-;	GBLL	CFG_CPU_ARM1136
+-	GBLL    CFG_CPU_CORTEX_A8N
++	GBLL	CFG_CPU_ARM1136		; syborg-pg: N95 CPU (OMAP2420 ARM1136 r0p2)
++;	GBLL    CFG_CPU_CORTEX_A8N
+ ;	GBLL	CFG_CPU_ARM1136_ERRATUM_399234_FIXED
+ ;	GBLL    CFG_CPU_ARM1136_ERRATUM_411920_FIXED
+ ; Include the following lines if this is a bootloader bootstrap
+diff -ru a/baseport/syborg/specific/interrupts.cia b/baseport/syborg/specific/interrupts.cia
+--- a/baseport/syborg/specific/interrupts.cia	2026-11-06 00:42:53.424871190 +0100
++++ b/baseport/syborg/specific/interrupts.cia	2026-11-06 00:42:53.444766468 +0100
+@@ -40,7 +40,9 @@
+ 	// Enter an idle state and wait for interrupts
+ 	asm("mov r0, #0");
+ 	asm("mcr p15, 0, r0, c7, c0, 4");	// ARMv6 CP15 wait-for-interrupt (a NOP on ARMv7)
++#ifndef __CPU_ARM1136__
+ 	asm(".word 0xe320f003");		// ARMv7 WFI (syborg-pg: modern QEMU halts only on this)
++#endif	// on ARM1136 the CP15 WFI above halts (QEMU WFI_v6); the v7 encoding is UNPREDICTABLE there
+ 	asm("bx lr");
+ }
+ 
+diff -ru a/baseport/syborg/variant.mmh b/baseport/syborg/variant.mmh
+--- a/baseport/syborg/variant.mmh	2026-11-06 00:42:53.420928117 +0100
++++ b/baseport/syborg/variant.mmh	2026-11-06 00:42:53.444709619 +0100
+@@ -20,12 +20,13 @@
+ //macro   __CPU_ARM926J__
+ //#define __CPU__ ARM926EJ-S
+ 
+-//macro __CPU_ARM1136__
++// syborg-pg: ARM1136 (r0p2, as the N95's OMAP2420; QEMU -cpu arm1136-r2), VFP11 = VFPv2
++macro __CPU_ARM1136__
+ 
+ //#define __CPU_ARM1176__
+ 
+-macro __CPU_CORTEX_A8N__
+-macro __VFP_V3
++//macro __CPU_CORTEX_A8N__
++//macro __VFP_V3
+ #define SYBORG
+ macro __SYBORG__
+ 

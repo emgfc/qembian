@@ -22,7 +22,7 @@ a separate artifact (`build/qemu/install`) and does not depend on the Symbian bu
 
 ## Syborg virtual board (from `baseport/syborg/syborg.dts`)
 
-CPU: Cortex-A8 model (the kernel is built for ARMv5). RAM is 168 MB at physical 0 (N95 free-RAM level, docs/hacks.md H-ram-168); the N95 ROFS is in a read-only flash window at 0x60000000 (H-rofs-flash).
+CPU: ARM1136 r0p2 (QEMU `arm1136-r2`), as the N95; kernel and BSP built for `__CPU_ARM1136__` (code ARMv5, docs/hacks.md H-cpu-arm1136). Until 2026-11-06 it was a Cortex-A8. RAM is 168 MB at physical 0 (N95 free-RAM level, docs/hacks.md H-ram-168); the N95 ROFS is in a read-only flash window at 0x60000000 (H-rofs-flash).
 
 | Base | Device | IRQ | Implemented in |
 |---|---|---|---|
