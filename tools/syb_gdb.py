@@ -184,7 +184,7 @@ def start_qemu(wait, secs):
     cmd = [os.path.join(ROOT, 'scripts', 'run-modern.sh'), '--timeout', str(int(secs) + 5), '--name', 'sybtool',
            '--gdb-wait' if wait else '--gdb', '--dtb', os.path.join(ROOT, 'build', 'n95', 'syborg-n95.dtb'),
            '--serial-log', os.path.join(ROOT, 'build', 'runs', 'gdb-serial.log'),
-           os.path.join(ROOT, 'build', 'n95', 'hybrid.img')]
+           os.path.abspath(ROM_PATH)]
     p = subprocess.Popen(cmd, cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                          stdin=subprocess.DEVNULL, start_new_session=True)
     time.sleep(2)
@@ -227,7 +227,10 @@ def main():
     ap.add_argument('--n', type=int, default=10)
     ap.add_argument('--interval', type=float, default=1)
     ap.add_argument('--keep', action='store_true')
+    ap.add_argument('--rom', default=os.path.join(ROOT, 'build', 'n95', 'hybrid.img'))
     a = ap.parse_args()
+    global ROM_PATH
+    ROM_PATH = a.rom
     os.makedirs(os.path.join(ROOT, 'build', 'runs'), exist_ok=True)
     log = os.path.join(ROOT, 'build', 'runs', 'gdb-%s.log' % a.cmd)
     gdbout = os.path.join(ROOT, 'build', 'runs', 'gdb-%s.gdb.txt' % a.cmd)

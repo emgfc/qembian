@@ -18,6 +18,8 @@ while [ $# -gt 0 ]; do
   esac; shift
 done
 K=build/epocroot/sf/os/kernelhwsrv/kernel/eka
+# HYBRID_IMG / HYBRID_PATCHES: compose an experimental ROM without touching the working one
+IMG=${HYBRID_IMG:-build/n95/hybrid.img}; PATCHES=${HYBRID_PATCHES:-rom/hybrid/code-patches.txt}
 python3 -I tools/exec92/gen_kernel_map.py $K/kernel/execs.txt tools/exec92/exec92.map $K/kernel/exec92_map.h
 if [ $BUILD = 1 ]; then
   scripts/build-syborg.sh udeb > build/logs/hybrid-syborg-build.txt 2>&1 || { tail -30 build/logs/hybrid-syborg-build.txt; exit 1; }
@@ -25,15 +27,15 @@ if [ $BUILD = 1 ]; then
 fi
 scripts/build-n95compat.sh udeb > build/logs/hybrid-n95compat-build.txt 2>&1 || { tail -30 build/logs/hybrid-n95compat-build.txt; exit 1; }
 python3 -I tools/romcompose.py --ours build/rom-hybrid/syborg_hybrid_kernel_ARMV5_udeb.img \
-  --n95 build/n95/core-flat.img -o build/n95/hybrid.img --manifest build/n95/hybrid-manifest.txt \
+  --n95 build/n95/core-flat.img -o "$IMG" --manifest build/n95/hybrid-manifest.txt \
   --exec92 --trace "$TRACE" \
   --file Sys/Data/ESTARTCOMP.TXT=rom/hybrid/ESTARTCOMP.TXT \
-  --rofs build/n95/rofs1.img --rofs build/n95/rofs2.img --patches rom/hybrid/code-patches.txt
+  --rofs build/n95/rofs1.img --rofs build/n95/rofs2.img --patches "$PATCHES"
 python3 -I tools/dtb_set.py external/oss.FCL.sf.adapt.Qemu/baseport/syborg/syborg.dtb build/n95/syborg-n95.dtb \
   framebuffer:width=240 framebuffer:height=320 > /dev/null
 [ $COMPOSE_ONLY = 1 ] && exit 0
 rm -rf "$OUT"
-SYBORG_DTB=/work/build/n95/syborg-n95.dtb SYBORG_GDB=${SYBORG_GDB:-} scripts/boot-test.sh --secs "$SECS" --out "$OUT" "${TYPE[@]}" build/n95/hybrid.img > build/logs/hybrid-boot.txt 2>&1 || true
+SYBORG_DTB=/work/build/n95/syborg-n95.dtb SYBORG_GDB=${SYBORG_GDB:-} scripts/boot-test.sh --secs "$SECS" --out "$OUT" "${TYPE[@]}" "$IMG" > build/logs/hybrid-boot.txt 2>&1 || true
 L="$OUT/serial0.log"
 echo "== serial: $(wc -l < "$L") lines; EXEC92 lines:"; grep -a 'EXEC92' "$L" | sort | uniq -c | head -30 || true
 echo "== processes created:"; grep -a -o 'AddThread [^ ]*::Main to [^ ]*' "$L" | awk '{print $4}' | tr '\n' ' '; echo

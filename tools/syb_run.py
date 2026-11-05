@@ -24,6 +24,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--secs', type=float, default=30)
     ap.add_argument('--trace', default='0x80000C40')
+    ap.add_argument('--rom', default=os.path.join(ROOT, 'build', 'n95', 'hybrid.img'),
+                    help='ROM image to compose into and boot (default: the working build/n95/hybrid.img)')
+    ap.add_argument('--patches', help='byte-patch file for the compose (default rom/hybrid/code-patches.txt)')
     ap.add_argument('--no-compose', action='store_true')
     ap.add_argument('--shot', type=float, action='append', default=[])
     ap.add_argument('--key', action='append', default=[])
@@ -33,13 +36,18 @@ def main():
     ap.add_argument('--gui', action='store_true')
     ap.add_argument('--report-args', nargs='*', default=[])
     a = ap.parse_args()
+    global ROM_PATH
+    ROM_PATH = a.rom
     out = os.path.abspath(a.out or os.path.join(ROOT, 'build', 'runs', a.label))
     shutil.rmtree(out, ignore_errors=True)
     os.makedirs(out)
 
     if not a.no_compose:
+        env = dict(os.environ, HYBRID_IMG=os.path.abspath(a.rom))
+        if a.patches:
+            env['HYBRID_PATCHES'] = os.path.abspath(a.patches)
         r = subprocess.run([os.path.join(ROOT, 'scripts', 'hybrid-boot.sh'), '--compose-only',
-                            '--trace', a.trace], cwd=ROOT, capture_output=True, text=True)
+                            '--trace', a.trace], cwd=ROOT, capture_output=True, text=True, env=env)
         if r.returncode:
             sys.exit('compose failed:\n' + r.stdout[-2000:] + r.stderr[-2000:])
     subprocess.run(['pkill', '-f', 'qemu-system-arm.*-name sybtool'])	# only our own QEMUs
@@ -50,7 +58,7 @@ def main():
            '--dtb', os.path.join(ROOT, 'build', 'n95', 'syborg-n95.dtb')]
     if a.gui:
         cmd.append('--gui')
-    cmd.append(os.path.join(ROOT, 'build', 'n95', 'hybrid.img'))
+    cmd.append(os.path.abspath(ROM_PATH))
     p = subprocess.Popen(cmd, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                          stdin=subprocess.DEVNULL, start_new_session=True)
     t0 = time.time()
