@@ -62,6 +62,13 @@ tools/isi.py log build/runs/X/serial.log [--all]   # unanswered requests, or eve
 simple modem answer = one `reply RES REQ RESP bytes...` line. Replies that depend on the request
 (echoes, IMEI, light, MTC state) stay in `src/n95compat/stubs/iscpeer.inl`.
 
+## Interactive runs: `scripts/run-gui.sh`
+
+GUI window with the serial log and a QMP socket in `build/runs/gui-<time>/` (link `gui-last`), so a
+hang can be analysed afterwards (`tools/syb_report.py build/runs/gui-last/serial.log`). Every run
+gets its own C: drive image; the tools (`syb_run`, `syb_gdb`) start QEMU as `-name sybtool` and kill
+only those, never an interactive session.
+
 ## Older helpers still useful
 
 - `tools/qmp.py SOCK screendump|type|key|hmp ...` (QMP client), `scripts/run-modern.sh` (plain run).

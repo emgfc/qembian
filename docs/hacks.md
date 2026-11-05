@@ -85,7 +85,18 @@ Byte patches on N95 binaries in the composed ROM; original bytes are verified at
 
 ## Known remaining non-fatal failures
 
-- `mc_useragent.exe` panics `KERN-EXEC 0` early (crash-monitor helper, ignored).
+- Caught kernel exceptions in `SessionSend`/`SessionSendSync` (`RMessageK::TMsgArgs::ReadDesHeaders`,
+  ~500 per boot, mostly AppArc): some clients flag integer arguments as descriptors. Our kernel reads
+  descriptor headers eagerly, traps the fault and marks the argument undefined (standard EKA2
+  behaviour); the 9.2 kernel read them lazily. Integer access still works; harmless noise.
+- `mc_useragent.exe` (Nokia MobileCrash) panics `KERN-EXEC 0`: it loads `mobilecrashdriver.ldd`
+  (dropped with the N95 kernel side) and uses the unopened channel. A stand-in would need to capture
+  thread deaths to be useful.
+- Review 2026-11-05: removing the six user-side byte patches (key sound, startup tone, splash) and
+  honouring display-off booted fine in scripted runs, but an interactive run hung after the region
+  query (prime suspect: key tones through the fake DSP when scrolling). Reverted; to be redone with
+  the audio work.
+
 - `RightsServer.EXE` restarted when SecEnv request 6 failed (identity hack), then panicked `USER 130` on the empty cert chain (dummy cert hack, run 20).
 - SIM `READ_IMSI` (`09 1D`) answered "data not available" (`[service, 0x24]`, same as the other SIM reads): the phone behaves as having no usable SIM.
 - `SecEnvInit` polls `SecEnv` request 1 every few minutes (timer driven; harmless).

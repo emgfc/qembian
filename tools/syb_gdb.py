@@ -179,9 +179,9 @@ def gdb_cmds(cfg, extra):
 
 
 def start_qemu(wait, secs):
-    subprocess.run(['pkill', '-x', 'qemu-system-arm'])
+    subprocess.run(['pkill', '-f', 'qemu-system-arm.*-name sybtool'])
     time.sleep(0.5)
-    cmd = [os.path.join(ROOT, 'scripts', 'run-modern.sh'), '--timeout', str(int(secs) + 5),
+    cmd = [os.path.join(ROOT, 'scripts', 'run-modern.sh'), '--timeout', str(int(secs) + 5), '--name', 'sybtool',
            '--gdb-wait' if wait else '--gdb', '--dtb', os.path.join(ROOT, 'build', 'n95', 'syborg-n95.dtb'),
            '--serial-log', os.path.join(ROOT, 'build', 'runs', 'gdb-serial.log'),
            os.path.join(ROOT, 'build', 'n95', 'hybrid.img')]
@@ -257,7 +257,7 @@ def main():
     finally:
         os.unlink(py)
         if not a.keep:
-            subprocess.run(['pkill', '-x', 'qemu-system-arm'])
+            subprocess.run(['pkill', '-f', 'qemu-system-arm.*-name sybtool'])
     text = open(log).read()
     print(text, end='')
     if a.cmd in ('leaves', 'brk') and 'BRK' not in text and 'LEAVE' not in text:

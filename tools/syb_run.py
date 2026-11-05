@@ -42,10 +42,11 @@ def main():
                             '--trace', a.trace], cwd=ROOT, capture_output=True, text=True)
         if r.returncode:
             sys.exit('compose failed:\n' + r.stdout[-2000:] + r.stderr[-2000:])
-    subprocess.run(['pkill', '-x', 'qemu-system-arm'])
+    subprocess.run(['pkill', '-f', 'qemu-system-arm.*-name sybtool'])	# only our own QEMUs
     time.sleep(0.5)
     qmp = os.path.join(out, 'qmp.sock')
-    cmd = [os.path.join(ROOT, 'scripts', 'run-modern.sh'), '--qmp', qmp,
+    cmd = [os.path.join(ROOT, 'scripts', 'run-modern.sh'), '--qmp', qmp, '--name', 'sybtool',
+           '--nvmem', os.path.join(out, 'nvmemory.img'),
            '--dtb', os.path.join(ROOT, 'build', 'n95', 'syborg-n95.dtb')]
     if a.gui:
         cmd.append('--gui')
@@ -82,6 +83,10 @@ def main():
     time.sleep(max(0, a.secs - (time.time() - t0)))
     subprocess.run([sys.executable, qmp_tool, qmp, 'screendump', os.path.join(out, 'shot-final.png')])
     os.killpg(p.pid, signal.SIGKILL)
+    try:
+        os.remove(os.path.join(out, 'nvmemory.img'))	# the run's C: drive
+    except OSError:
+        pass
     p.wait()
     th.join(2)
     log.close()
