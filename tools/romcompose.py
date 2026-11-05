@@ -205,7 +205,9 @@ def main():
     est_at = B + len(out)
     out += struct.pack('<i', len(ents)) + struct.pack('<%dI' % (len(ents) + 1), *(ents + [fence]))
     # ROFS partition blob for MEDROFS.PDD: ROFS1 at 0, each following ROFx at the previous
-    # image's iMaxImageSize (as on the N95 flash), then a 16-byte trailer at the end of the ROM
+    # image's iMaxImageSize (as on the N95 flash). It goes to the flash image <output>.rofs, not
+    # into the ROM (RAM): a 4 KB header page { "N95ROFS\0", size } and the blob at +0x1000, loaded
+    # by QEMU at the flash window 0x60000000 (scripts/run-modern.sh)
     rofs_at = rofs_len = 0
     if a.rofs:
         blob = bytearray()
@@ -219,14 +221,16 @@ def main():
                 if mx < len(img):
                     raise SystemExit('%s: iMaxImageSize smaller than image' % path)
                 blob += b'\xff' * (mx - len(img))
-        rofs_at = (B + len(out) + 0xFFFF) & ~0xFFFF
-        out += b'\0' * (rofs_at - B - len(out)) + blob
         rofs_len = len(blob)
-        print('ROFS media blob: %d image(s), 0x%x bytes @0x%08x' % (len(a.rofs), rofs_len, rofs_at))
-    end = (B + len(out) + 16 + 0xFFF) & ~0xFFF
+        if rofs_len + 0x1000 > 128 << 20:
+            raise SystemExit('ROFS blob 0x%x does not fit the 128 MB flash window' % rofs_len)
+        hdr = bytearray(0x1000)
+        struct.pack_into('<8sI', hdr, 0, b'N95ROFS\0', rofs_len)
+        with open(a.out + '.rofs', 'wb') as f:
+            f.write(hdr + blob)
+        print('ROFS flash image: %d image(s), 0x%x bytes -> %s.rofs' % (len(a.rofs), rofs_len, a.out))
+    end = (B + len(out) + 0xFFF) & ~0xFFF
     out += b'\0' * (end - B - len(out))
-    if a.rofs:
-        struct.pack_into('<8sII', out, len(out) - 16, b'N95ROFS\0', rofs_at, rofs_len)
     size = len(out)
 
     # patch TRomHeader

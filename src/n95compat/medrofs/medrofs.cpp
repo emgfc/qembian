@@ -1,9 +1,10 @@
 // Copyright (c) 2026 syborg-pg contributors. Licensed under the Eclipse Public License v1.0.
 //
 // MEDROFS.PDD: read-only "NAND" media serving the N95 ROFS partition (ROFS1 + ROFx extension
-// at ROFS1's iMaxImageSize, as on the phone's flash) from memory. tools/romcompose.py --rofs
-// appends that blob to the hybrid ROM, which QEMU loads into RAM with the rest of the image,
-// and ends the ROM with a 16-byte trailer { "N95ROFS\0", TLinAddr base, TUint32 size }.
+// at ROFS1's iMaxImageSize, as on the phone's flash) from the board's read-only flash window at
+// physical 0x60000000 (stands for the N95's NAND; not RAM). tools/romcompose.py --rofs writes the
+// flash image <rom>.rofs = header page { "N95ROFS\0", TUint32 size } + blob at +0x1000;
+// scripts/run-modern.sh loads it there.
 // Registered as local drive N95ROFS_DRIVE (8, the N95's own ESTARTCOMP.TXT number).
 
 #include "locmedia.h"
@@ -20,14 +21,27 @@ static const TInt KDriveNumbers[1] = { N95ROFS_DRIVE };
 static TLinAddr RofsBase = 0;
 static TInt RofsSize = 0;
 
+const TPhysAddr KFlashPhys = 0x60000000;
+const TInt KFlashWindow = 128 << 20;
+
 static TInt FindRofs()
 	{
-	const TRomHeader& h = Epoc::RomHeader();
-	const TUint32* t = (const TUint32*)(h.iRomBase + h.iRomSize - 16);
-	if (t[0] != 0x5235394e /*"N95R"*/ || t[1] != 0x0053464f /*"OFS\0"*/)
+	DPlatChunkHw* hdr = NULL;
+	TInt r = DPlatChunkHw::New(hdr, KFlashPhys, 0x1000, EMapAttrSupRo | EMapAttrCachedMax);
+	if (r != KErrNone)
+		return r;
+	const TUint32* t = (const TUint32*)hdr->LinearAddress();
+	TBool ok = t[0] == 0x5235394e /*"N95R"*/ && t[1] == 0x0053464f /*"OFS\0"*/ && t[2] > 0
+			   && t[2] <= (TUint32)(KFlashWindow - 0x1000);
+	RofsSize = ok ? (TInt)t[2] : 0;
+	hdr->Close(NULL);
+	if (!ok)
 		return KErrNotFound;
-	RofsBase = t[2];
-	RofsSize = (TInt)t[3];
+	DPlatChunkHw* all = NULL;	// kept for the life of the system
+	r = DPlatChunkHw::New(all, KFlashPhys, 0x1000 + RofsSize, EMapAttrSupRo | EMapAttrCachedMax);
+	if (r != KErrNone)
+		return r;
+	RofsBase = all->LinearAddress() + 0x1000;
 	return KErrNone;
 	}
 
@@ -131,7 +145,7 @@ DECLARE_EXTENSION_PDD()
 DECLARE_STANDARD_EXTENSION()
 	{
 	TInt r = FindRofs();
-	Kern::Printf("N95ROFS: %s base %08x size %08x -> local drive %d", r == KErrNone ? "found" : "NO ROFS in ROM", RofsBase, RofsSize, N95ROFS_DRIVE);
+	Kern::Printf("N95ROFS: %s base %08x size %08x -> local drive %d", r == KErrNone ? "flash" : "NO ROFS in flash", RofsBase, RofsSize, N95ROFS_DRIVE);
 	if (r != KErrNone)
 		return KErrNone;	// nothing to serve; don't fail the boot
 	DPrimaryMediaBase* pM = new DPrimaryMediaBase;

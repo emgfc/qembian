@@ -7,7 +7,7 @@
 # per run (--nvmem, default build/run-modern/nvmemory-<pid>.img, deleted on exit unless given),
 # E: likewise (--nvmem2, 1 GB sparse). A FILE given explicitly is persistent: created when
 # missing (C: 64 MB, E: 1 GB, or NVMEM_SIZE / NVMEM2_SIZE), never wiped; the phone formats it.
-# framebuffer 240x320. --name sets the QEMU process name (tools use 'sybtool' and kill only those).
+# framebuffer 240x320. ROM.rofs (next to the ROM) is loaded into the 0x60000000 flash window. --name sets the QEMU process name (tools use 'sybtool' and kill only those).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 QEMU="$ROOT/build/qemu-modern/install/bin/qemu-system-arm"
@@ -45,6 +45,8 @@ args=(-M syborg -kernel "$ROM" "${DISPLAY_OPT[@]}" "${SERIAL[@]}" -monitor none
       -global "syborg-fb.width=${FB%x*}" -global "syborg-fb.height=${FB#*x}"
       "${GDB[@]}")
 [ -n "$DTB" ] && args+=(-dtb "$DTB")
+# the ROM's ROFS partition goes into the board's flash window (tools/romcompose.py writes ROM.rofs)
+[ -f "$ROM.rofs" ] && args+=(-device "loader,file=$ROM.rofs,addr=0x60000000,force-raw=on")
 [ -n "$QMP" ] && args+=(-qmp "unix:$QMP,server=on,wait=off")
 [ -n "$NAME" ] && args+=(-name "$NAME")
 args+=("$@")

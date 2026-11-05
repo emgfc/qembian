@@ -2,12 +2,15 @@
  * Syborg (Symbian Virtual Platform) board for modern QEMU.
  *
  * Memory map (fixed by the Symbian baseport's syborg.h, same as the 0.9.1-symbian DTS):
- *   0x00000000 RAM (512 MB default)
+ *   0x00000000 RAM (168 MB default: N95 8GB free RAM with an unpaged core image)
  *   0xc0000000 interrupt controller -> CPU IRQ   0xc0001000 RTC   0xc0002000 timer (irq 1)
  *   0xc0003000 keyboard (2)   0xc0004000 pointer (3)   0xc0005000 framebuffer (4)
  *   0xc0006000..0xc0009000 serial 0..3 (5..8)   0xc000d000 NVMemory 2 = E: (14)
  *   0xc000e000 audio (13)   0xc0010000 NVMemory (12)
  *   0xc0011000 platform (ID, then the device tree blob at +0x1000, 16 MB window)
+ *   0x60000000 flash: 128 MB read-only window, the N95's ROFS partition (stands for its NAND);
+ *              filled with -device loader,file=ROFS,addr=0x60000000,force-raw=on (scripts/run-modern.sh
+ *              does it for ROM.rofs); read by MEDROFS.PDD, so ROFS takes no RAM as on the phone
  * hostfs/snapshot/virtio/nand/usbtest are not modelled; accesses to them read as zero
  * (ignore_memory_transaction_failures), like unmapped addresses on 0.9.1.
  *
@@ -212,6 +215,13 @@ static void syborg_init(MachineState *machine)
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, 0xc0011000);
 
+    /* read-only flash window (ROFS partition), outside RAM */
+    {
+        MemoryRegion *flash = g_new(MemoryRegion, 1);
+        memory_region_init_rom(flash, NULL, "syborg.flash", 128 * MiB, &error_fatal);
+        memory_region_add_subregion(sysmem, 0x60000000, flash);
+    }
+
     syborg_binfo.ram_size = machine->ram_size;
     arm_load_kernel(ARM_CPU(cpuobj), machine, &syborg_binfo);
 }
@@ -224,7 +234,7 @@ static void syborg_machine_init(MachineClass *mc)
     mc->max_cpus = 1;
     mc->ignore_memory_transaction_failures = true;
     mc->default_cpu_type = ARM_CPU_TYPE_NAME("cortex-a8");
-    mc->default_ram_size = 512 * MiB;
+    mc->default_ram_size = 168 * MiB;     /* must match the bootstrap (KHwRamSizeMb, patch 0010) */
     mc->default_ram_id = "syborg.ram";
 }
 

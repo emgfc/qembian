@@ -270,6 +270,13 @@ GLDEF_C TInt E32Main()
 		}
 	P("RWsSession connected after %d retries; waiting 15 s", tries);
 	User::After(15000000);
+	{
+	TInt ram = 0, ramFree = 0, rom = 0;
+	HAL::Get(HALData::EMemoryRAM, ram);
+	HAL::Get(HALData::EMemoryRAMFree, ramFree);
+	HAL::Get(HALData::EMemoryROM, rom);
+	P("memory: RAM %d KB, free %d KB, ROM %d KB", ram >> 10, ramFree >> 10, rom >> 10);
+	}
 
 	RunTest();
 
