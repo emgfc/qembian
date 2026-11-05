@@ -58,7 +58,8 @@ its channel open fails and that path is skipped [verified].
 
 User-side side effects to be aware of: the client parses `baseimage.dof` (DOFF) and the `.dcd_register`
 / `.<UUID>` sections itself, so the file must stay readable; `BridgeDcdSync` global mutex is created
-by the client. `Bal_ord22` later calls `User::FreeLogicalDevice("Hwa")` only on failure.
+by the client. `Bal_ord22` (bridge close, also the normal teardown path, see 5.5) calls
+`User::FreeLogicalDevice("Hwa")` after detaching; the next `Bal_ord18` loads the LDD again.
 
 ## 2. DSP answers
 
@@ -285,10 +286,11 @@ Completing the listener alone is **not** enough; the receive control must return
    - anything else, including 0 → re-arm only; `FUN_80a0cd64` then returns −17 to the caller.
 3. `FUN_80a0d24a` (`0x80a0d24a`): `obj+0x104 = payload.u16[0]` (reply command), then
    `__ARM_switch8` (table `09 | 11 18 11 11 06 11 11 11 20 | 20`):
-   - 0, 2, 3, 5, 6, 7 → client callback (client vtable+0x14)(gwc, payload), `obj+0x108` unchanged;
+   - 0, 2, 3, 5, 6, 7, 8 → client callback (client vtable+0x14)(gwc, payload), `obj+0x108` unchanged;
    - 1 → `obj+0x108 = payload.u32[1] ? payload.u32[1] : KErrGeneral`, then callback (an error reply);
    - 4 → halfword-swap `payload.u32[1]` and `u32[2]`, then callback (reply to the cmd-4 query);
-   - 8 and ≥ 9 → `obj+0x104 = 0xffff`, no callback (ignored).
+   - 8 → plain callback as well; ≥ 9 → `obj+0x104 = 0xffff`, no callback (ignored).
+     [verified: `__ARM_switch8` indexes the table from lr, so case 8 is the ninth entry, 0x11.]
 
 So for the init message the gateway expects: send status 0; listener status **−17**; `0x8000015`
 status 0 with `iRx` words whose `u16[0] == 0` (ack). Cheapest reply: `iRx = { 0, 0, 0 }` (raw
@@ -369,3 +371,52 @@ go through the same `FUN_80a0cd64`, so the code above answers them too:
 
 Reply commands 2, 3, 5, 6, 7 are asynchronous notifications (callback only, the wait loop keeps
 waiting), so never send them from the stub.
+
+### 5.5 Run-time result and what the 10 sends are [verified]
+
+With the 5.3 code the run shows ten `cmd 1` send/ack cycles and then `0x8000006`, `0x400000c`,
+`6`, `7`, `0x4000001`. That is **not** a retry: there is no retry logic anywhere in the chain.
+
+- The audio server's EAP session `ServiceL` is `AudioServer.dll` `FUN_80a34318`: IPC function
+  **0x1f = create** the EAP control module (`FUN_80a3310e` → `eapcontrolmodule_ord9` NewL →
+  `FUN_80a0d732` → `eapgwc_ord1`: node create, `0x8000007`, listener; then `eapcontrolmodule_ord4`,
+  a plain setter that cannot leave) and **0x20 = 32 = delete** it (`FUN_80a34300` → `FUN_80a331b0` →
+  virtual delete). Both are TRAP'd, then `RMessagePtr2::Complete(aMessage, 0)` unconditionally.
+  So MmRm's request 32 is "destroy the EAP module", and the create (0x1f) had already succeeded.
+- The wrapper destructor (`eapcontrolmodule.dll` `0x80a0d9c0`, the code at line 312 of the Ghidra
+  output) runs, when `impl+0x14 == 1` (set at the end of ConstructL): nine TRAP'd
+  `eapcontrolmodule_ord6(0x1b + i)` calls, each ending in `FUN_80a0d888` → `eapgwc_ord3` (cmd 1),
+  then `FUN_80a10a7a` + one more `FUN_80a0d888`: exactly ten cmd-1 sends, results ignored. The
+  original hang (one send, then nothing) was the first of these. Then `impl` vtable+0x20 → gateway
+  teardown `Gwc_ord2`: `CActive::Cancel` on the listener (`Bal_ord3` = **`0x8000006`**, a1 = node
+  token, a2 = 0; `Cancel` then `User::WaitForRequest(iStatus)`, so completing the armed listener
+  status with `KErrCancel` is right and sufficient; `RunL` is not run), `Bal_ord26` (ctl 6 stop,
+  waits on a2 status), buffer free (`0x400000c`), `Bal_ord22`: `bridgeapi_ord10`, `bridgeapi_ord33`
+  (DCD cleanup, `0x4000001`, `RHandleBase::Close`), then **`User::FreeLogicalDevice(L"Hwa")`** and,
+  if that returns 0, `User::FreePhysicalDevice(L"Hwa.Omap")`.
+
+Answers to the three questions:
+
+1. The cmd-0 ack (`iRx = {0,0,0}` raw words, no shared-buffer write) is accepted: `eapgwc_ord3`
+   returns `obj+0x108 = 0` and the destructor would ignore the result anyway. A reply does not need
+   to go through the shared buffer; `iCmd = 0x20000000` + `iArg1/iArg2` is only the other form.
+2. Nothing decides "retry": `FUN_80a0cd64` decides "done" by the reply command in `obj+0x104`
+   (0/1/4/0xffff) and returns `obj+0x108`; its callers either `LeaveIfError` it (API calls) or
+   ignore it (destructor). The ten sends come from the destructor loop, not from the reply.
+3. `0x8000006` = cancel the node message listener (`Bal_ord3`, the listener's `DoCancel`); the
+   client waits only for the listener status to complete (any value; `KErrCancel`).
+
+So the thread is stuck **after** `0x4000001`, in the only remaining calls of the teardown:
+`User::FreeLogicalDevice("Hwa")` (kernel: close of the stub's `DLogicalDevice`, code-segment
+unload) is the prime suspect [inferred]; after it `FUN_80a34318` completes the message with 0 and
+MmRm continues. Things for the stub / kernel side to check:
+- Does `FreeLogicalDevice` on the stub LDD return (and what)? If it succeeds the factory object is
+  deleted and the static state (`ListenStatus`, `ReplyQueued`, DCD table, chunks) must be reset,
+  because the next create (0x1f, from a later client) calls `User::LoadLogicalDevice("Hwa")` again
+  (`FUN_80a41b9c` from `Bal_ord18`). Returning `KErrInUse` from a kernel-resident device is equally
+  acceptable to `Bal_ord22`.
+- Request-semaphore balance: each cycle completes exactly three requests (send, listener, rx) for
+  three waits; the cancel completes one for one. An unbalanced completion would surface as an early
+  return, not a hang.
+- A backtrace of `!AudioServer` after the last `0x4000001` log line settles it (static analysis
+  cannot see past the device free).

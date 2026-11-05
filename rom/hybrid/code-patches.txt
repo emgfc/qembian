@@ -29,8 +29,3 @@
 # Play() returns KErrNotReady, the (silent) key-sound fallback is used and the animation runs.
 833a93c4  01f0aaec  0020c046   # startup.exe CStartupTone::ConstructL
 
-# H-phone-ready-skip (TEMPORARY, docs/n95-startup-animation.md §5–6): Startup.exe state 5 waits for
-# global state 213 (0xd5, "phone ready") which Phone.exe never publishes yet (its engine does not
-# finish on our fake modem). Treat 211 like 213 in Startup's state handler (0x833a8190):
-# "cmp r1,#207; bne ret" -> "cmp r1,#211; beq state6". Remove once Phone publishes 0xd5.
-833a8198  cf2903d1  d3290cd0   # startup.exe state handler: 211 -> state 6

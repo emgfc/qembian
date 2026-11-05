@@ -15,6 +15,7 @@ stubs/d_display.mmp
 stubs/secldd.mmp
 stubs/ehwa.mmp
 stubs/ehwaomap.mmp
+stubs/dvfs_interface.mmp
 stubs/lightldd.mmp
 stubs/lightpdd.mmp
 medrofs/medrofs.mmp

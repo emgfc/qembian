@@ -1,0 +1,11 @@
+// N95 dvfs_interface.ldd stand-in (see nokiastub.h)
+#include "../../variant.mmh"
+#include <kernel/kern_ext.mmh>
+target			VariantTarget(dvfs_interface,ldd)
+linkas			dvfs_interface.ldd
+targettype		ldd
+sourcepath		.
+source			dvfs_interface.cpp
+noexportlibrary
+vendorid		0x70000001
+capability		all

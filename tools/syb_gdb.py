@@ -4,7 +4,7 @@
   syb_gdb.py leaves [--modules M1,M2] [--err E] [--secs N] [--max K]
         break on EUser User::Leave; print error, current thread and the symbolised call chain
         (code addresses found on the user stack); keep only chains through the given modules
-  syb_gdb.py brk LOC [--print EXPR]... [--stack] [--secs N] [--max K] [--when-thread SUBSTR]
+  syb_gdb.py brk LOC [--print EXPR]... [--stack] [--secs N] [--max K] [--when-thread SUBSTR] [--after S]
         hardware breakpoint at LOC (hex address, EUser-style export name like 'User::Leave', or a
         kernel symbol); print registers, the current thread, optional gdb expressions and stack
   syb_gdb.py sample [--at T] [--n N] [--interval S]
@@ -24,7 +24,8 @@ REL = os.path.join(ROOT, 'build', 'epocroot', 'epoc32', 'release', 'armv5', 'ude
 KSYM = os.path.join(REL, '_syborg_ekern.exe.sym')
 
 GDB_PY = r'''
-import gdb, sys, re, json
+import gdb, sys, re, json, time
+T0 = time.time()
 sys.path.insert(0, %(tools)r)
 import syb_sym
 R = syb_sym.Rom()
@@ -128,6 +129,8 @@ class Probe(gdb.Breakpoint):
         except Exception as e:
             emit('PROBE %%s (address not resolved here: %%s)' %% (loc, e))
     def stop(self):
+        if CFG.get('after') and time.time() - T0 < CFG['after']:
+            return False
         th = thread_name()
         if CFG.get('when_thread') and CFG['when_thread'] not in th:
             return False
@@ -219,6 +222,7 @@ def main():
     ap.add_argument('--print', action='append', default=[])
     ap.add_argument('--stack', action='store_true')
     ap.add_argument('--when-thread')
+    ap.add_argument('--after', type=float, default=0, help='ignore hits in the first N seconds (wall clock, ~ guest time)')
     ap.add_argument('--at', type=float, default=20)
     ap.add_argument('--n', type=int, default=10)
     ap.add_argument('--interval', type=float, default=1)
@@ -229,7 +233,7 @@ def main():
     gdbout = os.path.join(ROOT, 'build', 'runs', 'gdb-%s.gdb.txt' % a.cmd)
     open(log, 'w').close()
     cfg = {'log': log, 'max': a.max, 'err': a.err, 'print': a.print, 'stack': a.stack,
-           'when_thread': a.when_thread, 'modules': a.modules.split(',') if a.modules else None}
+           'when_thread': a.when_thread, 'after': a.after, 'modules': a.modules.split(',') if a.modules else None}
     py = write_py(cfg)
     try:
         if a.cmd in ('leaves', 'brk'):

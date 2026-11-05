@@ -30,11 +30,26 @@ static TInt DcdCount;
 static DChunk* LoadChunk;		// 0x4000002 upload chunk
 static DChunk* BufChunk;		// 0x4000016 shared buffer
 const TInt KMgrToken = 0x44434401;	// opaque DCD manager token (never used as a kernel handle)
-const TInt KNodeToken = 0x4e4f4445;	// opaque Bal node token
+const TInt KNodeToken = 0x4e4f0045;	// opaque Bal node tokens: KNodeToken + (index << 8); odd, so the
+										// stub framework never tries to read memory at a token
 const TInt KLoadChunkSize = 0x40000;
-static TRequestStatus* ListenStatus;	// 0x8000005 node listener, NULL when not armed
-static TBool ReplyQueued;		// a node message arrived while no listener was armed
-static TUint32 ReplyWords[3];	// raw payload handed back by 0x8000015	// >= baseimage.dof (155756 bytes)
+// per node (each Bal node create gets its own token; several EAP modules exist at once)
+const TInt KMaxNodes = 16;
+struct SNode
+	{
+	TRequestStatus* iListen;	// 0x8000005 listener, NULL when not armed
+	TBool iReplyQueued;			// a message arrived while no listener was armed
+	TUint32 iReply[3];			// raw payload handed back by 0x8000015
+	};
+static SNode Nodes[KMaxNodes];
+static TInt NodeCount;
+
+static SNode* Node(TAny* aToken)
+	{
+	TInt d = (TInt)aToken - KNodeToken;
+	TInt i = d >> 8;
+	return (d & 0xff) == 0 && i >= 0 && i < KMaxNodes ? &Nodes[i] : NULL;
+	}	// >= baseimage.dof (155756 bytes)
 
 static TBool SameUuid(const TUint8* a, const TUint8* b)
 	{
@@ -194,7 +209,10 @@ static TInt HwaCtl(DThread* aClient, TInt aFn, TAny* a1, TAny* a2, const TUint32
 		}
 	case 4:			// Bal node create: *a2 = node token
 		{
-		TInt tok = KNodeToken;
+		TInt i = NodeCount < KMaxNodes ? NodeCount++ : KMaxNodes - 1;	// reuse the last slot if full
+		Nodes[i].iListen = NULL;
+		Nodes[i].iReplyQueued = EFalse;
+		TInt tok = KNodeToken + (i << 8);
 		return Kern::ThreadRawWrite(aClient, a2, &tok, 4);
 		}
 	case 5:			// Bal node start
@@ -210,11 +228,14 @@ static TInt HwaCtl(DThread* aClient, TInt aFn, TAny* a1, TAny* a2, const TUint32
 		{
 		TUint32 l[2] = {0, 0};
 		Kern::ThreadRawRead(aClient, a2, l, sizeof(l));
-		ListenStatus = (TRequestStatus*)l[0];
-		if (ReplyQueued && ListenStatus)
+		SNode* n = Node(a1);
+		if (!n)
+			return KErrArgument;
+		n->iListen = (TRequestStatus*)l[0];
+		if (n->iReplyQueued && n->iListen)
 			{
-			ReplyQueued = EFalse;
-			Kern::RequestComplete(aClient, ListenStatus, KErrCompletion);	// "message waiting"
+			n->iReplyQueued = EFalse;
+			Kern::RequestComplete(aClient, n->iListen, KErrCompletion);	// "message waiting"
 			}
 		return KErrNone;
 		}
@@ -230,28 +251,39 @@ static TInt HwaCtl(DThread* aClient, TInt aFn, TAny* a1, TAny* a2, const TUint32
 		if (m[2] == 0x20000000 && m[3])
 			Kern::ThreadRawRead(aClient, (TAny*)m[3], &eapCmd, 2);	// payload u16[0]
 		Kern::Printf("N95STUB: Hwa node send cmd %08x ptr %08x len %d eap %d", m[2], m[3], m[4], eapCmd);
-		ReplyWords[0] = (eapCmd == 4) ? 4 : 0;	// u16[0] = reply command (0 = ack, 4 = query answer)
-		ReplyWords[1] = 0;
-		ReplyWords[2] = 0;
+		SNode* n = Node(a1);
+		if (!n)
+			return KErrArgument;
+		n->iReply[0] = (eapCmd == 4) ? 4 : 0;	// u16[0] = reply command (0 = ack, 4 = query answer)
+		n->iReply[1] = 0;
+		n->iReply[2] = 0;
 		TRequestStatus* send = (TRequestStatus*)b[0];
 		if (send)
 			Kern::RequestComplete(aClient, send, KErrNone);
-		if (ListenStatus)
-			Kern::RequestComplete(aClient, ListenStatus, KErrCompletion);	// nulls ListenStatus
+		if (n->iListen)
+			Kern::RequestComplete(aClient, n->iListen, KErrCompletion);	// nulls iListen
 		else
-			ReplyQueued = ETrue;
+			n->iReplyQueued = ETrue;
 		return KErrNone;
 		}
 	case 0x8000006:	// Bal cancel node listener: complete the armed listener with KErrCancel
-		if (ListenStatus)
-			Kern::RequestComplete(aClient, ListenStatus, KErrCancel);
-		ReplyQueued = EFalse;
+		{
+		SNode* n = Node(a1);
+		if (n)
+			{
+			if (n->iListen)
+				Kern::RequestComplete(aClient, n->iListen, KErrCancel);
+			n->iReplyQueued = EFalse;
+			}
+		}
 		return KErrNone;
 	case 0x8000015:	// Bal receive: a2 -> { TRequestStatus* rx, TBuf8<12>* out }
 		{
 		TUint32 b[2] = {0, 0};
 		Kern::ThreadRawRead(aClient, a2, b, sizeof(b));
-		TInt r = Kern::ThreadRawWrite(aClient, (TUint8*)b[1] + 8, ReplyWords, sizeof(ReplyWords));
+		SNode* n = Node(a1);
+		static const TUint32 KAck[3] = {0, 0, 0};
+		TInt r = Kern::ThreadRawWrite(aClient, (TUint8*)b[1] + 8, n ? n->iReply : KAck, sizeof(KAck));
 		TRequestStatus* rx = (TRequestStatus*)b[0];
 		if (rx)
 			Kern::RequestComplete(aClient, rx, r);
