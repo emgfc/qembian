@@ -397,6 +397,14 @@ void DIscPeerChannel::HandleSend(const TUint8* m, TInt aLen)
 		{ 0x09, 0x19, 0x1A, 2,  { 0x2F, 0x24 } },								// SIM read: data not available
 		{ 0x23, 0x04, 0x05, 18, { 0x00, 0x01, 0x01, 0x10 } },					// PN_PERMANENT_DATA read
 		};
+	if (res == 0x1B && id == 0x00)			// INFO_SERIAL_NUMBER_READ (IMEI) -- hack H-imei, docs/hacks.md
+		{
+		// [status INFO_OK][nsb 1][sb 0x41 IMEI_PLAIN, len 20][0][15 chars]["490154203237518"][NUL]
+		static const TUint8 d[22] = { 0x00, 0x01, 0x41, 0x14, 0x00, 0x0F,
+			'4','9','0','1','5','4','2','0','3','2','3','7','5','1','8', 0x00 };
+		Reply(res, tid, 0x01, d, sizeof(d));
+		return;
+		}
 	if (res == 0x1B && id == 0x29)			// PP read: echo the request's subblocks (values 0)
 		{
 		Reply(res, tid, 0x2A, m + 10, aLen - 10);

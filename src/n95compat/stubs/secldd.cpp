@@ -21,6 +21,8 @@ static const SStubCtl KCtl[] =
 // { TDesC8* app, TUint8* in, TInt inLen, TUint8* out, TInt outLen (in/out), TUint8 mode }.
 // Identity transform: copy input to output, outLen = inLen. Failing it made RightsServer exit -5,
 // which killed DRMHelperServer, which blocked AknSkinSrv -> EikSrvs -> AknCapServer -> Starter.
+#include "stubcert.h"
+
 static TInt SecEnvHook(DThread* aClient, TInt aReq, const TUint32* aArgs)
 	{
 	if (aReq != 6 || !aArgs[0])
@@ -30,6 +32,18 @@ static TInt SecEnvHook(DThread* aClient, TInt aReq, const TUint32* aArgs)
 	if (r != KErrNone)
 		return r;
 	TInt inLen = (TInt)st[2], outMax = (TInt)st[4];
+	if ((st[5] & 0xff) == 3 && inLen == 0)
+		{
+		// Mode 3 with no input = "read device certificate chain" (DrmBb5KeyStorage). It parses
+		// [len][DER] records and X509-parses the last one, so hand it a dummy self-signed cert.
+		r = Kern::ThreadRawWrite(aClient, (TAny*)st[3], KStubCertChain, sizeof(KStubCertChain));
+		if (r != KErrNone)
+			return r;
+		st[4] = sizeof(KStubCertChain);
+		Kern::ThreadRawWrite(aClient, (TAny*)(aArgs[0] + 16), &st[4], 4);
+		Kern::Printf("N95STUB: SecEnv mode 3: returned dummy cert chain (%d bytes)", st[4]);
+		return KErrNone;
+		}
 	TInt n = inLen < outMax ? inLen : outMax;
 	TUint8 buf[256];
 	for (TInt done = 0; done < n; )
