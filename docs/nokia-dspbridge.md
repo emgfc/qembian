@@ -62,9 +62,9 @@ by the client. `Bal_ord22` later calls `User::FreeLogicalDevice("Hwa")` only on 
 
 ## 2. DSP answers
 
-None needed for init [verified]: no control reads a DSP message, notification or node state before
-`Signal`. The message listener (`0x8000005`) stays pending forever. Audio playback would of course
-need the node protocol (`0x8000014/0x8000015` send/receive, `Bal_ord23/21`), out of scope.
+None needed for the RM server's own init [verified]: no control reads a DSP message, notification
+or node state before `Signal`. But the first client request (MmRmServerThread IPC 32 → EAP node init)
+does send one message and blocks until it is answered: see section 5.
 
 ## 3. The KERN-EXEC 0
 
@@ -239,3 +239,133 @@ Notes:
 
 Residual risks after this: `FUN_80930be4` (AudioServerProxy ord70/77/75, same-process session to
 the audio server) and anything the RM server does once clients connect (DevSound) were not analysed.
+
+## 5. EAP node init message (`0x8000014` → listener → `0x8000015`)
+
+Static analysis of `eapgwc.dll` (RVCT, Ghidra `build/n95/ghidra/eapgwc.dll.c`), `Gwc.dll` and
+`eapcontrolmodule.dll`. Scope: one canned ack so that `eapgwc_ord3` returns 0; nothing else.
+
+### 5.1 The send: control `0x8000014` (`Bal_ord23`, via `Gwc_ord27`) [verified]
+
+- a1 = node token; a2 → `{ TRequestStatus* iSendStatus; TBuf8<12>* iMsg }`, both on `Bal_ord23`'s
+  stack frame (`iSendStatus` = a2+8, matching the logged `0040bc80` / `80000001 00000002`).
+- `iMsg` is the `TBuf8<12>` at Gwc object+0x30: `{ TUint len (type EBuf, 12); TUint max (12);
+  TUint32 iCmd; TUint32 iArg1; TUint32 iArg2 }`. For every gateway send `iCmd = 0x20000000`
+  ("payload is in the shared buffer"), `iArg1` = **user address** of the payload (`TDesC8::Ptr()` of
+  the buffer obtained by `Gwc_ord4`, i.e. the `0x400000b` chunk buffer), `iArg2` = payload length.
+  Pointers in the block: a2[0], a2[1], `iArg1` (user addresses of the calling thread).
+- Payload of the init message (`eapgwc_ord3`, 0x84 bytes, 16-bit little-endian words):
+  `u16[0] = 1` (EAP command, [inferred] "set client/preset name"), `u16[1]` = stale, `u16[2..65]` =
+  the name's 8-bit chars widened, unused entries `0xffff`. The name comes from
+  `eapcontrolmodule.dll` `FUN_80a0d888` → `FUN_80a10924(obj+8)` [inferred: a configured name].
+- `Bal_ord23` then does `User::WaitForRequest(iSendStatus)` and returns the status value: this is
+  where `!AudioServer` is stuck now. `Gwc_ord27` ignores the return value; `FUN_80a0cd64`
+  (eapgwc, the synchronous send-and-wait) only continues if `Gwc_ord27` returned 0.
+
+### 5.2 How the reply is delivered [verified]
+
+Completing the listener alone is **not** enough; the receive control must return message words.
+
+1. `FUN_80a0cd64` (`0x80a0cd64`): `obj+0x108 = 0`; `Gwc_ord27` (send); then loop
+   `{ obj+0x104 = 0xffff; User::WaitForRequest(listener.iStatus); listener->RunL(); r = obj+0x104;
+   break if r ∈ {0xffff, 0, 1, 4}; }`; returns `KErrCompletion` (−17) if `r == 0xffff` else
+   `obj+0x108`. `listener` is the `CActive` at Gwc+0x60 whose `iStatus` is the `TRequestStatus*`
+   passed in `0x8000005` (`0x0090b50c` in the log). The RunL is called by hand, not by the scheduler.
+2. Listener `RunL` (`Gwc.dll` `0x80a43a54`, vtable `0x80a44254` slot +0x10, missing from the
+   Ghidra listing) checks the completion code:
+   - `KErrCompletion` (−17) → message available: `Bal_ord21` → control **`0x8000015`** with a1 =
+     node token, a2 → `{ TRequestStatus* iRxStatus; TBuf8<12>* iRx }` (`iRx` at listener+0x40, its
+     three words at +0x48/+0x4c/+0x50); synchronous (`User::WaitForRequest(iRxStatus)`, result =
+     status value; non-zero → observer error callback(−2)). Then the payload descriptor is built:
+     `iRx.iCmd == 0x20000000` → `TPtr8(iRx.iArg1, iRx.iArg2)` (`iArg1` used unchanged as a user
+     pointer); any other `iCmd` → `TPtr8(&iRx.iCmd, 12)` (the three raw words are the payload).
+     The listener is re-armed (`Bal_ord19` → a new `0x8000005`, same status address) and then
+     the observer's `MessageReceived(payload)` runs (thunk `0x80a0d2ae` → eapgwc `FUN_80a0d24a`).
+   - `KErrAbort` (−39) → re-arm + error callback(−39).
+   - anything else, including 0 → re-arm only; `FUN_80a0cd64` then returns −17 to the caller.
+3. `FUN_80a0d24a` (`0x80a0d24a`): `obj+0x104 = payload.u16[0]` (reply command), then
+   `__ARM_switch8` (table `09 | 11 18 11 11 06 11 11 11 20 | 20`):
+   - 0, 2, 3, 5, 6, 7 → client callback (client vtable+0x14)(gwc, payload), `obj+0x108` unchanged;
+   - 1 → `obj+0x108 = payload.u32[1] ? payload.u32[1] : KErrGeneral`, then callback (an error reply);
+   - 4 → halfword-swap `payload.u32[1]` and `u32[2]`, then callback (reply to the cmd-4 query);
+   - 8 and ≥ 9 → `obj+0x104 = 0xffff`, no callback (ignored).
+
+So for the init message the gateway expects: send status 0; listener status **−17**; `0x8000015`
+status 0 with `iRx` words whose `u16[0] == 0` (ack). Cheapest reply: `iRx = { 0, 0, 0 }` (raw
+12-byte payload, no shared-buffer write), which makes `eapgwc_ord3` return 0. The client callback
+then sees a 12-byte zero payload [inferred: harmless for an ack; the caller `FUN_80a0d888` only uses
+the return value].
+
+### 5.3 Stub code for `ehwa.cpp` (replaces the `0x8000005` / `0x8000014` cases)
+
+```cpp
+static TRequestStatus* ListenStatus;	// 0x8000005 listener, NULL when not armed
+static TBool   ReplyQueued;			// a send arrived while no listener was armed
+static TUint32 ReplyWords[3];			// iRx words handed back by 0x8000015
+
+	case 0x8000005:	// Bal node message listener: a2 -> { TRequestStatus*, 0 }
+		{
+		TUint32 l[2] = {0, 0};
+		Kern::ThreadRawRead(aClient, a2, l, sizeof(l));
+		ListenStatus = (TRequestStatus*)l[0];
+		if (ReplyQueued && ListenStatus)
+			{
+			ReplyQueued = EFalse;
+			Kern::RequestComplete(aClient, ListenStatus, KErrCompletion);	// -17 = "message waiting"
+			ListenStatus = NULL;
+			}
+		return KErrNone;
+		}
+	case 0x8000014:	// Bal send: a2 -> { TRequestStatus* send, TBuf8<12>* msg }
+		{
+		TUint32 b[2] = {0, 0}, m[5] = {0};
+		Kern::ThreadRawRead(aClient, a2, b, sizeof(b));
+		Kern::ThreadRawRead(aClient, (TAny*)b[1], m, sizeof(m));	// len, max, cmd, arg1, arg2
+		TUint16 eapCmd = 0;
+		if (m[2] == 0x20000000 && m[3])
+			Kern::ThreadRawRead(aClient, (TAny*)m[3], &eapCmd, 2);	// payload u16[0]
+		Kern::Printf("N95STUB: Hwa send cmd %08x ptr %08x len %d eap %d", m[2], m[3], m[4], eapCmd);
+		ReplyWords[0] = (eapCmd == 4) ? 4 : 0;	// raw 12-byte payload: u16[0] = reply command (0 = ack)
+		ReplyWords[1] = 0; ReplyWords[2] = 0;
+		if (b[0])
+			Kern::RequestComplete(aClient, (TRequestStatus*)b[0], KErrNone);	// unblocks Bal_ord23
+		if (ListenStatus)
+			{
+			Kern::RequestComplete(aClient, ListenStatus, KErrCompletion);	// RunL -> 0x8000015
+			ListenStatus = NULL;
+			}
+		else
+			ReplyQueued = ETrue;
+		return KErrNone;
+		}
+	case 0x8000015:	// Bal receive: a2 -> { TRequestStatus* rx, TBuf8<12>* out }
+		{
+		TUint32 b[2] = {0, 0};
+		Kern::ThreadRawRead(aClient, a2, b, sizeof(b));
+		TInt r = Kern::ThreadRawWrite(aClient, (TUint8*)b[1] + 8, ReplyWords, sizeof(ReplyWords));
+		if (b[0])
+			Kern::RequestComplete(aClient, (TRequestStatus*)b[0], r);
+		return KErrNone;
+		}
+```
+
+Notes: `Kern::RequestComplete(DThread*, TRequestStatus*&, TInt)` nulls its second argument, hence
+the locals. The `TBuf8<12>` length word of `iRx` is already 12 (set by its constructor), so only
+the three data words are written. Static state is fine: one node, one client thread.
+
+### 5.4 Further messages before IPC request 32 completes
+
+Only one send (EAP cmd 1) was seen before the hang; what the `eapcontrolmodule` caller does after
+`eapgwc_ord3` returns 0 was not traced [inferred: more sends are possible]. All other gateway sends
+go through the same `FUN_80a0cd64`, so the code above answers them too:
+
+| eapgwc export | payload `u16[0]` | size | reply that satisfies the wait loop |
+|---|---|---|---|
+| `ord8` | 0 (set parameter: id, value, type, 2 shorts, name) | 0x10 | ack `u16[0] = 0` |
+| `ord2` | 5 (one short argument) | 4 | ack |
+| `ord5` | 4 (query, one short) | 4 | `u16[0] = 4`, data words `u32[1..2]` (halfword-swapped by the handler); the stub returns zeros |
+| `ord7` | 7 (table, from `FUN_80a0ced6`) | 0x50 | ack |
+| `ord6` | 8 (table, from `FUN_80a0d09c`) | 0x30 | ack |
+
+Reply commands 2, 3, 5, 6, 7 are asynchronous notifications (callback only, the wait loop keeps
+waiting), so never send them from the stub.

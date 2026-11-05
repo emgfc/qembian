@@ -15,7 +15,9 @@
 //              static analysis guessed 0x4000016, kept as an alias) -> chunk-backed TPtr8
 //   4          Bal node create: *a2 = node token
 //   5, 6, 0x8000007  Bal node start/stop/wait ready: complete the TRequestStatus* in a2 with 0
-//   0x8000005  Bal node message listener: stays pending (no DSP messages)
+//   0x8000014/0x8000005/0x8000015  node send / listener / receive: the fake DSP task acks every
+//              message (send completes 0, listener KErrCompletion, receive returns {cmd,0,0})
+//   0x8000006  cancel the listener: completes it with KErrCancel [inferred from the run]
 //   others     return 0, write nothing (logged)
 #include "nokiastub.h"
 #include <memmodel/epoc/platform.h>
@@ -29,7 +31,10 @@ static DChunk* LoadChunk;		// 0x4000002 upload chunk
 static DChunk* BufChunk;		// 0x4000016 shared buffer
 const TInt KMgrToken = 0x44434401;	// opaque DCD manager token (never used as a kernel handle)
 const TInt KNodeToken = 0x4e4f4445;	// opaque Bal node token
-const TInt KLoadChunkSize = 0x40000;	// >= baseimage.dof (155756 bytes)
+const TInt KLoadChunkSize = 0x40000;
+static TRequestStatus* ListenStatus;	// 0x8000005 node listener, NULL when not armed
+static TBool ReplyQueued;		// a node message arrived while no listener was armed
+static TUint32 ReplyWords[3];	// raw payload handed back by 0x8000015	// >= baseimage.dof (155756 bytes)
 
 static TBool SameUuid(const TUint8* a, const TUint8* b)
 	{
@@ -201,19 +206,55 @@ static TInt HwaCtl(DThread* aClient, TInt aFn, TAny* a1, TAny* a2, const TUint32
 			Kern::RequestComplete(aClient, s, KErrNone);
 		return KErrNone;
 		}
-	case 0x8000005:	// Bal node message listener: stays pending
+	case 0x8000005:	// Bal node message listener: a2 -> { TRequestStatus*, 0 }; pending until a reply
 		{
 		TUint32 l[2] = {0, 0};
 		Kern::ThreadRawRead(aClient, a2, l, sizeof(l));
-		Kern::Printf("N95STUB: Hwa node listener status %08x arg %08x (pending)", l[0], l[1]);
+		ListenStatus = (TRequestStatus*)l[0];
+		if (ReplyQueued && ListenStatus)
+			{
+			ReplyQueued = EFalse;
+			Kern::RequestComplete(aClient, ListenStatus, KErrCompletion);	// "message waiting"
+			}
 		return KErrNone;
 		}
-	case 0x8000014:	// Bal send message to node: log it (spec for a DSP-side reply)
+	case 0x8000014:	// Bal send: a2 -> { TRequestStatus* send, TBuf8<12>* msg {cmd, arg1, arg2} }
 		{
-		TUint32 m[8] = {0};
-		Kern::ThreadRawRead(aClient, a2, m, sizeof(m));
-		Kern::Printf("N95STUB: Hwa node message %08x %08x %08x %08x %08x %08x %08x %08x",
-					 m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7]);
+		// The fake DSP task acks every message: send completes 0, the listener completes with
+		// KErrCompletion, and 0x8000015 hands back a raw 12-byte payload {reply cmd, 0, 0}
+		// (eapgwc wait loop FUN_80a0cd64; docs/nokia-dspbridge.md section 5)
+		TUint32 b[2] = {0, 0}, m[5] = {0, 0, 0, 0, 0};
+		Kern::ThreadRawRead(aClient, a2, b, sizeof(b));
+		Kern::ThreadRawRead(aClient, (TAny*)b[1], m, sizeof(m));	// len, max, cmd, arg1, arg2
+		TUint16 eapCmd = 0;
+		if (m[2] == 0x20000000 && m[3])
+			Kern::ThreadRawRead(aClient, (TAny*)m[3], &eapCmd, 2);	// payload u16[0]
+		Kern::Printf("N95STUB: Hwa node send cmd %08x ptr %08x len %d eap %d", m[2], m[3], m[4], eapCmd);
+		ReplyWords[0] = (eapCmd == 4) ? 4 : 0;	// u16[0] = reply command (0 = ack, 4 = query answer)
+		ReplyWords[1] = 0;
+		ReplyWords[2] = 0;
+		TRequestStatus* send = (TRequestStatus*)b[0];
+		if (send)
+			Kern::RequestComplete(aClient, send, KErrNone);
+		if (ListenStatus)
+			Kern::RequestComplete(aClient, ListenStatus, KErrCompletion);	// nulls ListenStatus
+		else
+			ReplyQueued = ETrue;
+		return KErrNone;
+		}
+	case 0x8000006:	// Bal cancel node listener: complete the armed listener with KErrCancel
+		if (ListenStatus)
+			Kern::RequestComplete(aClient, ListenStatus, KErrCancel);
+		ReplyQueued = EFalse;
+		return KErrNone;
+	case 0x8000015:	// Bal receive: a2 -> { TRequestStatus* rx, TBuf8<12>* out }
+		{
+		TUint32 b[2] = {0, 0};
+		Kern::ThreadRawRead(aClient, a2, b, sizeof(b));
+		TInt r = Kern::ThreadRawWrite(aClient, (TUint8*)b[1] + 8, ReplyWords, sizeof(ReplyWords));
+		TRequestStatus* rx = (TRequestStatus*)b[0];
+		if (rx)
+			Kern::RequestComplete(aClient, rx, r);
 		return KErrNone;
 		}
 		}
