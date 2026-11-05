@@ -168,7 +168,9 @@ The plan is in [roadmap.md](roadmap.md) and the firmware facts in
 | 24 | same loop | `eiksrvui.dll` creates `CMdaAudioToneUtility` per tone | H-keysound-nommf code patch (`romcompose.py --patches`) |
 | 25 | EikSrvs and akncapserver stay up; splash dismissed; then idle: Starter waits for akncapserver's rendezvous; akncapserver waits for `!HWRMServer`, which blocks in construction on SAServer request `0x2000000A` → light adaptation ISI `3A 22` unanswered | | H-light reply |
 | 26 | one run went silent at 37 k lines (not reproduced); the rerun reached Starter's whole list: `sae`, `SysAp`, `Phone`, `Idle`, `screensaver`, `startup`, `alarmserver`, `aknnfysrv`, `PhoneServer`, …; SplashScreen relaunched ~11×; **screen still the uniform dark fill** | SAEmService leaves −2 on our GSS-style `17 0B` (needs bars 1..7) | H-em replies; next: why nothing reaches the frame buffer |
-| 27 (current) | | | H-lcd-alwayson + frame buffer dump through gdb |
+| 27 | no display off / secure switch / mode change ever requested (one power-up, fb phys 0x06012000, lin 0xcac02000); gdb cannot read that kernel address | | in-guest frame buffer probe |
+| 28 | probe (hash every 60 s): the visible 240×320 frame buffer is **all `0x03030303` for the whole run** — nothing draws into it after the first fill. WSERV's screen driver pushes dirty rects with `DisplayDriver` ctl 9 (`[minX \| w<<16][minY \| h<<16]`, landscape 320×240 panel coordinates), never with pixel data | | find where ScDv's 16MU device draws (gdb on its constructor `0x8087b2ac`) |
+| 29 (current) | | | |
 
 What already works in run 13, all N95 binaries on our kernel ([boot summary](evidence/e1/hybrid-boot-summary.txt)) ([trace excerpt](evidence/e1/hybrid-serial-excerpt.txt),
 [loaded code segments](evidence/e1/hybrid-codesegs-loaded.txt), [exec call counts](evidence/e1/hybrid-exec-call-counts.txt)):

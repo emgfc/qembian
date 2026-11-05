@@ -1,6 +1,43 @@
 --- a/baseport/syborg/fb/syborg_fb.cpp
 +++ b/baseport/syborg/fb/syborg_fb.cpp
-@@ -66,12 +66,22 @@
+@@ -53,6 +53,36 @@
+   ((DLcdPowerHandler*)aPtr)->PowerUpDfc();
+ }
+ 
++#ifdef SYBORG_FB_N95
++// N95 hybrid diagnostic (docs/hacks.md H-lcd-alwayson): every 60 s hash the frame buffer and log it,
++// to tell "nothing draws into the frame buffer" apart from "QEMU does not show it".
++static TUint32* FbProbeAddr;
++static TInt FbProbeWords;
++static void FbProbeDfcFn(TAny*);
++static void FbProbeTimerFn(TAny*);
++static TDfc* FbProbeDfc;
++static NTimer* FbProbeTimer;
++static void FbProbeTimerFn(TAny*) { FbProbeDfc->Add(); }
++static void FbProbeDfcFn(TAny*)
++{
++  TUint32* f = FbProbeAddr;
++  TUint32 sum = 0, first = f[240], diff = 0;
++  for (TInt i = 240; i < FbProbeWords; i += 3)
++	{ sum = sum * 31 + f[i]; if (f[i] != first) ++diff; }
++  Kern::Printf("N95LCD: fb probe hash %08x diff %d px(0,1)=%08x px(120,160)=%08x px(10,300)=%08x",
++	sum, diff, first, f[160 * 240 + 120], f[300 * 240 + 10]);
++  FbProbeTimer->OneShot(NKern::TimerTicks(60000));
++}
++static void FbProbeStart(TUint32* aAddr, TInt aWords)
++{
++  FbProbeAddr = aAddr; FbProbeWords = aWords;
++  FbProbeDfc = new TDfc(FbProbeDfcFn, NULL, Kern::DfcQue0(), 7);
++  FbProbeTimer = new NTimer(FbProbeTimerFn, NULL);
++  if (FbProbeDfc && FbProbeTimer)
++	FbProbeTimer->OneShot(NKern::TimerTicks(60000));
++}
++#endif
++
+ void power_down_dfc(TAny* aPtr)
+ {
+   ((DLcdPowerHandler*)aPtr)->PowerDownDfc();
+@@ -66,12 +96,22 @@
  
  void DLcdPowerHandler::DisplayOff()
  {
@@ -23,7 +60,7 @@
     if(aSecure)
  	 {
  	   if(!iSecureDisplay)
-@@ -116,6 +126,9 @@
+@@ -116,6 +156,9 @@
  
  void DLcdPowerHandler::PowerUpLcd(TBool aSecure)
  {
@@ -33,17 +70,18 @@
  
    WriteReg(iPortAddr, FB_ENABLED, 0);
    WriteReg(iPortAddr, FB_BASE, aSecure ? iSecurevRamPhys : ivRamPhys);
-@@ -281,6 +294,9 @@
+@@ -281,6 +324,10 @@
  
  	iSecureVideoInfo = iVideoInfo;
  	iSecureVideoInfo.iVideoAddress = (TInt)pV2;
 +#ifdef SYBORG_FB_N95
 +	Kern::Printf("N95LCD: video lin %08x phys %08x, secure lin %08x phys %08x", pV, ivRamPhys, pV2, iSecurevRamPhys);
++	FbProbeStart((TUint32*)pV, width * height);
 +#endif
  	
  	return KErrNone;
  }
-@@ -288,6 +304,9 @@
+@@ -288,6 +335,9 @@
  
  TInt DLcdPowerHandler::SetDisplayMode(TInt aMode)
  {
