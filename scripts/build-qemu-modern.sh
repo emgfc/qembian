@@ -17,6 +17,12 @@ if [ "${1:-}" = clean ] || [ ! -d "$SRC" ]; then
   tar -C "$B" -xJf "downloads/qemu-$VER.tar.xz"
 fi
 
+for p in patches/qemu-modern/*.patch; do
+  [ -e "$p" ] || continue
+  grep -qxF "$(basename "$p")" "$SRC/.syborg-patches" 2>/dev/null && continue
+  echo ">> patch $(basename "$p")"; patch -d "$SRC" -p1 --forward < "$p"
+  basename "$p" >> "$SRC/.syborg-patches"
+done
 cp src/qemu-syborg/hw/arm/syborg*.{c,h} "$SRC/hw/arm/"
 grep -q 'config SYBORG' "$SRC/hw/arm/Kconfig" || cat >> "$SRC/hw/arm/Kconfig" <<'EOF'
 

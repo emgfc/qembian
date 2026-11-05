@@ -1,0 +1,21 @@
+--- a/kernel/eka/kernel/arm/ckernel.cpp
++++ b/kernel/eka/kernel/arm/ckernel.cpp
+@@ -337,7 +337,17 @@
+ 	// crash anyway so no point trying to handle the event.  Also, stops
+ 	// D_EXC hanging system on crash of critical/permanent thread.
+     if (pT->iFlags & (KThreadFlagSystemCritical|KThreadFlagSystemPermanent))
+-		Exc::Fault(aPtr);
++		{
++		// N95 hybrid hack H-critical-exit (docs/hacks.md): with the 9.2 personality on, an
++		// exception in a critical/permanent *user* thread panics just that thread (logged).
++		extern TBool Exec92Enabled;
++		if (Exec92Enabled && pT->iThreadType==EThreadUser && pT->iOwningProcess
++			&& pT->iOwningProcess!=K::TheFileServerProcess)
++			Kern::Printf("N95HACK: exception in system-critical thread %O pc %08x lr %08x far %08x; panicking it instead of faulting",
++				pT, pR->iR15, pR->iR14, pR->iFaultAddress);
++		else
++			Exc::Fault(aPtr);
++		}
+ 	NKern::UnlockSystem();	
+ 
+ 	TUint m = DKernelEventHandler::Dispatch(EEventHwExc, pR, NULL);

@@ -79,15 +79,16 @@
  
  	  aInfo.iBitsPerPixel       = KConfigBitsPerPixel;
  	}
-@@ -263,6 +306,16 @@
+@@ -263,6 +306,17 @@
  	//width and height set by reading board model
  	iVideoInfo.iSizeInPixels.iWidth  = width;
  	iVideoInfo.iSizeInPixels.iHeight = height;
 +#ifdef SYBORG_FB_N95
-+	// N95 hack H-lcd-landscape (docs/hacks.md): the N95 frame buffer memory is landscape (320x240,
-+	// 1280-byte lines) and the Nokia screen driver draws rotated 270 into it, while HAL reports the
-+	// portrait panel (240x320). The QEMU device is configured 320x240; report it portrait here.
-+	if (width > height)
++	// N95 hack H-lcd-native-landscape (docs/hacks.md): the N95 panel is natively landscape and
++	// wsini.ini gets the 240x320 portrait UI through rotation 270, which the display controller
++	// performs. So HAL reports the native landscape size (320x240) while the frame buffer memory
++	// (what ScDv draws, and what QEMU shows) stays portrait: 240x320 with 960-byte lines.
++	if (width < height)
 +		{
 +		iVideoInfo.iSizeInPixels.iWidth  = height;
 +		iVideoInfo.iSizeInPixels.iHeight = width;
@@ -96,7 +97,7 @@
  
  	//offset between lines depends on width of screen
  	iVideoInfo.iOffsetBetweenLines = width*4;
-@@ -281,6 +334,10 @@
+@@ -281,6 +335,10 @@
  
  	iSecureVideoInfo = iVideoInfo;
  	iSecureVideoInfo.iVideoAddress = (TInt)pV2;
@@ -107,7 +108,7 @@
  	
  	return KErrNone;
  }
-@@ -288,6 +345,9 @@
+@@ -288,6 +346,9 @@
  
  TInt DLcdPowerHandler::SetDisplayMode(TInt aMode)
  {

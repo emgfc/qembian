@@ -1,0 +1,13 @@
+--- a/target/arm/tcg/a32.decode
++++ b/target/arm/tcg/a32.decode
+@@ -235,7 +235,9 @@
+ BXJ              .... 0001 0010 1111 1111 1111 0010 ....      @rm
+ BLX_r            .... 0001 0010 1111 1111 1111 0011 ....      @rm
+ 
+-CLZ              .... 0001 0110 1111 .... 1111 0001 ....      @rdm
++# syborg-pg: ARM11/Cortex-A8 hardware ignores the should-be-one fields (19:16, 11:8);
++# Nokia N95 code contains CLZ with them as zero (0xe160201e = clz r2, lr).
++CLZ              .... 0001 0110 ---- .... ---- 0001 ....      @rdm
+ 
+ ERET             ---- 0001 0110 0000 0000 0000 0110 1110
+ 
