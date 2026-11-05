@@ -143,7 +143,12 @@ Two objects handle `0A 01`:
 [ref]; with no SIM a real modem reports exactly that. Absent subblocks are skipped safely.
 **[verified]**
 
-#### 3.1.8 `09 C0` — `SIM_STATUS_REQ` (service 0, already answered with `C1 00 1C`)
+#### 3.1.8 `09 C0` — `SIM_STATUS_REQ` (service 0, answered with `C1 00 06` since run 42)
+**NokiaDSY** (`0x808bfb54`) maps the status: `0x01`/`0x1C`/`0x4B` → 3 = card present (then waits
+for SIM init), `0x06`/`0x24` → 4 = no card (DOS SIM state → sae 0x100052E9 = 5). `SEC_STATE_RESP`
+(`0x808bfd20`): cause `0x16` (NO_SIM) is ignored; `0x05` (STARTUP_OK) → security-code status → sae
+0x100052F0 = 1. Both are needed for Startup's no-SIM path (state 8). **[verified by run 42]**
+
 Handler `FUN_808c82dc` (`0x808c82dc`): **only `[11]==1` (`SIM_SERV_OK`)** does anything (marks
 "SIM ready", custom IPC 1000659). Any other status is ignored, so `0x1C` (`SIM_SERV_NOT_OK`) is
 acceptable; NOKIATSY learns "no SIM" from `SIM_IND 0xEF` / SEC messages, not from this reply.

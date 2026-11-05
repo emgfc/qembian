@@ -358,18 +358,22 @@ void DIscPeerChannel::HandleSend(const TUint8* m, TInt aLen)
 		{
 		switch (id)
 			{
-		case 0xC0:	// SIM_STATUS_REQ {service, 0} -> SIM_SERV_NOT_OK (no SIM)
+		case 0xC0:	// SIM_STATUS_REQ {service, 0} -> SIM_SERV_SIM_DISCONNECTED (no SIM)
 			{
-			TUint8 d[2] = { aLen > 10 ? m[10] : (TUint8)0, 0x1C };
+			// NokiaDSY 0x808bfb54 maps the status: 0x01/0x1C/0x4B -> "card present" (then waits for
+			// SIM init forever), 0x06/0x24 -> "no card". NOKIATSY only acts on 0x01.
+			TUint8 d[2] = { aLen > 10 ? m[10] : (TUint8)0, 0x06 };
 			Reply(res, tid, 0xC1, d, 2);
 			return;
 			}
 		case 0xE4: Reply(res, tid, 0xE5, K00, 2); return;
 			}
 		}
-	else if (res == KResSec && id == 0x11)	// SEC_STATE_REQ -> SEC_CAUSE_NO_SIM
+	else if (res == KResSec && id == 0x11)	// SEC_STATE_REQ -> SEC_STARTUP_OK (no code to ask)
 		{
-		static const TUint8 d[2] = { 0x16, 0x00 };
+		// NokiaDSY 0x808bfd20 ignores SEC_CAUSE_NO_SIM (0x16); 0x05 raises the security-code
+		// status that sae publishes as 0x100052F0 (Startup state 8 needs it == 1).
+		static const TUint8 d[2] = { 0x05, 0x00 };
 		Reply(res, tid, 0x12, d, 2);
 		return;
 		}
