@@ -1,0 +1,20 @@
+--- a/kernel/eka/kernel/sexec92.cpp
++++ b/kernel/eka/kernel/sexec92.cpp
+@@ -41,6 +41,17 @@
+ 	return ExecHandler::MutexWait(aMutex, 0);
+ 	}
+ 
++// 9.2 RTimer::At()/AtUTC(): Exec::TimerAt(handle, TRequestStatus&, const TTime&) with the time
++// (microseconds since 0 AD, UTC) passed by reference; ours takes the two 32-bit halves by value.
++// Without this every absolute timer fired at once (CentralRepository's cache timer spun at 100%).
++TInt Exec92Shim_TimerAt92(DTimer* aTimer, TRequestStatus& aStatus, const TInt64* aTime)
++	{
++	TInt64 t;
++	kumemget32(&t, aTime, sizeof(t));
++	ExecHandler::TimerAt(aTimer, aStatus, I64LOW(t), I64HIGH(t));
++	return KErrNone;
++	}
++
+ // 9.2 RHandleBase::Duplicate(): Exec::HandleDuplicate(aThreadHandle, aType, aHandle) with the
+ // source handle passed by value; returns the new handle (>=0) or an error. Ours takes TInt& in/out.
+ // Same logic as ExecHandler::HandleDuplicate (sexec.cpp) without the user-memory round trip.

@@ -85,7 +85,7 @@ S33  ThreadExitCategory                   # export
 S34  !invalid                             # no stub in N95 EUSER
 S35  TimerCancel                          # export+eka2l1
 S36  TimerAfter                           # export+eka2l1 DUP
-S37  TimerAt                              # export
+S37  @TimerAt92:TimerAt                  # manual: 9.2 passes const TTime& (pointer in r2); ours takes lo/hi by value
 S38  TimerLock                            # export
 S39  ChangeNotifierLogon                  # export+eka2l1
 S3a  ChangeNotifierLogoff                 # export+eka2l1
