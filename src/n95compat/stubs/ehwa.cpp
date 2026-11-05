@@ -50,7 +50,26 @@ struct SNode
 	DThread* iClient;			// thread that armed the listener (for DSP-initiated messages)
 	TInt iRate, iChannels;		// raw PCM node format (ctl 4 config)
 	TBool iRaw;					// raw PCM node (commands without the 0x20000000 shared form)
+	TInt iKind;					// ENodeOther / ENodeRaw / ENodeMp3 / ENodeAac / ENodeEaac
 	};
+// codec nodes by DSP node UUID (docs/nokia-dsp-playback.md sections 1 and 6)
+enum { ENodeOther, ENodeRaw, ENodeMp3, ENodeAac, ENodeEaac };
+static TUint32 LastDefUuid;		// first UUID word of the last 0x400001f get-def (precedes node create)
+static TInt NodeKind(TUint32 aUuid0)
+	{
+	switch (aUuid0)
+		{
+	case 0xc36a3ebc: return ENodeRaw;
+	case 0xb11a1f21: return ENodeMp3;
+	case 0x5c89a1f1: return ENodeAac;
+	case 0x8468856b: return ENodeEaac;
+		}
+	return ENodeOther;
+	}
+// device format, stop command and "stopped" DSP message per codec node
+static TInt KindFormat(TInt aKind) { return aKind == ENodeMp3 ? 2 : (aKind == ENodeAac || aKind == ENodeEaac) ? 3 : 0; }
+static TUint32 KindStopCmd(TInt aKind) { return (aKind == ENodeMp3 || aKind == ENodeAac) ? 6 : 1; }
+static TUint32 KindStoppedMsg(TInt aKind) { return (aKind == ENodeMp3 || aKind == ENodeAac) ? 4 : 8; }
 static SNode Nodes[KMaxNodes];
 static TInt NodeCount;
 
@@ -145,7 +164,7 @@ static void Pump(TAny*)
 	if (StopNode)
 		{
 		Kern::Printf("N95STUB: Hwa play stopped");
-		DspMessage(StopNode, 8);		// a stopped DSP node reports {8,..} like at end of stream
+		DspMessage(StopNode, KindStoppedMsg(StopNode->iKind));	// stopped node: {8} raw/eAAC+, {4} MP3/AAC
 		StopNode = NULL;
 		}
 	while (ReqCount)
@@ -153,12 +172,13 @@ static void Pump(TAny*)
 		SPcmReq& r = Req[ReqHead];
 		if (!Playing)
 			{
-			Au(KAuFormat, 0);
+			Au(KAuFormat, KindFormat(r.iNode->iKind));
 			Au(KAuRate, r.iNode->iRate);
 			Au(KAuChannels, r.iNode->iChannels);
 			Au(KAuCtrl, 1);
 			Playing = ETrue;
-			Kern::Printf("N95STUB: Hwa play PCM %d Hz %d ch", r.iNode->iRate, r.iNode->iChannels);
+			Kern::Printf("N95STUB: Hwa play kind %d format %d (%d Hz %d ch)", r.iNode->iKind,
+						 KindFormat(r.iNode->iKind), r.iNode->iRate, r.iNode->iChannels);
 			}
 		while (r.iCopied < r.iLen && Inflight < KSlots)
 			{
@@ -191,7 +211,7 @@ static void Pump(TAny*)
 	if (EosNode && (AuR(KAuStatus) & 2))
 		{
 		Kern::Printf("N95STUB: Hwa play complete");
-		DspMessage(EosNode, 8);			// {8,0,0}: RawGwc -> HwDevice Stopped() = play complete
+		DspMessage(EosNode, KindStoppedMsg(EosNode->iKind));	// play complete: {8} raw/eAAC+, {4} MP3/AAC
 		EosNode = NULL;
 		Playing = EFalse;
 		}
@@ -363,6 +383,7 @@ static TInt HwaCtl(DThread* aClient, TInt aFn, TAny* a1, TAny* a2, const TUint32
 		TInt type = -1;
 		Kern::ThreadRawRead(aClient, a1, uuid, 16);
 		Kern::ThreadRawRead(aClient, (TUint8*)a1 + 16, &type, 4);
+		LastDefUuid = uuid[0] | (uuid[1] << 8) | (uuid[2] << 16) | (uuid[3] << 24);
 		TInt k = Dcd ? DcdFind(uuid, type) : KErrNotFound;
 		if (k < 0)
 			return KErrArgument;
@@ -396,13 +417,14 @@ static TInt HwaCtl(DThread* aClient, TInt aFn, TAny* a1, TAny* a2, const TUint32
 		Nodes[i].iListen = NULL;
 		Nodes[i].iReplyQueued = EFalse;
 		Nodes[i].iRaw = EFalse;
+		Nodes[i].iKind = NodeKind(LastDefUuid);
 		// a1 -> TBuf8<0x14>{p1 (rate mask), p0, node struct*, p2 (encoding), p3 (channels)}
 		TUint32 c[7] = {0, 0, 0, 0, 0, 0, 0};
 		Kern::ThreadRawRead(aClient, a1, c, sizeof(c));
 		Nodes[i].iRate = MapRate(c[2]);
 		Nodes[i].iChannels = c[6] == 2 ? 2 : 1;
-		Kern::Printf("N95STUB: Hwa node %d config %08x %08x %08x %08x %08x -> %d Hz %d ch", i,
-					 c[2], c[3], c[4], c[5], c[6], Nodes[i].iRate, Nodes[i].iChannels);
+		Kern::Printf("N95STUB: Hwa node %d kind %d (uuid %08x) config %08x %08x %08x %08x %08x -> %d Hz %d ch",
+					 i, Nodes[i].iKind, LastDefUuid, c[2], c[3], c[4], c[5], c[6], Nodes[i].iRate, Nodes[i].iChannels);
 		TInt tok = KNodeToken + (i << 8);
 		return Kern::ThreadRawWrite(aClient, a2, &tok, 4);
 		}
@@ -453,7 +475,7 @@ static TInt HwaCtl(DThread* aClient, TInt aFn, TAny* a1, TAny* a2, const TUint32
 			TRequestStatus* send = (TRequestStatus*)b[0];
 			if (send)
 				Kern::RequestComplete(aClient, send, KErrNone);
-			if (m[2] == 1 && Ring)
+			if (m[2] == KindStopCmd(n->iKind) && Ring)
 				{
 				StopNode = n;
 				CancelAll = ETrue;
@@ -507,7 +529,9 @@ static TInt HwaCtl(DThread* aClient, TInt aFn, TAny* a1, TAny* a2, const TUint32
 		r.iPtr = b[2] + 4;
 		r.iLen = len - 4;
 		r.iCopied = 0;
-		r.iEos = (hdr[3] & 0x10) != 0;
+		r.iEos = n->iKind == ENodeAac ? hdr[2] == 1 : (hdr[3] & 0x10) != 0;
+		if (n->iKind == ENodeAac && hdr[2] == 2)
+			r.iLen = 0;					// AAC concealment (header-only) block: nothing to play
 		if (r.iEos || len <= 4)
 			Kern::Printf("N95STUB: Hwa PCM block len %d hdr %02x %02x %02x %02x words %08x %08x %08x", len,
 						 hdr[0], hdr[1], hdr[2], hdr[3], b[4], b[5], b[6]);
