@@ -23,6 +23,7 @@
   sydb snap save [NAME] [--stopped] | snap list | snap rm NAME     machine snapshots (RAM+devices+drives)
   sydb fork SNAP [--into DIR] [--run] [--gui]   resume a snapshot in a new session (paused by default)
   sydb restore SNAP [--run]          the same into this session  | sydb pause | resume
+  sydb gc [--keep-auto 5] [--keep-dumps 200] [--no-forks] [--dry-run]   retention (also after each catch hit)
   sydb qmp CMD [JSON-ARGS] | hmp CMD | mcp (MCP stdio server) | --json (raw JSON output) | --session DIR
 Keys: QKeyCode names or aliases lsk rsk ok menu star hash clear back; a number = pause in seconds;
       KEY:SECONDS = hold (long press), e.g. menu:1.5 opens the task switcher.
@@ -457,6 +458,13 @@ def main():
             out(c.call({'op': 'snap', 'sub': 'rm', 'name': rest[1]}))
         else:
             out(c.call({'op': 'snap', 'sub': 'list'}))
+    elif cmd == 'gc':
+        ap = argparse.ArgumentParser(prog='sydb gc')
+        ap.add_argument('--keep-auto', type=int, default=5); ap.add_argument('--keep-dumps', type=int, default=200)
+        ap.add_argument('--no-forks', action='store_true'); ap.add_argument('--dry-run', action='store_true')
+        x = ap.parse_args(rest)
+        out(c.call({'op': 'gc', 'keep_auto': x.keep_auto, 'keep_dumps': x.keep_dumps, 'forks': not x.no_forks,
+                    'dry': x.dry_run}, timeout=120))
     elif cmd in ('pause', 'resume'):
         out(c.call({'op': 'vm', 'sub': cmd}))
     elif cmd == 'qmp':

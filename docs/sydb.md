@@ -116,6 +116,10 @@ sydb pause | resume
   restored; after saving, the block devices are reactivated (`blockdev-set-active`) so the source
   runs on. **Forks** start a new daemon + QEMU with `-incoming file:… -S` on copies of the drives:
   paused, own gdb port, the agent answers after `resume`.
+- **Retention** (`sydb gc`, MCP `session_gc`, and automatically after each catch hit): automatic
+  snapshots (`catch-*`, `auto-*`) beyond the newest 5 and dumps beyond the newest 200 are deleted;
+  `sydb gc` also removes fork session dirs whose daemon is not running. Snapshots named by hand stay
+  until `snap rm`. A snapshot is about 120 MB of `state.bin`; the drive copies are reflinks.
 - MCP: `catch_add/list/rm/hits/show/resume`, `snap_save/list/rm`, `session_fork`, `session_select`
   (point the tools at a fork and back), `vm_pause/resume`.
 

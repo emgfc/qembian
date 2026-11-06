@@ -105,6 +105,9 @@ TOOLS = [
      obj({'snapshot': STR, 'into': STR, 'run': BOOL}, ['snapshot'])),
     ('session_select', 'Point all tools at another session dir (e.g. a fork); empty = the default session.',
      obj({'session': STR})),
+    ('session_gc', 'Retention: delete automatic snapshots (catch-*, auto-*) beyond the newest keep_auto (5), catch '
+     'dumps beyond the newest keep_dumps (200), and stopped fork session dirs. Named snapshots stay. dry = list only.',
+     obj({'keep_auto': INT, 'keep_dumps': INT, 'forks': BOOL, 'dry': BOOL})),
     ('vm_pause', 'Pause the whole machine (QMP stop; not while gdb holds it).', obj({})),
     ('vm_resume', 'Resume the machine (QMP cont), e.g. a restored fork.', obj({})),
 ]
@@ -261,6 +264,8 @@ class Server:
             return self.call(dict(a, op='catch', sub=name[6:]), timeout=60)
         if name in ('snap_save', 'snap_list', 'snap_rm'):
             return self.call(dict(a, op='snap', sub=name[5:]), timeout=300)
+        if name == 'session_gc':
+            return self.call(dict(a, op='gc'), timeout=120)
         if name in ('vm_pause', 'vm_resume'):
             return self.call({'op': 'vm', 'sub': name[3:]})
         raise RuntimeError('unknown tool ' + name)

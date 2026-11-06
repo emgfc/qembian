@@ -364,6 +364,56 @@ class Session:
         self.event('snap.saved', name=name, path=d)
         return dict(meta, path=d)
 
+    def gc(self, keep_auto=5, keep_dumps=200, forks=True, dry=False):
+        """retention: automatic snapshots (catch-*, auto-*) beyond the newest keep_auto, catch dumps
+        beyond the newest keep_dumps, and fork session dirs whose daemon is not running. Snapshots
+        with other names (made by hand) are kept until removed."""
+        removed, freed = [], 0
+
+        def size(p):
+            n = 0
+            for dp, _, fs in os.walk(p):
+                for f in fs:
+                    try:
+                        n += os.lstat(os.path.join(dp, f)).st_blocks * 512
+                    except OSError:
+                        pass
+            return n
+
+        def rm(p):
+            nonlocal freed
+            freed += size(p) if os.path.isdir(p) else os.lstat(p).st_blocks * 512
+            removed.append(os.path.relpath(p, ROOT))
+            if not dry:
+                shutil.rmtree(p) if os.path.isdir(p) else os.unlink(p)
+
+        root = os.path.join(self.sdir, 'snaps')
+        if os.path.isdir(root):
+            auto = sorted((os.path.getmtime(os.path.join(root, n)), n) for n in os.listdir(root)
+                          if re.match(r'(catch|auto)-', n))
+            for _, n in auto[:-keep_auto] if keep_auto else auto:
+                rm(os.path.join(root, n))
+        cdir = os.path.join(self.sdir, 'catches')
+        if os.path.isdir(cdir):
+            ids = sorted({f.split('-', 1)[0] for f in os.listdir(cdir) if f[:3].isdigit()})
+            for hid in ids[:-keep_dumps] if keep_dumps else ids:
+                for f in os.listdir(cdir):
+                    if f.startswith(hid + '-'):
+                        rm(os.path.join(cdir, f))
+        if forks:
+            for n in os.listdir(os.path.join(ROOT, 'build')):
+                p = os.path.join(ROOT, 'build', n)
+                if n.startswith('sydb-fork-') and os.path.isdir(p) and os.path.abspath(p) != os.path.abspath(self.sdir):
+                    pid = None
+                    try:
+                        pid = int(open(os.path.join(p, 'daemon.pid')).read())
+                        os.kill(pid, 0)
+                        continue            # running fork: keep
+                    except (OSError, ValueError):
+                        rm(p)
+        return {'removed': removed, 'allocated_mb': round(freed / 1048576, 1), 'dry_run': dry,
+                'note': 'allocated_mb counts reflinked drive blocks shared with the live drives, so it overstates what is freed'}
+
     def snapshots(self):
         root = os.path.join(self.sdir, 'snaps')
         out = []
@@ -618,6 +668,9 @@ def handle(sess, req):
             shutil.rmtree(p)
             return {'removed': req['name']}
         raise AgentError('snap: unknown sub %r' % sub)
+    if op == 'gc':
+        return sess.gc(int(req.get('keep_auto', 5)), int(req.get('keep_dumps', 200)), req.get('forks', True),
+                       req.get('dry', False))
     if op == 'vm':                        # pause / resume the whole machine (not while gdb holds it)
         sub = req.get('sub', 'status')
         if sub == 'pause':

@@ -138,6 +138,10 @@ class Catcher:
         self.sess.event('catch.hit', id=hit['id'], rule=rule['id'], thread=ev['thread'], exit=ev['kind'],
                         category=ev['category'], reason=ev['reason'], at=hit.get('at'), caller=hit.get('caller'),
                         frozen=rule['action'] == 'freeze', snapshot=hit.get('snapshot'))
+        try:
+            self.sess.gc(forks=False)        # retention: newest 5 automatic snapshots, 200 dumps
+        except Exception as e:
+            self.sess.event('catch.error', error='gc: %s' % e)
         if rule['action'] == 'freeze':
             self.frozen = hit
             d.stops.put({'reason': 'catch', 'bkptno': st.get('bkptno')})   # dbg wait returns it
