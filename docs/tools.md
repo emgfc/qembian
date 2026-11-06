@@ -94,6 +94,14 @@ Clock: the phone's time is host time plus the offset in `build/n95/rtc-offset`, 
 whenever the date/time is changed on the phone (survives restarts; delete the file to return to
 host time). `-rtc base=...` on the QEMU command line shifts the host base.
 
+## Device smoke test
+
+`tests/device-smoke.sh [DEVICE-ID] [--soft] [--keep]` boots a device headless in its own session
+(`build/sydb-smoke`, from the clean seed drives) and checks: idle within 1.5x the profile's
+`milestones.expected_idle_s`, screen not black, Multimedia brings Carousel to the front without a
+panic on the chosen GL backend, Switch off ends the session. Run it after every platform change
+(docs/refactor-plan.md); ~40 s.
+
 ## Older helpers still useful
 
 - `tools/qmp.py SOCK screendump|type|key|hmp ...` (QMP client), `scripts/run-modern.sh` (plain run).

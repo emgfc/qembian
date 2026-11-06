@@ -1,0 +1,89 @@
+# N95 8GB physical keys -> Symbian scan codes (EStdKey*) -> host keys.
+# One source for: the guest EKEYB table (today patches/qemu-baseport 0005/0012/0014/0015/0016 edit
+# syborg_keyboard.h by hand), sydb key aliases (tools/sydb/daemon.py KEY_ALIASES), the phone window
+# (tools/sydb/phone.py HOST_KEYS and buttons), docs/n95-controls.md, and later the QEMU keymap file
+# (docs/devices.md §3.4). EStdKey numbers come from platform/symbian/stdkeys.toml (e32keys.h).
+#
+# Fields: key = our name; scancode = EStdKey name; host = QEMU qcodes that produce it;
+# set1 = the PC set-1 code the guest table is indexed by today (0xE0-prefixed = bit 7 set);
+# group/row/col = phone-window placement; evidence: [V] verified on the ROM, [I] inferred.
+schema = 1
+device = "nokia-n95-8gb-rm320"
+
+[[keys]]
+key = "lsk";  label = "Left softkey";   scancode = "EStdKeyDevice0"; host = ["f5"];  set1 = 0x3f; group = "front"; row = 0; col = 0
+
+[[keys]]
+key = "ok";   label = "Select";         scancode = "EStdKeyDevice3"; host = ["f6", "ret"]; set1 = 0x40; group = "nav"; row = 1; col = 1
+
+[[keys]]
+key = "rsk";  label = "Right softkey";  scancode = "EStdKeyDevice1"; host = ["f7"];  set1 = 0x41; group = "front"; row = 0; col = 2
+
+[[keys]]
+key = "menu"; label = "Menu";           scancode = "EStdKeyApplication0"; host = ["f8"]; set1 = 0x42; group = "front"; row = 1; col = 0
+
+[[keys]]
+key = "up";    scancode = "EStdKeyUpArrow";    host = ["up"];    set1 = 0xc8; group = "nav"; row = 0; col = 1
+[[keys]]
+key = "down";  scancode = "EStdKeyDownArrow";  host = ["down"];  set1 = 0xd0; group = "nav"; row = 2; col = 1
+[[keys]]
+key = "left";  scancode = "EStdKeyLeftArrow";  host = ["left"];  set1 = 0xcb; group = "nav"; row = 1; col = 0
+[[keys]]
+key = "right"; scancode = "EStdKeyRightArrow"; host = ["right"]; set1 = 0xcd; group = "nav"; row = 1; col = 2
+
+[[keys]]
+key = "call"; label = "Call (green)"; scancode = "EStdKeyYes"; host = ["f2"]; set1 = 0x3c; group = "front"; row = 2; col = 0   # patch 0014
+[[keys]]
+key = "end";  label = "End (red)";    scancode = "EStdKeyNo";  host = ["f3"]; set1 = 0x3d; group = "front"; row = 2; col = 2   # patch 0014
+[[keys]]
+key = "clear"; label = "C";           scancode = "EStdKeyBackspace"; host = ["backspace"]; set1 = 0x0e; group = "front"; row = 2; col = 1
+[[keys]]
+key = "edit"; label = "Edit (pencil)"; scancode = "EStdKeyDevice4"; host = []; set1 = 0; group = "front"; evidence = "I"   # not mapped yet
+
+# keypad slide (digits, * and #)
+[[keys]]
+key = "star"; scancode = "EStdKeyNkpAsterisk"; host = ["f9", "kp_multiply"]; set1 = 0x43; group = "keypad"   # patch 0012
+[[keys]]
+key = "hash"; scancode = "EStdKeyHash";        host = ["f10", "backslash"]; set1 = 0x44; group = "keypad"   # patch 0012
+# digits 0-9 use the PC digit keys unchanged (EStdKey '0'..'9')
+
+# side keys
+[[keys]]
+key = "power"; label = "Power"; scancode = "EStdKeyDevice2"; host = ["f4"]; set1 = 0x3e; group = "side"; long_press = "switch off"   # patch 0014
+[[keys]]
+key = "volup";   scancode = "EStdKeyIncVolume"; host = ["f11"]; set1 = 0x57; group = "side"   # patch 0014
+[[keys]]
+key = "voldown"; scancode = "EStdKeyDecVolume"; host = ["f12"]; set1 = 0x58; group = "side"   # patch 0014
+[[keys]]
+key = "camera-half"; label = "Camera (focus)";   scancode = "EStdKeyApplication19"; host = ["f15"]; set1 = 0xe003; group = "side"; evidence = "I"   # patch 0015, camera untested
+[[keys]]
+key = "camera";      label = "Camera (capture)"; scancode = "EStdKeyApplication1A"; host = ["f16"]; set1 = 0xe077; group = "side"; evidence = "I"
+
+# media slide keys (N95 keypad.dll matrix table 0x8014f6d4, docs/roadmap.md "Keys")
+[[keys]]
+key = "multimedia"; label = "Multimedia"; scancode = "EStdKeyApplication6";  host = ["f20"]; set1 = 0x5a; group = "media"; evidence = "V"   # opens Carousel
+[[keys]]
+key = "gallery";    scancode = "EStdKeyApplication1D"; host = ["f21"]; set1 = 0x74; group = "media"; evidence = "V"
+[[keys]]
+key = "play";  scancode = "EStdKeyApplication2"; host = ["audioplay"]; set1 = 0xa2; group = "media"; evidence = "V"   # music player
+[[keys]]
+key = "stop";  scancode = "EStdKeyApplication3"; host = ["audiostop"]; set1 = 0xa4; group = "media"; evidence = "I"
+[[keys]]
+key = "prev";  scancode = "EStdKeyApplication4"; host = ["audioprev"]; set1 = 0x90; group = "media"; evidence = "I"
+[[keys]]
+key = "next";  scancode = "EStdKeyApplication5"; host = ["audionext"]; set1 = 0x99; group = "media"; evidence = "I"
+[[keys]]
+key = "variant-b"; scancode = "EStdKeyApplication1B"; host = ["f23"]; set1 = 0x6d; group = "media"; evidence = "I"
+[[keys]]
+key = "variant-c"; scancode = "EStdKeyApplication1C"; host = ["f24"]; set1 = 0x6f; group = "media"; evidence = "I"
+
+# slides: today key events only (akncapserver switches the layout on EKeyDeviceA/B); a keypad.dll
+# stand-in would turn these into real slide-state events later (docs/phone-skin.md step 3)
+[[switches]]
+name = "media-slide"; positions = ["closed", "open"]
+open  = { scancode = "EStdKeyDeviceA", host = ["f13"], set1 = 0x5d, layout = "landscape" }
+close = { scancode = "EStdKeyDeviceB", host = ["f14"], set1 = 0x5e, layout = "portrait" }
+
+[[switches]]
+name = "keypad-slide"; positions = ["closed", "open"]
+notes = "no event to the phone yet (phone window only shows the digit keys)"
