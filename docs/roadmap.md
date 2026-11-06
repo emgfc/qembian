@@ -78,11 +78,16 @@ Details: docs/nokia-dsp-playback.md, docs/hacks.md (H-dspbridge).
 - Done: host mouse input to the Syborg pointer is off by default on modern QEMU
   (`-global syborg-pointer.input=on` to enable); S60 3rd edition has no touch screen.
 
-**Open (2026-11-06): screen frozen after keyguard unlock / screensaver.** Unlock (F5 then F7 or
-`*`) is accepted per the keyguard code, but after leaving the screensaver and pressing the
-second key WSERV sends no more DisplayDriver updates (no ctl 9) and SysAp sets the lights off
-(LightDrv req 1 `0d 00`); the screen keeps only the wallpaper. Next: probe who stops drawing
-(WSERV redraw after partial-display cancel ctl 4 + rotation req 0x8003; SysAp display/light
-state), e.g. `syb_gdb brk` on ScDv's update path after the unlock. Also the screensaver band
-looks clipped (date/operator cut at the sides): check partial-display row/column mapping at
-rotation 3. Repro: `tools/syb_run.py --keep-drives D --secs 178 --key 165:f5 --key 165.6:f7`.
+**Fixed (2026-11-06): home screen lost focus after the menu ("frozen idle").** Cause: no SIM, so
+Startup switches to the Offline profile, which sends `MTC_STATE_REQ` (RF_INACTIVE) via DosServer;
+the fake modem did not answer, the switch failed ("failed to activate offline mode"), the phone
+stayed in General. Phone.exe (FUN_8170b898) brings "Standby mode" back to the front on a foreground
+event only when SIM status (P&S 0x101F75B6/0x100052E9) != 5 (removed) or the Offline profile is
+active; otherwise Phone itself (window group "Telephone", nothing drawn) keeps the focus. Found
+with `src/n95apps/wgprobe` (focus/window-group order) and `syb_gdb brk 0x8170b898`. Fix: MTC_STATE_RESP
+0x64 OK in `iscpeer.inl`. Keyguard unlock (F5 then F7 or `*`) was never broken.
+**Open: keyguard emergency-number check.** While the keypad is locked every key sends
+`CALL 0x28` (emergency number check, UCS-2 key string, from NOKIATSY in c32exe) and waits ~9 s for
+a reply the fake modem does not give; keys pressed meanwhile seem lost. Needs the `0x29` reply
+layout (NOKIATSY parser not located yet). The screensaver band may be clipped: on the N95 8GB the
+screensaver runs rotated (WSERV rotation index 0), check the partial-display row/column mapping.

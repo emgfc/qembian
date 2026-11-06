@@ -349,6 +349,9 @@ void DIscPeerChannel::HandleSend(const TUint8* m, TInt aLen)
 			MtcStateInd();
 			return;
 			}
+		case 0x01:	// MTC_STATE_REQ {target, 0}: e.g. 0x0A RF_INACTIVE = offline mode -> MTC_STATE_RESP OK
+			Reply(res, tid, 0x64, K00, 2);
+			return;
 		case 0x0B: Reply(res, tid, 0x6E, K00, 2); return;	// MTC_STARTUP_SYNQ_RESP
 		case 0x06: Reply(res, tid, 0x69, K00, 2); return;	// reset/power request resp
 		case 0x03: Reply(res, tid, 0x66, K00, 2); return;

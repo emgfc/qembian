@@ -110,3 +110,12 @@ It appears in Menu → Applications. It measures `CDirectScreenBitmap` EndUpdate
 `DSBTEST:` lines (fast counter, NTickCount, fps) to the serial log. No C++ EH runtime: it opens a
 trap level with `User::MarkCleanupStack()` so cleanup-stack pushes work, but a leave panics.
 Approach for app development and debugging in general: [app-dev-debugging.md](app-dev-debugging.md).
+Planned LLM-driven debug bridge (MCP server, guest agent, kernel debug LDD): [devtools-bridge.md](devtools-bridge.md).
+
+### `src/n95apps/wgprobe`: window-group probe
+
+`src/n95apps/wgprobe/build.sh` builds `build/n95apps/wgprobe.exe` (no window group of its own).
+Its `wgprobe_reg.rsc` is dsbtest's with UID3 and name patched (UID checksum recomputed; rcomp not
+needed). Install like dsbtest, launch from Menu → Applications; it prints `WGPROBE: focus <id>
+<name>` and the full window-group order (front first, ordinal priority, name = status|UID|caption)
+every time focus or order changes, polled every 0.5 s for 10 minutes.

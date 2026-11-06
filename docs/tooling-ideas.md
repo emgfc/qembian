@@ -51,3 +51,8 @@ a rough cost.
 - `tools/syb_sym.py` (2026-11-05): address → module/export/function/literal, symbol search,
   callers of an export across all modules, string search with references, word dumps,
   per-function decompile.
+
+## Ask the modem log first (2026-11-06)
+The "frozen idle" hunt spent many runs on screensaver/keyguard timing before looking at unanswered
+modem requests. Idea: `syb_run` report section "unanswered ISI requests" (resource, msg id, first
+time, count, sending channel owner) so a missing fake-modem reply shows up on the first run.

@@ -88,8 +88,7 @@ were not verified.
 
 The N95 firmware asks "Press Unlock and then \*". Its keyguard (`aknoldstylenotif.dll`,
 0x82ddc620, verified from the code) accepts after **Unlock (F5)** either `*` (F9 / numpad `*`,
-since 2026-11-06) or the **right softkey (F7)**, within its time-out. Known problem (2026-11-06,
-open): after waking from the screensaver and pressing the second key, the screen stops being
-redrawn (only the wallpaper shows, WSERV sends no more updates and SysAp turns the backlight
-off), so the phone looks stuck even though no "locked" note follows further keys. See
-docs/roadmap.md.
+since 2026-11-06) or the **right softkey (F7)**, within its time-out. While locked, each key waits
+~9 s for the modem's emergency-number check (not answered by the fake modem yet), so press Unlock,
+wait for the "Now press *" note, then press `*`/F7. The "stuck idle screen after the menu" was a
+different bug (Offline profile switch failed; fixed 2026-11-06, docs/roadmap.md).
