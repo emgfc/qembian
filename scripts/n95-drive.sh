@@ -29,9 +29,9 @@ case "$cmd" in
   put)   [ $# -ge 1 ] || { echo "put needs FILE... [DIR]" >&2; exit 2; }
          dst=/
          if [ $# -ge 2 ] && [ ! -e "${@: -1}" ]; then dst="${@: -1}"; set -- "${@:1:$#-1}"; fi
-         mcopy -i "$IMG" -o "$@" "$(p "$dst")/"; mdir -i "$IMG" "$(p "$dst")" ;;
+         mcopy -i "$IMG" -o "$@" "$(p "$dst")/" < /dev/null; mdir -i "$IMG" "$(p "$dst")" ;;
   get)   mcopy -i "$IMG" -n "$(p "$1")" "${2:-.}" ;;
-  mkdir) mmd -i "$IMG" "$(p "$1")" ;;
+  mkdir) mmd -D s -i "$IMG" "$(p "$1")" < /dev/null ;;   # -D s: an existing directory is not a question
   rm)    mdel -i "$IMG" "$(p "$1")" ;;
   *)     sed -n '2,12p' "$0"; exit 2 ;;
 esac
