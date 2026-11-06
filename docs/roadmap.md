@@ -120,7 +120,7 @@ colour depths, where the vsync wait lives.
 keys need only keymap entries. The slider and accelerometer need stand-ins for Nokia's kernel-side
 `keypad.dll` / accelerometer drivers, which are not in our ROM.
 
-**Open: game audio plays too fast (2026-11-06, owner).** Crash Bandicoot Nitro Kart 3D's sounds
+**Fixed 2026-11-06: game audio played too fast** (the DSP stand-in now takes each raw PCM stream's rate and channels from the N95's own EAP 0 / RawGwc messages, docs/research/dsp-pcm-format.md; Crash Bandicoot = 22050 Hz mono, jingle 44100 Hz stereo). Was: Crash Bandicoot Nitro Kart 3D's sounds
 (MediaClientAudioStream, CMdaAudioOutputStream) play sped up on run-gui. Suspects: the stream's
 sample rate not honoured by our audio path (DevSound/DSP stand-in or syborg-audio resampling), or
 buffers consumed faster than real time. Check with `sydb strace` on the audio server and the

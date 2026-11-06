@@ -48,7 +48,8 @@ struct SNode
 	TBool iReplyQueued;			// a message arrived while no listener was armed
 	TUint32 iReply[3];			// raw payload handed back by 0x8000015
 	DThread* iClient;			// thread that armed the listener (for DSP-initiated messages)
-	TInt iRate, iChannels;		// raw PCM node format (ctl 4 config)
+	TInt iRate, iChannels;		// raw PCM node format (from its EAP stream, see EapStreams)
+	TInt iEapStream;			// ctl 4 config word c[2]: the EAP stream the node belongs to
 	TBool iRaw;					// raw PCM node (commands without the 0x20000000 shared form)
 	TInt iKind;					// ENodeOther / ENodeRaw / ENodeMp3 / ENodeAac / ENodeEaac
 	};
@@ -113,6 +114,52 @@ static NTimer* PumpTimer;
 
 static void Au(TInt aReg, TUint32 aVal) { WriteReg(KHwSVPAudioDevice, aReg, aVal); }
 static TUint32 AuR(TInt aReg) { return ReadReg(KHwSVPAudioDevice, aReg); }
+
+// EAP streams (docs/research/dsp-pcm-format.md): before a raw PCM node is created, eapcontrolmodule
+// sends EAP message 0 (16 bytes, eapgwc_ord8) {0, stream id, mode, rate code, stereo, port count,
+// ports...} to the EAP control node; the raw node's create config word c[2] is that stream id.
+// The rate code is the N95's own DSP numbering, eapcontrolmodule FUN_80a0f7c4 (switch on the
+// AudioServer rate enum): 3 = 48000 Hz ... 11 = 8000 Hz, 14 = 48000 Hz (second 48 kHz mode),
+// 15 = not supported.
+const TInt KMaxEapStreams = 16;
+struct SEapStream { TInt iId; TInt iRate; TInt iChannels; };
+static SEapStream EapStreams[KMaxEapStreams];
+static TInt EapStreamNext;
+
+static TInt EapRateHz(TInt aCode)
+	{
+	static const TInt KHz[] = { 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000 };	// codes 3..11
+	if (aCode >= 3 && aCode <= 11)
+		return KHz[aCode - 3];
+	return aCode == 14 ? 48000 : 0;
+	}
+
+static void EapStreamSeen(const TUint16* aMsg)
+	{
+	TInt id = aMsg[1], rate = EapRateHz(aMsg[3]), ch = aMsg[4] ? 2 : 1;
+	TInt slot = -1;
+	for (TInt i = 0; i < KMaxEapStreams; ++i)
+		if (EapStreams[i].iId == id && EapStreams[i].iRate)
+			slot = i;
+	if (slot < 0)
+		{
+		slot = EapStreamNext;
+		EapStreamNext = (EapStreamNext + 1) % KMaxEapStreams;
+		}
+	EapStreams[slot].iId = id;
+	EapStreams[slot].iRate = rate;
+	EapStreams[slot].iChannels = ch;
+	Kern::Printf("N95STUB: Hwa EAP stream %d: rate code %d -> %d Hz, %s, %d port(s)", id, aMsg[3], rate,
+				 ch == 2 ? "stereo" : "mono", aMsg[5]);
+	}
+
+static const SEapStream* EapStream(TInt aId)
+	{
+	for (TInt i = 0; i < KMaxEapStreams; ++i)
+		if (EapStreams[i].iId == aId && EapStreams[i].iRate)
+			return &EapStreams[i];
+	return NULL;
+	}
 
 static TInt MapRate(TInt aMask)
 	{
@@ -423,13 +470,16 @@ static TInt HwaCtl(DThread* aClient, TInt aFn, TAny* a1, TAny* a2, const TUint32
 		Kern::ThreadRawRead(aClient, a1, c, sizeof(c));
 		Nodes[i].iRate = MapRate(c[2]);
 		Nodes[i].iChannels = c[6] == 2 ? 2 : 1;
+		Nodes[i].iEapStream = c[2];
 		if (Nodes[i].iKind == ENodeRaw)
 			{
-			// The raw PCM node carries 44.1 kHz interleaved stereo (measured: samples alternate between
-			// two smooth channels; the startup tone's pitch matches G#5 only at 44.1 kHz); the node
-			// config word (4) is not a sample-rate mask, so the DSP side has a fixed format
-			Nodes[i].iRate = 44100;
-			Nodes[i].iChannels = 2;
+			// the raw PCM node's format is its EAP stream's (EAP message 0 above); cmd 7 later gives
+			// the channel layout again
+			const SEapStream* s = EapStream(c[2]);
+			Nodes[i].iRate = s ? s->iRate : 44100;
+			Nodes[i].iChannels = s ? s->iChannels : 2;
+			if (!s)
+				Kern::Printf("N95STUB: Hwa raw node %d: no EAP stream %d seen, assuming 44100 Hz stereo", i, c[2]);
 			}
 		Kern::Printf("N95STUB: Hwa node %d kind %d (uuid %08x) config %08x %08x %08x %08x %08x -> %d Hz %d ch",
 					 i, Nodes[i].iKind, LastDefUuid, c[2], c[3], c[4], c[5], c[6], Nodes[i].iRate, Nodes[i].iChannels);
@@ -478,6 +528,8 @@ static TInt HwaCtl(DThread* aClient, TInt aFn, TAny* a1, TAny* a2, const TUint32
 			TUint16 pl[40];
 			TInt nb = Min((TInt)m[4], (TInt)sizeof(pl));
 			Kern::ThreadRawRead(aClient, (TAny*)m[3], pl, nb);
+			if (eapCmd == 0 && m[4] == 16)		// EAP 0 "create stream": the PCM format
+				EapStreamSeen(pl);
 			for (TInt j = 0; j < nb / 2; j += 10)
 				Kern::Printf("N95STUB: Hwa eap %d +%02d: %04x %04x %04x %04x %04x %04x %04x %04x %04x %04x", eapCmd, j * 2,
 							 pl[j], pl[j+1], pl[j+2], pl[j+3], pl[j+4], pl[j+5], pl[j+6], pl[j+7], pl[j+8], pl[j+9]);
@@ -489,6 +541,17 @@ static TInt HwaCtl(DThread* aClient, TInt aFn, TAny* a1, TAny* a2, const TUint32
 			{
 			// raw PCM node command (7 config, 3 start, 4 pause, 1 stop, 2 record): no DSP reply
 			n->iRaw = ETrue;
+			if (m[2] == 7 && n->iKind == ENodeRaw)
+				{
+				// RawGwc config: arg2 = channel layout (RawGwc_ord2: 1 mono, 2 interleaved stereo,
+				// 3 non-interleaved); the rate is the EAP stream's
+				const SEapStream* s = EapStream(n->iEapStream);
+				if (s)
+					n->iRate = s->iRate;
+				n->iChannels = m[4] == 1 ? 1 : 2;
+				Kern::Printf("N95STUB: Hwa raw node format: EAP stream %d, layout %d -> %d Hz %d ch%s", n->iEapStream,
+							 m[4], n->iRate, n->iChannels, m[4] == 3 ? " (non-interleaved: played as interleaved)" : "");
+				}
 			TRequestStatus* send = (TRequestStatus*)b[0];
 			if (send)
 				Kern::RequestComplete(aClient, send, KErrNone);

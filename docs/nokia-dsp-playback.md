@@ -13,6 +13,12 @@ nothing from there is repeated. Tags: [verified] = seen in code, [inferred] = be
   WAV playback, the Startup tone (WAV through `CMdaAudioPlayerUtility`) and key tones all end in
   this node; MP3 goes through `Mp3DecHwDevice.dll` → `Mp3DecGwc.dll` (same `Gwc.dll` shape, 26
   Gwc imports; its own UUID, not analysed) [verified for module shape, inferred for the path].
+- **PCM format of a raw-node stream** (2026-11-06, docs/research/dsp-pcm-format.md): not in the node
+  itself. eapcontrolmodule first creates an EAP stream with EAP message 0 (16 bytes)
+  `{0, stream id, mode, rate code, stereo, port count, ports}`, rate code = `FUN_80a0f7c4` (3..11 =
+  48000..8000 Hz, 14 = 48000, 15 = unsupported); the raw node's create config word is that stream id;
+  RawGwc's cmd 7 `arg2` is the channel layout (1 mono, 2 interleaved, 3 non-interleaved). The
+  stand-in (ehwa.cpp) plays each raw node with its stream's format [verified, live].
 - The whole protocol for play-to-end is **4 ARM→DSP commands, of which only one needs an
   answer, plus one buffer control**: cmd 7 (config), cmd 3 (start), issue-buffer control
   `0x800000e` per PCM block (its `TRequestStatus` completion = "buffer consumed"), and one
