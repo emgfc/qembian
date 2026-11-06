@@ -11,79 +11,258 @@ schema = 1
 device = "nokia-n95-8gb-rm320"
 
 [[keys]]
-key = "lsk";  label = "Left softkey";   scancode = "EStdKeyDevice0"; host = ["f5"];  set1 = 0x3f; group = "front"; row = 0; col = 0
+key = "lsk"
+label = "Left softkey"
+scancode = "EStdKeyDevice0"
+host = ["f5"]
+set1 = 0x3f
+group = "front"
+row = 0
+col = 0
 
 [[keys]]
-key = "ok";   label = "Select";         scancode = "EStdKeyDevice3"; host = ["f6", "ret"]; set1 = 0x40; group = "nav"; row = 1; col = 1
+key = "ok"
+label = "Select"
+scancode = "EStdKeyDevice3"
+host = ["f6", "ret"]
+set1 = 0x40
+group = "nav"
+row = 1
+col = 1
 
 [[keys]]
-key = "rsk";  label = "Right softkey";  scancode = "EStdKeyDevice1"; host = ["f7"];  set1 = 0x41; group = "front"; row = 0; col = 2
+key = "rsk"
+label = "Right softkey"
+scancode = "EStdKeyDevice1"
+host = ["f7"]
+set1 = 0x41
+group = "front"
+row = 0
+col = 2
 
 [[keys]]
-key = "menu"; label = "Menu";           scancode = "EStdKeyApplication0"; host = ["f8"]; set1 = 0x42; group = "front"; row = 1; col = 0
+key = "menu"
+label = "Menu"
+scancode = "EStdKeyApplication0"
+host = ["f8"]
+set1 = 0x42
+group = "front"
+row = 1
+col = 0
 
 [[keys]]
-key = "up";    scancode = "EStdKeyUpArrow";    host = ["up"];    set1 = 0xc8; group = "nav"; row = 0; col = 1
+key = "up"
+scancode = "EStdKeyUpArrow"
+host = ["up"]
+set1 = 0xc8
+group = "nav"
+row = 0
+col = 1
 [[keys]]
-key = "down";  scancode = "EStdKeyDownArrow";  host = ["down"];  set1 = 0xd0; group = "nav"; row = 2; col = 1
+key = "down"
+scancode = "EStdKeyDownArrow"
+host = ["down"]
+set1 = 0xd0
+group = "nav"
+row = 2
+col = 1
 [[keys]]
-key = "left";  scancode = "EStdKeyLeftArrow";  host = ["left"];  set1 = 0xcb; group = "nav"; row = 1; col = 0
+key = "left"
+scancode = "EStdKeyLeftArrow"
+host = ["left"]
+set1 = 0xcb
+group = "nav"
+row = 1
+col = 0
 [[keys]]
-key = "right"; scancode = "EStdKeyRightArrow"; host = ["right"]; set1 = 0xcd; group = "nav"; row = 1; col = 2
+key = "right"
+scancode = "EStdKeyRightArrow"
+host = ["right"]
+set1 = 0xcd
+group = "nav"
+row = 1
+col = 2
 
 [[keys]]
-key = "call"; label = "Call (green)"; scancode = "EStdKeyYes"; host = ["f2"]; set1 = 0x3c; group = "front"; row = 2; col = 0   # patch 0014
+key = "call"
+label = "Call (green)"
+scancode = "EStdKeyYes"
+host = ["f2"]
+set1 = 0x3c
+group = "front"
+row = 2
+col = 0   # patch 0014
 [[keys]]
-key = "end";  label = "End (red)";    scancode = "EStdKeyNo";  host = ["f3"]; set1 = 0x3d; group = "front"; row = 2; col = 2   # patch 0014
+key = "end"
+label = "End (red)"
+scancode = "EStdKeyNo"
+host = ["f3"]
+set1 = 0x3d
+group = "front"
+row = 2
+col = 2   # patch 0014
 [[keys]]
-key = "clear"; label = "C";           scancode = "EStdKeyBackspace"; host = ["backspace"]; set1 = 0x0e; group = "front"; row = 2; col = 1
+key = "clear"
+label = "C"
+scancode = "EStdKeyBackspace"
+host = ["backspace"]
+set1 = 0x0e
+group = "front"
+row = 2
+col = 1
 [[keys]]
-key = "edit"; label = "Edit (pencil)"; scancode = "EStdKeyDevice4"; host = []; set1 = 0; group = "front"; evidence = "I"   # not mapped yet
+key = "edit"
+label = "Edit (pencil)"
+scancode = "EStdKeyDevice4"
+host = []
+group = "front"
+evidence = "I"   # not mapped yet
 
 # keypad slide (digits, * and #)
 [[keys]]
-key = "star"; scancode = "EStdKeyNkpAsterisk"; host = ["f9", "kp_multiply"]; set1 = 0x43; group = "keypad"   # patch 0012
+key = "star"
+scancode = "'*'"
+host = ["f9"]
+set1 = 0x43
+group = "keypad"   # patch 0012: F9 = phone * (the guest table holds the character '*')
 [[keys]]
-key = "hash"; scancode = "EStdKeyHash";        host = ["f10", "backslash"]; set1 = 0x44; group = "keypad"   # patch 0012
+key = "star-kp"
+scancode = "'*'"
+host = ["kp_multiply"]
+set1 = 0x37
+group = "hidden"   # patch 0012: numpad * = phone *
+[[keys]]
+key = "hash"
+scancode = "EStdKeyHash"
+host = ["f10", "backslash"]
+set1 = 0x44
+group = "keypad"   # patch 0012
 # digits 0-9 use the PC digit keys unchanged (EStdKey '0'..'9')
 
 # side keys
 [[keys]]
-key = "power"; label = "Power"; scancode = "EStdKeyDevice2"; host = ["f4"]; set1 = 0x3e; group = "side"; long_press = "switch off"   # patch 0014
+key = "power"
+label = "Power"
+scancode = "EStdKeyDevice2"
+host = ["f4"]
+set1 = 0x3e
+group = "side"
+long_press = "switch off"   # patch 0014
 [[keys]]
-key = "volup";   scancode = "EStdKeyIncVolume"; host = ["f11"]; set1 = 0x57; group = "side"   # patch 0014
+key = "volup"
+scancode = "EStdKeyIncVolume"
+host = ["f11"]
+set1 = 0x57
+group = "side"   # patch 0014
 [[keys]]
-key = "voldown"; scancode = "EStdKeyDecVolume"; host = ["f12"]; set1 = 0x58; group = "side"   # patch 0014
+key = "voldown"
+scancode = "EStdKeyDecVolume"
+host = ["f12"]
+set1 = 0x58
+group = "side"   # patch 0014
 [[keys]]
-key = "camera-half"; label = "Camera (focus)";   scancode = "EStdKeyApplication19"; host = ["f15"]; set1 = 0xe003; group = "side"; evidence = "I"   # patch 0015, camera untested
+key = "camera-half"
+label = "Camera (focus)"
+scancode = "EStdKeyApplication19"
+host = ["f15"]
+set1 = 0x5f
+group = "side"
+evidence = "I"   # patch 0015, camera untested
 [[keys]]
-key = "camera";      label = "Camera (capture)"; scancode = "EStdKeyApplication1A"; host = ["f16"]; set1 = 0xe077; group = "side"; evidence = "I"
+key = "camera"
+label = "Camera (capture)"
+scancode = "EStdKeyApplication1A"
+host = ["f16"]
+set1 = 0x55
+group = "side"
+evidence = "I"
 
 # media slide keys (N95 keypad.dll matrix table 0x8014f6d4, docs/roadmap.md "Keys")
 [[keys]]
-key = "multimedia"; label = "Multimedia"; scancode = "EStdKeyApplication6";  host = ["f20"]; set1 = 0x5a; group = "media"; evidence = "V"   # opens Carousel
+key = "multimedia"
+label = "Multimedia"
+scancode = "EStdKeyApplication6"
+host = ["f20"]
+set1 = 0x5a
+group = "media"
+evidence = "V"   # opens Carousel
 [[keys]]
-key = "gallery";    scancode = "EStdKeyApplication1D"; host = ["f21"]; set1 = 0x74; group = "media"; evidence = "V"
+key = "gallery"
+scancode = "EStdKeyApplication1D"
+host = ["f21"]
+set1 = 0x74
+group = "media"
+evidence = "V"
 [[keys]]
-key = "play";  scancode = "EStdKeyApplication2"; host = ["audioplay"]; set1 = 0xa2; group = "media"; evidence = "V"   # music player
+key = "play"
+scancode = "EStdKeyApplication2"
+host = ["audioplay"]
+set1 = 0xa2
+group = "media"
+evidence = "V"   # music player
 [[keys]]
-key = "stop";  scancode = "EStdKeyApplication3"; host = ["audiostop"]; set1 = 0xa4; group = "media"; evidence = "I"
+key = "stop"
+scancode = "EStdKeyApplication3"
+host = ["audiostop"]
+set1 = 0xa4
+group = "media"
+evidence = "I"
 [[keys]]
-key = "prev";  scancode = "EStdKeyApplication4"; host = ["audioprev"]; set1 = 0x90; group = "media"; evidence = "I"
+key = "prev"
+scancode = "EStdKeyApplication4"
+host = ["audioprev"]
+set1 = 0x90
+group = "media"
+evidence = "I"
 [[keys]]
-key = "next";  scancode = "EStdKeyApplication5"; host = ["audionext"]; set1 = 0x99; group = "media"; evidence = "I"
+key = "next"
+scancode = "EStdKeyApplication5"
+host = ["audionext"]
+set1 = 0x99
+group = "media"
+evidence = "I"
 [[keys]]
-key = "variant-b"; scancode = "EStdKeyApplication1B"; host = ["f23"]; set1 = 0x6d; group = "media"; evidence = "I"
+key = "variant-b"
+scancode = "EStdKeyApplication1B"
+host = ["f23"]
+set1 = 0x6d
+group = "media"
+evidence = "I"
 [[keys]]
-key = "variant-c"; scancode = "EStdKeyApplication1C"; host = ["f24"]; set1 = 0x6f; group = "media"; evidence = "I"
+key = "variant-c"
+scancode = "EStdKeyApplication1C"
+host = ["f24"]
+set1 = 0x6f
+group = "media"
+evidence = "I"
+
+[[keys]]
+key = "app7"
+label = "EStdKeyApplication7 (akncapserver: P&S 101f876e/4 = 1; role unknown)"
+scancode = "EStdKeyApplication7"
+host = ["f17"]
+set1 = 0x83   # QEMU F17 = set-1 E0 03 (patch 0015)
+group = "hidden"
+evidence = "V"
+
+[[keys]]
+key = "app8"
+label = "EStdKeyApplication8 (akncapserver: P&S 101f876e/4 = 0; role unknown)"
+scancode = "EStdKeyApplication8"
+host = ["f19"]
+set1 = 0x84   # QEMU F19 = set-1 E0 04 (F18 = E0 77 is past the table; patch 0015)
+group = "hidden"
+evidence = "V"
 
 # slides: today key events only (akncapserver switches the layout on EKeyDeviceA/B); a keypad.dll
 # stand-in would turn these into real slide-state events later (docs/phone-skin.md step 3)
 [[switches]]
-name = "media-slide"; positions = ["closed", "open"]
+name = "media-slide"
+positions = ["closed", "open"]
 open  = { scancode = "EStdKeyDeviceA", host = ["f13"], set1 = 0x5d, layout = "landscape" }
 close = { scancode = "EStdKeyDeviceB", host = ["f14"], set1 = 0x5e, layout = "portrait" }
 
 [[switches]]
-name = "keypad-slide"; positions = ["closed", "open"]
+name = "keypad-slide"
+positions = ["closed", "open"]
 notes = "no event to the phone yet (phone window only shows the digit keys)"
