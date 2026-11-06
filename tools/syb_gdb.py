@@ -22,6 +22,7 @@ import argparse, json, os, subprocess, sys, tempfile, time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DRIVES = None
 sys.path.insert(0, os.path.join(ROOT, 'tools'))
+import ksyms
 REL = os.path.join(ROOT, 'build', 'epocroot', 'epoc32', 'release', 'armv5', 'udeb')
 KSYM = os.path.join(REL, '_syborg_ekern.exe.sym')
 
@@ -176,7 +177,7 @@ def sample():
 def gdb_cmds(cfg, extra):
     return ['gdb', '-nx', '-batch',
             '-ex', 'set pagination off', '-ex', 'set confirm off', '-ex', 'set architecture arm',
-            '-ex', 'add-symbol-file %s -s .text 0x80003000 -s .rodata 0x800be260 -s .data 0xc8000000 -s .bss 0xc8000038' % KSYM,
+            '-ex', ksyms.add_symbol_file(KSYM),
             '-ex', 'target remote 127.0.0.1:1234'] + extra
 
 

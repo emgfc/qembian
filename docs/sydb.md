@@ -1,9 +1,11 @@
 # sydb: dev/debug bridge for the virtual N95
 
 adb-like bridge. Its main user is an LLM (through the MCP server); the CLI is the human interface.
-Design and roadmap: [devtools-bridge.md](devtools-bridge.md). Status 2026-11-06: phase 0/1 core
-works. Done: session daemon, agent with files/processes/apps/UI/keyguard/P&S, CLI, MCP server,
-live agent update. Not yet: gdb tools, strace LDD, app symbols.
+Design and roadmap: [devtools-bridge.md](devtools-bridge.md). Status 2026-11-06: phase 0/1 work, and
+phase 3's basic debugger works. Done: session daemon, agent (files, processes, apps, UI, keyguard,
+P&S), CLI, MCP server (43 tools), live agent update, persistent gdb with kernel DWARF and app ELF
+symbols placed from the kernel's `N95CODE:` line. Not yet: strace / IPC trace LDD (phase 2), XIP
+symbol ELFs for Nokia code in gdb backtraces, snapshots, TUI.
 
 ## Pieces
 
@@ -42,6 +44,28 @@ sydb update-agent                                     # rebuilt agent deployed w
 sydb hmp 'info registers' | status | stop
 ```
 Key aliases: `lsk rsk ok menu star hash clear back` (F5, F7, F6, F8, numpad *, F10, backspace, F7).
+
+## Debugger
+
+One persistent gdb (MI, `tools/sydb/debugger.py`) on the session's gdbstub port. It runs
+all-stop, so a stop freezes the whole phone; agent requests time out until `continue`/`detach`.
+```
+sydb dbg attach                          # stops the phone; stop record with kernel frames + thread
+sydb run 'C:\sys\bin\app.exe'           # (before or after attach)
+sydb dbg symbols app [build/n95apps/obj-app/app.elf]   # ELF at the run address from N95CODE
+sydb dbg break Name --thread app         # hw breakpoint; other threads hitting it are resumed
+sydb dbg continue --wait 20              # -> {"reason":"breakpoint-hit","at":"Name(...)","thread":...}
+sydb dbg bt | regs | mem 0x406ef4 32 | eval 'TheScheduler.iCurrentThread->iPriority'
+sydb dbg step | next | stepi | finish | interrupt | delete [N] | detach | cmd 'info breakpoints'
+```
+- `N95CODE: <file> code=<run>+<size> data=... bss=... ep=...` is printed by our kernel for every
+  code segment loaded into RAM (C: apps and ROFS binaries; kernel patch
+  `patches/kernelhwsrv/0007-sydb-codeseg-load-trace.patch`). ROM XIP code is named by
+  `tools/syb_sym.py` in stop records.
+- Kernel DWARF placement comes from `tools/ksyms.py` (computed from the ELF; syb_gdb uses it too,
+  because the old hardcoded `.rodata` address had gone stale).
+- Build apps with `-O0 -g` for source-level stepping (`src/n95apps/devagent/build.sh --debug`
+  shows how).
 
 ## Measured (2026-11-06)
 - push/pull: 300 KB in 2.1 s each way (2 KB acked chunks; without flow control the comm

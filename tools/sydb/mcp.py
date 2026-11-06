@@ -59,6 +59,25 @@ TOOLS = [
      obj({'op': STR, 'category': STR, 'key': STR, 'value': INT}, ['op', 'category', 'key'])),
     ('sys_mem', 'RAM total/free, ROM size.', obj({})),
     ('qemu_hmp', 'QEMU monitor command (e.g. "info registers", "x/8wx 0xc8000000").', obj({'cmd': STR}, ['cmd'])),
+    ('dbg_attach', 'Attach the persistent gdb (stops the whole phone). Kernel DWARF is loaded; returns the stop record.', obj({})),
+    ('dbg_detach', 'Detach gdb; the phone runs on.', obj({})),
+    ('dbg_symbols', 'Load our app ELF at its run address (from the kernel N95CODE line). name = exe base name.',
+     obj({'name': STR, 'elf': STR}, ['name'])),
+    ('dbg_break', 'Hardware breakpoint at a symbol, file:line or 0xADDR; thread = substring filter (other threads continue).',
+     obj({'loc': STR, 'thread': STR, 'once': BOOL}, ['loc'])),
+    ('dbg_delete', 'Delete breakpoint bp (all if omitted).', obj({'bp': INT})),
+    ('dbg_continue', 'Resume; wait = seconds to wait for the next stop (0 = return at once).', obj({'wait': NUM, 'thread': STR})),
+    ('dbg_wait', 'Wait for a stop (breakpoint, step end, fault).', obj({'timeout': NUM})),
+    ('dbg_step', 'kind: step | next | stepi | nexti | finish. Returns the stop record.', obj({'kind': STR}, ['kind'])),
+    ('dbg_interrupt', 'Stop the phone now.', obj({})),
+    ('dbg_where', 'Stop record for the current stop: pc/lr symbolised, mode, thread, frames.', obj({})),
+    ('dbg_regs', 'Registers.', obj({})),
+    ('dbg_bt', 'Backtrace (gdb).', obj({'n': INT})),
+    ('dbg_mem', 'Read memory (current address space): hex bytes.', obj({'addr': STR, 'len': INT}, ['addr'])),
+    ('dbg_write', 'Write memory: hex bytes.', obj({'addr': STR, 'hex': STR}, ['addr', 'hex'])),
+    ('dbg_eval', 'Evaluate a gdb expression (kernel symbols work, e.g. TheScheduler.iCurrentThread->iPriority).',
+     obj({'expr': STR}, ['expr'])),
+    ('dbg_gdb', 'Raw gdb console command (escape hatch).', obj({'cmd': STR}, ['cmd'])),
 ]
 
 
@@ -184,6 +203,11 @@ class Server:
             return self.agent('pget', [a['category'], a['key']])
         if name == 'sys_mem':
             return self.agent('mem')
+        if name.startswith('dbg_'):
+            sub = {'dbg_step': a.get('kind', 'step'), 'dbg_gdb': 'cmd'}.get(name, name[4:])
+            req = dict(a, op='dbg', sub=sub)
+            req.pop('kind', None)
+            return self.call(req, timeout=600)
         if name == 'qemu_hmp':
             return self.call({'op': 'hmp', 'cmd': a['cmd']})
         raise RuntimeError('unknown tool ' + name)

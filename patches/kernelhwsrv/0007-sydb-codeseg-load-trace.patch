@@ -1,0 +1,23 @@
+--- a/kernel/eka/kernel/scodeseg.cpp
++++ b/kernel/eka/kernel/scodeseg.cpp
+@@ -749,6 +749,20 @@
+ 	iAttr |= aInfo.iAttr & ECodeSegAttSMPSafe;
+ 	iEntryPtVeneer = aInfo.iEntryPtVeneer;		// final value provided by loader
+ 	FinaliseRecursiveFlags();
++	// N95 hybrid / sydb (docs/sydb.md): where RAM-loaded code lives, so a debugger can place the
++	// ELF symbols (ROM XIP code is described by the ROM image instead)
++	{
++	const TRomHeader& rh = Epoc::RomHeader();
++	if (iRunAddress < rh.iRomBase || iRunAddress >= rh.iRomBase + rh.iRomSize)
++		{
++		TModuleMemoryInfo mi;
++		if (GetMemoryInfo(mi, NULL) == KErrNone)
++			Kern::Printf("N95CODE: %S code=%08x+%x data=%08x+%x bss=%08x+%x ep=%08x",
++						 iFileName, mi.iCodeBase, mi.iCodeSize, mi.iInitialisedDataBase,
++						 mi.iInitialisedDataSize, mi.iUninitialisedDataBase, mi.iUninitialisedDataSize,
++						 iFileEntryPoint);
++		}
++	}
+ 	return KErrNone;
+ 	}
+ 

@@ -432,6 +432,14 @@ def handle(sess, req):
         return {'ok': True}
     if op == 'screenshot':
         return screenshot(sess, req.get('path'), req.get('scale', 1.0), req.get('crop'), req.get('only_if_changed', False))
+    if op == 'dbg':
+        import debugger
+        if not hasattr(sess, 'dbg'):
+            sess.dbg = debugger.Debugger(sess)
+        try:
+            return sess.dbg.op(req)
+        except debugger.DbgError as e:
+            raise AgentError(str(e))
     if op == 'hmp':
         return {'out': sess.qmp('human-monitor-command', **{'command-line': req['cmd']})}
     raise AgentError('unknown op %r' % op)

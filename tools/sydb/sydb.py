@@ -12,6 +12,8 @@
   sydb key KEY... [--delay S] | type TEXT | screenshot [OUT.png] [--scale F] [--changed]
   sydb log [--grep RE] [--since T] [--max N] [--head] | events [--since SEQ] [--wait S] [--kind K]
   sydb update-agent                  push a rebuilt devagent.exe/dafs.exe and restart the agent live
+  sydb dbg attach|break LOC [--thread T]|continue [--wait S]|wait|step|next|stepi|finish|regs|bt|
+           mem ADDR [LEN]|write ADDR HEX|eval EXPR|symbols NAME [ELF]|interrupt|detach|cmd GDBCMD
   sydb hmp CMD | mcp (MCP stdio server) | --json (raw JSON output) | --session DIR
 Keys: QKeyCode names or aliases lsk rsk ok menu star hash clear back; a number = pause in seconds.
 """
@@ -302,6 +304,45 @@ def main():
         time.sleep(1.5)
         out(c.call({'op': 'wait', 'what': 'agent', 'timeout': 30}),
             lambda r: print('agent restarted (pid %s)' % r['hello'].get('pid') if r.get('agent') else 'agent did not come back'))
+    elif cmd == 'dbg':
+        # dbg attach|detach|interrupt|continue [--wait S]|wait [S]|step|next|stepi|finish|regs|bt
+        #     break LOC [--thread T] [--once] [--sw]|delete [N]|mem ADDR [LEN]|write ADDR HEX|eval EXPR
+        #     symbols NAME [ELF]|where|cmd GDBCMD
+        sub, args = rest[0], rest[1:]
+        req = {'op': 'dbg', 'sub': sub}
+        def opt(name, conv=str, default=None):
+            if name in args:
+                i = args.index(name); v = conv(args[i + 1]) if conv is not bool else True
+                del args[i:i + (1 if conv is bool else 2)]
+                return v
+            return default
+        req['thread'] = opt('--thread')
+        w = opt('--wait', float)
+        if w is not None:
+            req['wait'] = w
+        if opt('--once', bool):
+            req['once'] = True
+        if opt('--sw', bool):
+            req['hw'] = False
+        if sub == 'break':
+            req['loc'] = args[0]
+        elif sub == 'delete' and args:
+            req['bp'] = args[0]
+        elif sub == 'wait' and args:
+            req['timeout'] = float(args[0])
+        elif sub == 'mem':
+            req['addr'] = args[0]; req['len'] = int(args[1], 0) if len(args) > 1 else 64
+        elif sub == 'write':
+            req['addr'], req['hex'] = args[0], args[1]
+        elif sub == 'eval':
+            req['expr'] = ' '.join(args)
+        elif sub == 'symbols':
+            req['name'] = args[0]
+            if len(args) > 1:
+                req['elf'] = os.path.abspath(args[1])
+        elif sub == 'cmd':
+            req['cmd'] = ' '.join(args)
+        out(c.call(req, timeout=600), (lambda r: print(r['out'])) if sub == 'cmd' else None)
     elif cmd == 'agent':           # raw agent command, for experiments
         out(agent(rest[0], rest[1:]))
     else:
