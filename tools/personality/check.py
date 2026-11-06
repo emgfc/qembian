@@ -42,7 +42,23 @@ def main():
                 y = ours[i] if i < len(ours) else '-'
                 if x != y:
                     print('   %2d device %-50s | ours %s' % (i, x[:50], y))
-    print('%s / %s: %s' % (prof['_id'], pers, 'ok' if not bad else '%d class(es) differ' % bad))
+    # exec numbering: every SWI the device's own EUSER uses has an entry in the personality's map
+    import re
+    swi = os.path.join(devmodel.paths(prof)['dir'], 'abi', 'n95-euser-swi.json')
+    if os.path.exists(swi):
+        keys = set()
+        for l in open(os.path.join(ROOT, 'personalities', pers, 'exec.map')):
+            m = re.match(r'^([FS])([0-9a-fA-F]+)\s+(\S+)', l)
+            if m:
+                keys.add((m.group(1), int(m.group(2), 16)))
+        used = json.load(open(swi))['swis']
+        miss = ['%s%02x' % k for k in (('F', s & 0x7fffff) if s & 0x800000 else ('S', s) for s in used) if k not in keys]
+        print('%-22s %s (%d SWIs used by the device EUSER%s)' % ('exec numbering', 'ok' if not miss else 'MISSING',
+                                                              len(used), ': ' + ' '.join(miss) if miss else ''))
+        bad += 1 if miss else 0
+    else:
+        print('exec numbering         not checked (run tools/fw/inventory.py for the ABI reports)')
+    print('%s / %s: %s' % (prof['_id'], pers, 'ok' if not bad else '%d problem(s)' % bad))
     return 1 if bad else 0
 
 
