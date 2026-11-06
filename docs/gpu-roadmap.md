@@ -197,3 +197,32 @@ targeted at Symbian) [I: licences to be checked by the owner; GPL sources stay n
 * Is Carousel the real M3 target, or M3G demos first (M3G needs fewer MBX-specific behaviours)?
 * Is a per-process `DisplayDriver` channel for the vsync wait acceptable, or should the wait live in
   a new tiny LDD (`sygpu.ldd`) that C2 will need anyway?
+
+## Fidelity: window surfaces and resizes/rotation (2026-11-06)
+
+The owner saw, on the real N95 8GB, ZigGLTri drawing off-centre and only partly filling the screen
+after a switch to landscape, whatever the app did (recreating surfaces on the rotation event did not
+help). sygl instead follows the window (H-gles-window-resize), so it is more permissive than the device.
+
+Evidence from the device's own window-system glue, `libpvrTechviewWSEGL.dll` (ROM 0x80a6xxxx,
+decompile `build/n95/ghidra/libpvrTechviewWSEGL.dll.c`):
+- `RWindowBase::Size()` and `AbsPosition()` are called in exactly one place, FUN_80a6c76e (window
+  surface creation: rect -> FUN_80a6c3b2, then `CDirectScreenAccess::NewL`). [verified]
+- FUN_80a6c3b2 (set rect) swaps width/height when the surface's rotation field (+0xc) is 1 or 3,
+  i.e. the back buffers are kept in the panel's native orientation and the blit (pvr2d) rotates;
+  buffers are reallocated only when that size changes. [verified: code; meaning of +0xc inferred]
+- The DSA restart callback (FUN_80a6c33c) gets only the new clipping region; it checks whether the
+  region is the single stored rect (full visibility flag) and does not query the window again. [verified]
+- So on the device a window surface keeps its creation size and position: after WSERV resizes or
+  rotates the window, rendering continues into the old rect, clipped by the new region. [inferred,
+  matches the owner's ZigGLTri observation]
+
+Open: how Hitchcock (Carousel) copes on the device; on sygl it asks eglQuerySurface after the layout
+switch and sets glViewport from it, without recreating the surface. Carousel passes "orientation ==
+landscape" to Hitchcock (carousel.exe: hitchcock ord145(display, Orientation() == 2)), so it may
+rotate its own rendering instead. Check on the real phone before making strict the default.
+
+Plan: with the host-GL work, make this a setting: `follow` (today's behaviour) and `strict` (the
+WSEGL behaviour above: size and position fixed at creation, present clipped to the DSA region,
+eglQuerySurface returns the creation size, native-orientation buffers when rotated). Default
+`strict` once Carousel is checked against it.
