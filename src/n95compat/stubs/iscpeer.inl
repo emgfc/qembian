@@ -20,6 +20,7 @@
 // ("ISCPEER:") as the reference for completing the protocol.
 
 #include <kernel/kernel.h>
+#include "syborg.h"
 
 #ifndef ISC_CHANNEL_BASE
 #define ISC_CHANNEL_BASE 0
@@ -325,6 +326,24 @@ void DIscPeerChannel::Reply(TUint8 aRes, TUint8 aTid, TUint8 aMsgId, const TUint
 	Queue(m, len);
 	}
 
+// The BB5 modem owns the power supply: after MTC_POWER_OFF_REQ (or a reset request) it cuts power
+// (or restarts the phone) while the application side is still shutting down. Our stand-in does that
+// through the Syborg platform device (register 2: 1 = power off, 2 = reset), a grace period after
+// the request, so the file servers' last writes land first.
+static void ModemPowerFn(TAny* aWhat)
+	{
+	Kern::Printf("ISCPEER: modem %s the phone", aWhat == (TAny*)1 ? "switches off" : "resets");
+	WriteReg(KHwSVPPlatformDevice, 2, (TUint32)aWhat);
+	}
+static void ModemPowerLater(TInt aWhat)	// the timer is never freed: the machine goes away
+	{
+	NTimer* t = new NTimer(ModemPowerFn, (TAny*)aWhat);
+	if (t)
+		t->OneShot(NKern::TimerTicks(3000));
+	else
+		ModemPowerFn((TAny*)aWhat);
+	}
+
 void DIscPeerChannel::MtcStateInd()
 	{
 	static const TUint8 KNormalStart[2] = { 0x01, 0x03 };	// MTC_STATE_INFO_IND: NORMAL, START
@@ -353,8 +372,14 @@ void DIscPeerChannel::HandleSend(const TUint8* m, TInt aLen)
 			Reply(res, tid, 0x64, K00, 2);
 			return;
 		case 0x0B: Reply(res, tid, 0x6E, K00, 2); return;	// MTC_STARTUP_SYNQ_RESP
-		case 0x06: Reply(res, tid, 0x69, K00, 2); return;	// reset/power request resp
-		case 0x03: Reply(res, tid, 0x66, K00, 2); return;
+		case 0x06:	// MTC_RESET_GENERATE_REQ -> RESP, then the modem restarts the phone
+			Reply(res, tid, 0x69, K00, 2);
+			ModemPowerLater(2);
+			return;
+		case 0x03:	// MTC_POWER_OFF_REQ -> RESP, then the modem cuts power
+			Reply(res, tid, 0x66, K00, 2);
+			ModemPowerLater(1);
+			return;
 		case 0x04: Reply(res, tid, 0x67, K00, 2); return;
 		case 0x12: Reply(res, tid, 0x75, K00, 2); return;
 			}

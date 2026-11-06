@@ -319,15 +319,23 @@ def main():
         ap.add_argument('--device', action='store_true', help="your run-gui phone (drives in place, session build/sydb-device)")
         ap.add_argument('--rom', help='ROM of a session it starts (default hybrid.img, with --device hybrid-exp.img)')
         ap.add_argument('--install', action='store_true', help='install/update the sydb agent on its C: first')
+        ap.add_argument('--keep', action='store_true', help='leave the session running when the window closes')
         x = ap.parse_args(rest)
         if x.device and sdir == DEFAULT_SESSION:
             sdir = DEVICE_SESSION
+        started = False
         if not Client(sdir).alive():
             subprocess.run([sys.executable, os.path.abspath(__file__), '--session', sdir, 'start', '--no-wait',
                             '--audio', x.audio] + (['--device'] if x.device else []) + (['--rom', x.rom] if x.rom else [])
                            + (['--install'] if x.install else []), check=True)
+            started = True
         import phone
-        sys.exit(phone.main(sdir, x.scale))
+        rc = phone.main(sdir, x.scale)
+        # like closing an emulator: a session this window started ends with it (not one it joined)
+        if started and not x.keep and Client(sdir).alive():
+            print('stopping the session %s (--keep leaves it running)' % sdir)
+            Client(sdir).call({'op': 'stop'})
+        sys.exit(rc)
     if cmd == 'tui':
         import tui
         tui.main(sdir)

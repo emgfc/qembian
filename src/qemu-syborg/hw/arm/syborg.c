@@ -7,7 +7,8 @@
  *   0xc0003000 keyboard (2)   0xc0004000 pointer (3)   0xc0005000 framebuffer (4)
  *   0xc0006000..0xc0009000 serial 0..3 (5..8)   0xc000d000 NVMemory 2 = E: (14)
  *   0xc000e000 audio (13)   0xc0010000 NVMemory (12)
- *   0xc0011000 platform (ID, then the device tree blob at +0x1000, 16 MB window)
+ *   0xc0011000 platform (ID, tree offset, POWER (write 1 off, 2 reset), the device tree blob at
+ *              +0x1000, 16 MB window)
  *   0x60000000 flash: 128 MB read-only window, the N95's ROFS partition (stands for its NAND);
  *              filled with -device loader,file=ROFS,addr=0x60000000,force-raw=on (scripts/run-modern.sh
  *              does it for ROM.rofs); read by MEDROFS.PDD, so ROFS takes no RAM as on the phone
@@ -37,6 +38,7 @@
 #include "hw/arm/machines-qom.h"
 #include "system/address-spaces.h"
 #include "system/system.h"
+#include "system/runstate.h"
 #include "system/blockdev.h"
 #include "system/block-backend.h"
 #include "chardev/char-fe.h"
@@ -83,6 +85,16 @@ static uint64_t syborg_platform_read(void *opaque, hwaddr offset, unsigned size)
 static void syborg_platform_write(void *opaque, hwaddr offset, uint64_t value,
                                   unsigned size)
 {
+    /* word 2 POWER: 1 = switch off, 2 = reset (the N95's modem owns power; our fake modem
+       writes it after MTC_POWER_OFF_REQ / MTC_RESET_GENERATE_REQ) */
+    if (offset == 8 && value == 1) {
+        qemu_system_shutdown_request(SHUTDOWN_CAUSE_GUEST_SHUTDOWN);
+        return;
+    }
+    if (offset == 8 && value == 2) {
+        qemu_system_reset_request(SHUTDOWN_CAUSE_GUEST_RESET);
+        return;
+    }
     qemu_log_mask(LOG_GUEST_ERROR, "syborg-platform: write 0x%x ignored\n", (int)offset);
 }
 

@@ -410,10 +410,14 @@ class Phone(QtWidgets.QWidget):
                 st = self.c.call({'op': 'status'}, 3)
                 ag = st.get('agent') or {}
                 txt = '%s  %.0fs  agent %s' % (st.get('state'), st.get('uptime', 0), 'up' if ag else 'down')
+                self.gone = 0
             except Exception as e:
                 txt = 'session: %s' % e
+                self.gone = getattr(self, 'gone', 0) + 1
             try:
                 QtCore.QMetaObject.invokeMethod(self, '_status', Qt.ConnectionType.QueuedConnection, QtCore.Q_ARG(str, txt))
+                if self.gone >= 2:             # the phone was switched off (or its session stopped)
+                    QtCore.QMetaObject.invokeMethod(self, 'close', Qt.ConnectionType.QueuedConnection)
             except RuntimeError:           # the window closed meanwhile
                 pass
         threading.Thread(target=go, daemon=True).start()
