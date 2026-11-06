@@ -101,7 +101,7 @@ void sy_gl_made_current(struct SyContext* aCtx, SySurface* aDraw);
 
 /* ---- rasterizer (raster.c) ---- */
 /* window coords (y down), z 0..1, colour 0..255, iw = 1/w_clip, sw/tw = s/w, t/w (perspective) */
-typedef struct SyRVtx { float x, y, z; float r, g, b, a; float iw, sw, tw; } SyRVtx;
+typedef struct SyRVtx { float x, y, z; float r, g, b, a; float iw, sw, tw; float fog; } SyRVtx;	/* fog 0..255 (255 = no fog) */
 typedef struct SyRTex
 	{
 	const u32* data;		/* 0xAARRGGBB */
@@ -121,6 +121,7 @@ typedef struct SyRState
 	int scX0, scY0, scX1, scY1;			/* drawable rect in surface coords (x1/y1 exclusive) */
 	int writeColor;
 	int polyOffset; float polyFactor, polyUnits;	/* glPolygonOffset (depth units of 1/65535) */
+	int fog, fogR, fogG, fogB;						/* fog colour 0..255; per-vertex factor in SyRVtx.fog */
 	} SyRState;
 void sy_raster_triangle(SySurface* aS, const SyRState* aSt, const SyRVtx* aV0, const SyRVtx* aV1, const SyRVtx* aV2);
 void sy_raster_clear(SySurface* aS, int aColor, u32 aRgb, int aDepth, u16 aZ, int aX, int aY, int aW, int aH);

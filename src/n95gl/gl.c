@@ -55,11 +55,18 @@
 #define GL_FOG 0x0B60
 #define GL_DITHER 0x0BD0
 #define GL_POLYGON_OFFSET_FILL 0x8037
+#define GL_FOG_DENSITY 0x0B62
+#define GL_FOG_START 0x0B63
+#define GL_FOG_END 0x0B64
+#define GL_FOG_MODE 0x0B65
+#define GL_FOG_COLOR 0x0B66
+#define GL_EXP 0x0800
+#define GL_EXP2 0x0801
 #define GL_IMPLEMENTATION_COLOR_READ_TYPE_OES 0x8B9A
 #define GL_IMPLEMENTATION_COLOR_READ_FORMAT_OES 0x8B9B
 
-typedef struct SyCV { float x, y, z, w, r, g, b, a, s, t; } SyCV;		/* clip-space vertex */
-#define CV_FLOATS 10
+typedef struct SyCV { float x, y, z, w, r, g, b, a, s, t, fog; } SyCV;		/* clip-space vertex, fog 0..1 */
+#define CV_FLOATS 11
 
 /* ---------------------------------------------------------------- helpers */
 
@@ -157,6 +164,8 @@ struct SyContext* sy_gl_create(struct SyContext* aShareWith)
 	c->blendSrc = GL_ONE; c->blendDst = GL_ZERO;
 	c->alphaFunc = GL_ALWAYS;
 	c->colorMask = 15;
+	c->fogMode = GL_EXP; c->fogDensity = 1.0f; c->fogStart = 0.0f; c->fogEnd = 1.0f;
+	c->lineWidth = 1.0f; c->pointSize = 1.0f;
 	sy_light_init(c);
 	if (sy_tex_init(c, aShareWith))
 		{
@@ -385,6 +394,7 @@ static void set_cap(GLenum cap, int on)
 	case GL_ALPHA_TEST: c->alphaTest = on; break;
 	case GL_SCISSOR_TEST: c->scissor = on; break;
 	case GL_POLYGON_OFFSET_FILL: c->polyOffset = on; break;
+	case GL_FOG: c->fog = on; break;
 	default: break;		/* fog, dither, multisample, polygon offset ...: accepted, not implemented yet */
 		}
 	}
@@ -422,6 +432,43 @@ void sy_glPolygonOffset(GLfloat factor, GLfloat units)
 	c->polyFactor = factor; c->polyUnits = units;
 	}
 void sy_glPolygonOffsetx(GLfixed factor, GLfixed units) { sy_glPolygonOffset(sy_fx(factor), sy_fx(units)); }
+
+void sy_glFogfv(GLenum pname, const GLfloat* p)
+	{
+	SyContext* c = sy_cur(); if (!c || !p) return;
+	switch (pname)
+		{
+	case GL_FOG_MODE: c->fogMode = (GLenum)(int)p[0]; break;
+	case GL_FOG_DENSITY: c->fogDensity = p[0]; break;
+	case GL_FOG_START: c->fogStart = p[0]; break;
+	case GL_FOG_END: c->fogEnd = p[0]; break;
+	case GL_FOG_COLOR: memcpy(c->fogColor, p, 16); break;
+	default: sy_seterr(c, GL_INVALID_ENUM); break;
+		}
+	}
+void sy_glFogf(GLenum pname, GLfloat v) { sy_glFogfv(pname, &v); }
+void sy_glFogxv(GLenum pname, const GLfixed* p)
+	{
+	if (!p) return;
+	GLfloat f[4];
+	if (pname == GL_FOG_MODE) f[0] = (GLfloat)p[0];
+	else for (int i = 0; i < (pname == GL_FOG_COLOR ? 4 : 1); ++i) f[i] = sy_fx(p[i]);
+	sy_glFogfv(pname, f);
+	}
+void sy_glFogx(GLenum pname, GLfixed v) { sy_glFogxv(pname, &v); }
+
+/* no stencil buffer in our configs (EGL_STENCIL_SIZE 0): GL passes the stencil test then; the state
+   is accepted. Logic op, sample coverage: accepted, not applied. Lines/points: widths stored. */
+void sy_glStencilFunc(GLenum f, GLint ref, GLuint mask) { (void)f; (void)ref; (void)mask; }
+void sy_glStencilMask(GLuint m) { (void)m; }
+void sy_glStencilOp(GLenum a, GLenum b, GLenum c2) { (void)a; (void)b; (void)c2; }
+void sy_glLogicOp(GLenum op) { (void)op; }
+void sy_glSampleCoverage(GLclampf v, GLboolean inv) { (void)v; (void)inv; }
+void sy_glSampleCoveragex(GLfixed v, GLboolean inv) { (void)v; (void)inv; }
+void sy_glLineWidth(GLfloat w) { SyContext* c = sy_cur(); if (c) c->lineWidth = w; }
+void sy_glLineWidthx(GLfixed w) { sy_glLineWidth(sy_fx(w)); }
+void sy_glPointSize(GLfloat s) { SyContext* c = sy_cur(); if (c) c->pointSize = s; }
+void sy_glPointSizex(GLfixed s) { sy_glPointSize(sy_fx(s)); }
 
 void sy_glDepthFunc(GLenum f) { SyContext* c = sy_cur(); if (c) c->depthFunc = f; }
 void sy_glDepthMask(GLboolean m) { SyContext* c = sy_cur(); if (c) c->depthWrite = m != 0; }
@@ -641,7 +688,7 @@ typedef struct
 	float mvp[16];
 	const float* mv;
 	float nm[9];		/* normal matrix (row-major) */
-	int lit, textured, texIdentity;
+	int lit, textured, texIdentity, fog;
 	const float* texm;
 	} SyFrame;
 
@@ -695,6 +742,21 @@ static void transform(SyContext* c, const SyFrame* f, int idx, SyCV* o)
 	else
 		{
 		o->r = col[0]; o->g = col[1]; o->b = col[2]; o->a = col[3];
+		}
+	o->fog = 1.0f;
+	if (f->fog)
+		{
+		const float* w = f->mv;		/* fog coordinate = |eye z| (GL allows the eye-plane distance) */
+		float ze = w[2] * v[0] + w[6] * v[1] + w[10] * v[2] + w[14] * v[3];
+		float dz = ze < 0 ? -ze : ze, fo;
+		if (c->fogMode == GL_LINEAR)
+			fo = c->fogEnd != c->fogStart ? (c->fogEnd - dz) / (c->fogEnd - c->fogStart) : 1.0f;
+		else
+			{
+			float e = c->fogDensity * dz;
+			fo = 1.0f / sy_powf(2.71828183f, c->fogMode == GL_EXP2 ? e * e : e);
+			}
+		o->fog = fo < 0 ? 0 : (fo > 1 ? 1 : fo);
 		}
 	if (f->textured)
 		{
@@ -763,6 +825,7 @@ static void project(SyContext* c, const SyCV* in, SyRVtx* o)
 	o->z = c->depthNear + (nz + 1.0f) * 0.5f * (c->depthFar - c->depthNear);
 	o->r = in->r * 255.0f; o->g = in->g * 255.0f; o->b = in->b * 255.0f; o->a = in->a * 255.0f;
 	o->iw = iw; o->sw = in->s * iw; o->tw = in->t * iw;
+	o->fog = in->fog * 255.0f;
 	}
 
 static void draw_triangle(SyContext* c, const SyRState* st, const SyCV* a, const SyCV* b, const SyCV* cc, const SyCV* provoking)
@@ -845,10 +908,16 @@ static int prepare(SyContext* c, int count, SyFrame* f, SyRState* st, SyRTex* rt
 	f->textured = c->texture2D && t && t->data && t->w && t->h;
 	f->texm = c->tex[c->texTop];
 	f->texIdentity = mat_is_identity(f->texm);
+	f->fog = c->fog;
 
 	memset(st, 0, sizeof(*st));
 	st->depthTest = c->depthTest; st->depthWrite = c->depthWrite; st->depthFunc = (int)c->depthFunc;
 	st->writeColor = c->colorMask != 0;
+	if (c->fog)
+		{
+		st->fog = 1;
+		st->fogR = (int)(c->fogColor[0] * 255.0f); st->fogG = (int)(c->fogColor[1] * 255.0f); st->fogB = (int)(c->fogColor[2] * 255.0f);
+		}
 	if (c->polyOffset)
 		{
 		st->polyOffset = 1; st->polyFactor = c->polyFactor; st->polyUnits = c->polyUnits;

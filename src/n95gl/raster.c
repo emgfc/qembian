@@ -135,7 +135,7 @@ static int blend_factor(int aF, int sc, int sa, int dc, int da, int aIsAlpha)
 static int m255(int a, int b) { int x = a * b + 128; return (x + (x >> 8)) >> 8; }
 
 /* the general fragment path: returns the 0x00RRGGBB to write, or -1 to discard (alpha test) */
-static int shade(const SyRState* st, int r, int g, int b, int a, int u, int v, u32 aDst)
+static int shade(const SyRState* st, int r, int g, int b, int a, int u, int v, u32 aDst, int aFog)
 	{
 	if (st->tex)
 		{
@@ -170,6 +170,13 @@ static int shade(const SyRState* st, int r, int g, int b, int a, int u, int v, u
 			r = m255(r, tr); g = m255(g, tg); b = m255(b, tb); a = m255(a, ta);
 			break;
 			}
+		}
+	if (st->fog)		/* C = f*C + (1-f)*Cfog, f = aFog/255 */
+		{
+		int f = aFog < 0 ? 0 : (aFog > 255 ? 255 : aFog);
+		r = m255(r, f) + m255(st->fogR, 255 - f);
+		g = m255(g, f) + m255(st->fogG, 255 - f);
+		b = m255(b, f) + m255(st->fogB, 255 - f);
 		}
 	if (st->alphaTest && !cmp_pass(st->alphaFunc, (u32)a, (u32)st->alphaRef))
 		return -1;
@@ -239,7 +246,7 @@ void sy_raster_triangle(SySurface* aS, const SyRState* aSt, const SyRVtx* v0, co
 		}
 
 	int dtest = aSt->depthTest && aS->depth, dwrite = aSt->depthWrite && aS->depth, dfunc = aSt->depthFunc;
-	int general = aSt->tex || aSt->blend || aSt->alphaTest;
+	int general = aSt->tex || aSt->blend || aSt->alphaTest || aSt->fog;
 
 	if (!general)
 		{
@@ -273,6 +280,9 @@ void sy_raster_triangle(SySurface* aS, const SyRState* aSt, const SyRVtx* v0, co
 		}
 
 	setup_attr(&a, v0->a, v1->a, v2->a, 65536.0f, e1x, e1y, e2x, e2y, inv, offx, offy);
+	SyStep fg = {255 << 16, 0, 0};
+	if (aSt->fog)
+		setup_attr(&fg, v0->fog, v1->fog, v2->fog, 65536.0f, e1x, e1y, e2x, e2y, inv, offx, offy);
 	SyPlaneF pw, ps, pt;
 	float tw = 0.0f, th = 0.0f;
 	if (aSt->tex)
@@ -285,7 +295,7 @@ void sy_raster_triangle(SySurface* aS, const SyRState* aSt, const SyRVtx* v0, co
 	for (int y = miny; y <= maxy; ++y)
 		{
 		int e01 = E01, e12 = E12, e20 = E20;
-		int cr = r.start, cg = g.start, cb = b.start, ca = a.start, cz = z.start;
+		int cr = r.start, cg = g.start, cb = b.start, ca = a.start, cz = z.start, cf = fg.start;
 		u32* row = aS->color + y * aS->w;
 		u16* zrow = aS->depth ? aS->depth + y * aS->w : 0;
 		float rowW = 0, rowS = 0, rowT = 0;
@@ -314,7 +324,7 @@ void sy_raster_triangle(SySurface* aS, const SyRState* aSt, const SyRVtx* v0, co
 				if (zz > 0xffff) zz = 0xffff;
 				if (!dtest || cmp_pass(dfunc, zz, zrow[x]))
 					{
-					int c = shade(aSt, clamp255(cr), clamp255(cg), clamp255(cb), clamp255(ca), u, v, row[x]);
+					int c = shade(aSt, clamp255(cr), clamp255(cg), clamp255(cb), clamp255(ca), u, v, row[x], cf >> 16);
 					if (c >= 0)
 						{
 						if (aSt->writeColor)
@@ -325,11 +335,11 @@ void sy_raster_triangle(SySurface* aS, const SyRState* aSt, const SyRVtx* v0, co
 					}
 				}
 			e01 += s01x; e12 += s12x; e20 += s20x;
-			cr += r.dx; cg += g.dx; cb += b.dx; ca += a.dx; cz += z.dx;
+			cr += r.dx; cg += g.dx; cb += b.dx; ca += a.dx; cz += z.dx; cf += fg.dx;
 			u += du; v += dv;
 			}
 		E01 += s01y; E12 += s12y; E20 += s20y;
-		r.start += r.dy; g.start += g.dy; b.start += b.dy; a.start += a.dy; z.start += z.dy;
+		r.start += r.dy; g.start += g.dy; b.start += b.dy; a.start += a.dy; z.start += z.dy; fg.start += fg.dy;
 		}
 	}
 

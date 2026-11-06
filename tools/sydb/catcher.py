@@ -329,7 +329,10 @@ class Catcher:
         os.makedirs(self.dir, exist_ok=True)
         hid = len(self.hits) + 1
         segs = self.code_map()
-        regs, note = self.user_context(ev)
+        try:
+            regs, note = self.user_context(ev)
+        except Exception as e:          # e.g. the thread's memory is not mapped right now
+            regs, note = {}, 'user context not readable: %s' % e
         hit = {'id': hid, 't': self.sess.now(), 'rule': rule['id'], **{k: v for k, v in ev.items() if k != 'dthread'},
                'regs_note': note, 'regs': {k: '0x%08x' % v for k, v in regs.items() if v is not None}}
         pc, lr, sp = regs.get('pc'), regs.get('lr'), regs.get('sp')
@@ -349,14 +352,27 @@ class Catcher:
         if stack_hi:
             lo = sp if sp and stack_lo <= sp < stack_hi else max(stack_lo, stack_hi - 0x4000)
             lo = max(lo, stack_hi - 0x8000)
-            raw = d.read_mem(lo, stack_hi - lo)
+            try:
+                raw = d.read_mem(lo, stack_hi - lo)
+            except Exception as e:
+                # a thread of another process (killed from outside): its user memory is not in the
+                # current address space
+                hit['stack_note'] = 'user stack not readable (%s); thread not current?' % e
+                raw = b''
             for i in range(0, len(raw) - 3, 4):
                 w = struct.unpack_from('<I', raw, i)[0]
-                if self.is_return_address(w, segs):
+                try:
+                    ok = self.is_return_address(w, segs)
+                except Exception:
+                    ok = False
+                if ok:
                     frames.append({'sp': '0x%08x' % (lo + i), 'ret': '0x%08x' % w, 'sym': self.sym(w, segs)})
                     if len(frames) >= 48:
                         break
-            hit['stack'] = {'lo': '0x%08x' % lo, 'hi': '0x%08x' % stack_hi, 'from_sp': bool(sp and lo == sp)}
+            hit['stack'] = {'lo': '0x%08x' % lo, 'hi': '0x%08x' % stack_hi, 'from_sp': bool(sp and lo == sp),
+                            'bytes': len(raw)}
+            if not raw and 'stack_note' not in hit:
+                hit['stack_note'] = 'user stack read returned no data (memory not mapped in the current address space?)'
         hit['frames'] = frames
         hit['log_tail'] = self.sess.log_query(None, 0, 60)['lines']
         base = os.path.join(self.dir, '%03d-%s' % (hid, re.sub(r'[^\w.-]+', '_', ev['thread'])[:40]))
@@ -392,6 +408,8 @@ def render(h):
     regs = h['regs']
     for i in range(0, len(REGNAMES), 6):
         out.append('    ' + '  '.join('%-4s %s' % (n, regs.get(n, '-')) for n in REGNAMES[i:i + 6]))
+    if h.get('stack_note'):
+        out.append('  stack    ' + h['stack_note'])
     out.append('  call-stack scan (words on the stack whose preceding instruction is a call):')
     for f in h['frames']:
         out.append('    %s  %s  %s' % (f['sp'], f['ret'], f['sym']))

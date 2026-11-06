@@ -60,7 +60,8 @@ def stamp_version(data):
     d = bytearray(data)
     n = struct.unpack_from('<I', d, 0x64)[0]               # iCodeOffset = header size
     ver = struct.unpack_from('<I', d, 0x18)[0]
-    struct.pack_into('<I', d, 0x18, (ver & 0xffff0000) | (int(time.time() * 10) & 0xffff))
+    # minor in 1..0x7fff: the loader refuses (KErrCorrupt) a minor version with the top bit set
+    struct.pack_into('<I', d, 0x18, (ver & 0xffff0000) | (int(time.time() * 10) % 0x7fff + 1))
     struct.pack_into('<I', d, 0x14, 0xc90fdaa2)
     struct.pack_into('<I', d, 0x14, ~zlib.crc32(bytes(d[:n]), 0xffffffff) & 0xffffffff)
     return bytes(d)

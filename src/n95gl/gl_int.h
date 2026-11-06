@@ -178,6 +178,8 @@ typedef struct SyContext
 	int scissor; int scX, scY, scW, scH;
 	int colorMask;			/* bit 0..3 = r g b a; only all-or-nothing honoured */
 	int polyOffset; float polyFactor, polyUnits;
+	int fog; GLenum fogMode; float fogDensity, fogStart, fogEnd, fogColor[4];
+	float lineWidth, pointSize;
 	int errLogged;
 	int traceTri;
 	SySurface* draw;

@@ -653,10 +653,19 @@ void CAgent::CmdPut(const TDesC8& aTag, const TDesC8& aPath, const TDesC8& aSize
 	iPutDest = p;
 	if (NeedsTcb(p))
 		{
-		// stage in our private dir, dafs.exe moves it into place when complete
-		iFs.CreatePrivatePath(EDriveC);
+		// stage in our private dir on the destination's drive (dafs.exe renames it into place when
+		// complete; a rename cannot cross drives)
+		TInt drive = EDriveC;
+		if (iPutDest.Length() > 1 && iPutDest[1] == ':' && RFs::CharToDrive(iPutDest[0], drive) != KErrNone)
+			drive = EDriveC;
+		iFs.CreatePrivatePath(drive);
 		iFs.PrivatePath(p);
-		p.Insert(0, _L("C:"));
+		TChar dc;
+		RFs::DriveToChar(drive, dc);
+		TBuf<2> dl;
+		dl.Append(dc);
+		dl.Append(':');
+		p.Insert(0, dl);
 		p.Append(_L("incoming.tmp"));
 		}
 	iPutStage = p;
