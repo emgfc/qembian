@@ -2,15 +2,19 @@
  * Syborg framebuffer.
  *
  * Registers (word index): 0 ID, 1 BASE (guest physical; write raises BASE_UPDATE), 2 HEIGHT,
- * 3 WIDTH, 4 ORIENTATION, 5 BLANK, 6 INT_MASK (1 VSYNC, 2 BASE_UPDATE), 7 INT_CAUSE (W1C),
+ * 3 WIDTH, 4 ORIENTATION (quarter turns clockwise from memory to screen, 0..3), 5 BLANK, 6 INT_MASK (1 VSYNC, 2 BASE_UPDATE), 7 INT_CAUSE (W1C),
  * 8 BPP, 9 COLOR_ORDER, 10 BYTE_ORDER, 11 PIXEL_ORDER, 12 ROW_PITCH, 13 ENABLED,
  * 14 PARTIAL_START, 15 PARTIAL_END (inclusive), 16 PARTIAL_MODE (bit 0 on, bit 1 full colour,
  *   bit 2 the band is a range of rows; clear = a range of columns),
  * 17 FRAME_COUNT (read: vsyncs since reset), 18 REFRESH_RATE (read: Hz, 0 = no vsync timer),
  * 0x100.. palette (256 entries).
+ * WIDTH x HEIGHT is the screen (what the QEMU console shows). The picture in memory has that size
+ * at ORIENTATION 0/2 and HEIGHT x WIDTH at 1/3; it is rotated onto the screen. This models a
+ * display controller that rotates (the N95's natively landscape panel shows the portrait UI, and
+ * in WSERV's native rotation, used by the screensaver, a landscape picture).
  * Partial mode models the N95 panel's partial-display power saving (screensaver): only the band
- * START..END (rows or columns of the picture, as the display driver maps the panel rows for the
- * current rotation) is shown, everything else is black, and without the full-colour bit the band
+ * START..END (rows or columns of the picture in memory, as the display driver maps the panel rows
+ * for the current rotation) is shown, everything else is black, and without the full-colour bit the band
  * has 8 colours (one bit per channel), like the panel's idle mode.
  * The Symbian driver programs 32 bpp, colour order 0 (little-endian 0x00RRGGBB words),
  * which is exactly the host x8r8g8b8 surface format, so rows are copied as they are.
@@ -54,6 +58,7 @@ struct SyborgFbState {
     uint32_t frame_count;
     int64_t next_vsync;       /* QEMU_CLOCK_VIRTUAL ns */
     QEMUTimer *vsync_timer;
+    uint32_t *pic;            /* the picture in memory, processed before it is rotated (w*h words) */
 };
 
 static void syborg_fb_update_irq(SyborgFbState *s)
@@ -104,7 +109,11 @@ static bool syborg_fb_update_display(void *opaque)
         return true;
     }
     {
-        uint32_t pitch = s->row_pitch ? s->row_pitch : s->width * 4;
+        /* picture size in memory: the screen size, swapped at a quarter-turn orientation */
+        uint32_t rot = s->orientation & 3;
+        uint32_t pw = (rot & 1) ? s->height : s->width;
+        uint32_t ph = (rot & 1) ? s->width : s->height;
+        uint32_t pitch = s->row_pitch ? s->row_pitch : pw * 4;
         uint8_t *dst = surface_data(surf);
         int dstride = surface_stride(surf);
         /* a blanked or disabled panel keeps its picture, just without backlight: dimmed */
@@ -113,13 +122,13 @@ static bool syborg_fb_update_display(void *opaque)
         bool eight = partial && !(s->partial_mode & 2);
         bool rows = s->partial_mode & 4;
 
-        for (uint32_t y = 0; y < s->height; y++) {
-            uint32_t *row = (uint32_t *)(dst + y * dstride);
+        for (uint32_t y = 0; y < ph; y++) {
+            uint32_t *row = rot ? s->pic + y * pw : (uint32_t *)(dst + y * dstride);
             address_space_read(&address_space_memory, s->base + y * pitch,
-                               MEMTXATTRS_UNSPECIFIED, row, s->width * 4);
+                               MEMTXATTRS_UNSPECIFIED, row, pw * 4);
             if (partial) {
                 bool row_out = rows && (y < s->partial_start || y > s->partial_end);
-                for (uint32_t x = 0; x < s->width; x++) {
+                for (uint32_t x = 0; x < pw; x++) {
                     if (row_out || (!rows && (x < s->partial_start || x > s->partial_end))) {
                         row[x] = 0;
                     } else if (eight) {
@@ -130,12 +139,25 @@ static bool syborg_fb_update_display(void *opaque)
                 }
             }
             if (dim) {
-                for (uint32_t x = 0; x < s->width; x++) {
+                for (uint32_t x = 0; x < pw; x++) {
                     uint32_t p = row[x];
                     row[x] = (((p >> 16) & 0xff) * s->blank_dim / 100) << 16 |
                              (((p >> 8) & 0xff) * s->blank_dim / 100) << 8 |
                              ((p & 0xff) * s->blank_dim / 100);
                 }
+            }
+        }
+        /* rotate onto the screen: screen pixel (x, y) shows picture pixel (px, py) */
+        for (uint32_t y = 0; rot && y < s->height; y++) {
+            uint32_t *out = (uint32_t *)(dst + y * dstride);
+            for (uint32_t x = 0; x < s->width; x++) {
+                uint32_t px, py;
+                switch (rot) {
+                case 1:  px = y;                py = ph - 1 - x;      break;  /* picture top -> right */
+                case 2:  px = pw - 1 - x;       py = ph - 1 - y;      break;
+                default: px = pw - 1 - y;       py = x;               break;  /* picture top -> left */
+                }
+                out[x] = s->pic[py * pw + px];
             }
         }
     }
@@ -198,7 +220,7 @@ static void syborg_fb_write(void *opaque, hwaddr offset, uint64_t value,
     case 1: s->base = value; s->need_int = 1; break;
     case 2: s->height = value; break;
     case 3: s->width = value; break;
-    case 4: s->orientation = value; break;
+    case 4: s->orientation = value & 3; break;
     case 5: s->blank = value; break;
     case 6: s->int_enable = value & 3; syborg_fb_update_irq(s); break;
     case 7: s->int_status &= ~value; syborg_fb_update_irq(s); break;
@@ -232,6 +254,7 @@ static void syborg_fb_realize(DeviceState *dev, Error **errp)
     sysbus_init_mmio(SYS_BUS_DEVICE(s), &s->iomem);
     sysbus_init_irq(SYS_BUS_DEVICE(s), &s->irq);
     s->need_int = 1;
+    s->pic = g_new0(uint32_t, (size_t)s->width * s->height);
     s->con = qemu_graphic_console_create(dev, 0, &syborg_fb_gfx_ops, s);
     qemu_console_resize(s->con, s->width, s->height);
     if (s->refresh_rate) {

@@ -1,0 +1,73 @@
+--- a/baseport/syborg/fb/syborg_fb.cpp
++++ b/baseport/syborg/fb/syborg_fb.cpp
+@@ -66,11 +66,11 @@
+ static void FbProbeDfcFn(TAny*)
+ {
+   TUint32* f = FbProbeAddr;
+-  TUint32 sum = 0, first = f[240], diff = 0;
+-  for (TInt i = 240; i < FbProbeWords; i += 3)
++  TUint32 sum = 0, first = f[320], diff = 0;
++  for (TInt i = 320; i < FbProbeWords; i += 3)
+ 	{ sum = sum * 31 + f[i]; if (f[i] != first) ++diff; }
+   Kern::Printf("N95LCD: fb probe hash %08x diff %d px(0,1)=%08x px(120,160)=%08x px(10,300)=%08x",
+-	sum, diff, first, f[160 * 240 + 120], f[300 * 240 + 10]);
++	sum, diff, first, f[160 * 320 + 120], f[300 * 320 + 10]);
+   FbProbeTimer->OneShot(NKern::TimerTicks(60000));
+ }
+ static void FbProbeStart(TUint32* aAddr, TInt aWords)
+@@ -169,6 +169,10 @@
+   WriteReg(iPortAddr, FB_BYTE_ORDER, 0);
+   WriteReg(iPortAddr, FB_PIXEL_ORDER, 0);
+   WriteReg(iPortAddr, FB_INT_MASK, 0);
++#ifdef SYBORG_FB_N95
++  // N95: lines are always 320 pixels apart (see AllocateFrameBuffer)
++  WriteReg(iPortAddr, FB_ROW_PITCH, iVideoInfo.iOffsetBetweenLines);
++#endif
+   WriteReg(iPortAddr, FB_ENABLED, 1);
+ 
+   // We don't write the Height and Width of the framebuffer, this is controlled by the board model
+@@ -264,6 +268,13 @@
+ 	TInt height = ReadReg(iPortAddr, FB_HEIGHT);
+ 	
+ 	TInt vSize = 4*width*height; //*4 as 32bits per pixel
++#ifdef SYBORG_FB_N95
++	// N95 (docs/hacks.md H-lcd-native-landscape): the display driver's scan line is 320 pixels at
++	// every rotation (portrait 240x320 uses 240 of them, the landscape picture of the native
++	// rotation all 320), so the buffer is 320 lines of 320 pixels.
++	TInt n95Line = width > height ? width : height;
++	vSize = 4*n95Line*n95Line;
++#endif
+ 
+ 	NKern::ThreadEnterCS();
+ 	TInt r = Epoc::AllocPhysicalRam(vSize,Syborg::VideoRamPhys);
+@@ -309,8 +320,9 @@
+ #ifdef SYBORG_FB_N95
+ 	// N95 hack H-lcd-native-landscape (docs/hacks.md): the N95 panel is natively landscape and
+ 	// wsini.ini gets the 240x320 portrait UI through rotation 270, which the display controller
+-	// performs. So HAL reports the native landscape size (320x240) while the frame buffer memory
+-	// (what ScDv draws, and what QEMU shows) stays portrait: 240x320 with 960-byte lines.
++	// performs. So HAL reports the native landscape size (320x240); the frame buffer holds the
++	// picture in the current rotation with 1280-byte lines (as the device's DisplayDriver ctl 31
++	// and HAL line offset), and the Syborg fb rotates it onto the portrait screen.
+ 	if (width < height)
+ 		{
+ 		iVideoInfo.iSizeInPixels.iWidth  = height;
+@@ -320,6 +332,9 @@
+ 
+ 	//offset between lines depends on width of screen
+ 	iVideoInfo.iOffsetBetweenLines = width*4;
++#ifdef SYBORG_FB_N95
++	iVideoInfo.iOffsetBetweenLines = n95Line*4;
++#endif
+ 
+ 	iVideoInfo.iDisplayMode = KConfigLcdDisplayMode;
+ 	iVideoInfo.iOffsetToFirstPixel = KConfigOffsetToFirstPixel;
+@@ -337,7 +352,7 @@
+ 	iSecureVideoInfo.iVideoAddress = (TInt)pV2;
+ #ifdef SYBORG_FB_N95
+ 	Kern::Printf("N95LCD: video lin %08x phys %08x, secure lin %08x phys %08x", pV, ivRamPhys, pV2, iSecurevRamPhys);
+-	FbProbeStart((TUint32*)pV, width * height);
++	FbProbeStart((TUint32*)pV, n95Line * n95Line);
+ #endif
+ 	
+ 	return KErrNone;

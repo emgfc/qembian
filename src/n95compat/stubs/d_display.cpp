@@ -19,7 +19,11 @@
 //   ctl 31 -> TInt                scan-line bytes
 //   req 0x8001 (sub)              panel self-test: sub 0 only
 //   req 0x8002 (mode index)       colour mode: 1 = EColor16MU only (our fb is 32 bpp)
-//   req 0x8003 (rotation index)   0, 2, 3 (90 degrees is not supported by the panel)
+//   req 0x8003 (rotation index)   0, 2, 3 (90 degrees is not supported by the panel). ScDv then
+//                                 draws the picture in that orientation (240x320 at 3, 320x240 at
+//                                 0/2) into the frame buffer, line pitch always 1280 bytes (ctl 31,
+//                                 as on the device); the display controller (the Syborg fb,
+//                                 ORIENTATION register) rotates it onto the portrait screen
 //   req 0x23                      display event notification: stays pending (as on the device)
 #include "nokiastub.h"
 #include "syborg.h"
@@ -53,8 +57,19 @@ static TUint PartialStart, PartialEnd;
 static TBool PartialFullColour;
 static TUint Rotation = 0;
 
-// Syborg fb partial-display registers (src/qemu-syborg/hw/arm/syborg_fb.c)
-enum { KFbPartialStart = 14, KFbPartialEnd = 15, KFbPartialMode = 16 };
+// Syborg fb registers (src/qemu-syborg/hw/arm/syborg_fb.c)
+enum { KFbOrientation = 4, KFbPartialStart = 14, KFbPartialEnd = 15, KFbPartialMode = 16 };
+const TUint KPanelRows = 240;		// native landscape panel: 320 columns x 240 rows
+
+// The phone is held portrait: the portrait UI (rotation index 3) is upright on the screen. The
+// controller turns the picture by (3 - index) quarter turns, so at the native index 0 (the
+// screensaver) the landscape picture's top is at the screen's left edge [inferred: at index 3 the
+// screensaver passes its portrait X range as panel rows unreversed, so panel row r is screen
+// column r; if the real phone shows it the other way round, use (Rotation + 1) & 3 here].
+static void SetFbOrientation()
+	{
+	WriteReg(KHwBaseClcd, KFbOrientation, (3 - Rotation) & 3);
+	}
 
 static void SetPartial(TBool aOn, TUint aStart, TUint aEnd, TBool aFullColour)
 	{
@@ -63,6 +78,12 @@ static void SetPartial(TBool aOn, TUint aStart, TUint aEnd, TBool aFullColour)
 	PartialEnd = aEnd;
 	PartialFullColour = aFullColour;
 	TBool rows = (Rotation & 1) == 0;	// panel rows are picture rows unless rotated by 90/270
+	if (Rotation == 2)					// upside-down landscape: panel row r = picture row 239-r
+		{
+		TUint s = aStart;
+		aStart = KPanelRows - 1 - aEnd;
+		aEnd = KPanelRows - 1 - s;
+		}
 	WriteReg(KHwBaseClcd, KFbPartialStart, aStart);
 	WriteReg(KHwBaseClcd, KFbPartialEnd, aEnd);
 	WriteReg(KHwBaseClcd, KFbPartialMode, (aOn ? 1 : 0) | (aFullColour ? 2 : 0) | (rows ? 4 : 0));
@@ -104,6 +125,7 @@ static TInt DisplayReq(DThread*, TInt aReq, const TUint32* aArgs)
 		if (aArgs[0] == 1 || aArgs[0] > 3)
 			return KErrNotSupported;
 		Rotation = aArgs[0];
+		SetFbOrientation();
 		if (PartialActive)		// the panel band stays, its place in the picture moves
 			SetPartial(ETrue, PartialStart, PartialEnd, PartialFullColour);
 		return KErrNone;
@@ -114,10 +136,10 @@ static TInt DisplayReq(DThread*, TInt aReq, const TUint32* aArgs)
 static const SStubCtl KCtl[] =
 	{
 	{ 11, EWriteBlock, 0, KCaps, sizeof(KCaps) },
-	// ctl 31 = scan-line bytes (r_display export 77). The device answers 320 x bytes/pixel; ScDv
-	// derives its stride from it and draws portrait into our 240-pixel-wide frame buffer, so it
-	// must match that: 240 px * 4 bytes (hack H-lcd-stride, docs/hacks.md).
-	{ 31, EWriteInt, 960, 0, 0 },
+	// ctl 31 = scan-line bytes (r_display export 77): 320 x bytes/pixel at every rotation, as on
+	// the device. ScDv draws with this stride: 240 used pixels per line at rotation 3, 320 at 0/2.
+	// lcd_n95 programs the same pitch into the fb and reports it through HAL.
+	{ 31, EWriteInt, 1280, 0, 0 },
 	{ KStubRequest | 0x23, EPendRequest, 0, 0, 0 },
 	};
 
@@ -140,7 +162,7 @@ static const SStubCtl KCtl[] =
 // so EndUpdate-paced loops run at the panel rate. WSERV's own updates (ctl 8/9) are not paced:
 // the frame buffer is always live. Coordinates are portrait (our frame buffer memory layout).
 // ---------------------------------------------------------------------------------------------
-const TInt KFbW = 240, KFbH = 320, KFbPitch = 960, KBpp = 4;
+const TInt KFbW = 240, KFbH = 320, KFbPitch = 1280, KBpp = 4;	// pitch: ctl 31
 enum { KFbBase = 1, KFbIntMask = 6, KFbIntCause = 7, KFbFrameCount = 17, KFbRefreshRate = 18 };
 const TInt KErrDsbBusy = -39;			// value the real driver returns (FUN_8012aa20)
 const TInt KDisplayModeColor16MU = 11;	// TDisplayMode EColor16MU
