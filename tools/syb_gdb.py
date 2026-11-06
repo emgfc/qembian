@@ -20,6 +20,9 @@ Output goes to stdout and build/runs/gdb-<cmd>.log.
 import argparse, json, os, subprocess, sys, tempfile, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, 'tools'))
+import device as devmodel  # tools/device.py: build paths of the device ($SYBORG_DEVICE / devices/default)
+DEVPATHS = devmodel.paths(devmodel.load())
 DRIVES = None
 sys.path.insert(0, os.path.join(ROOT, 'tools'))
 import ksyms
@@ -203,7 +206,7 @@ def start_qemu(wait, secs):
     subprocess.run(['pkill', '-f', 'qemu-system-arm.*-name sybtool'])
     time.sleep(0.5)
     cmd = [os.path.join(ROOT, 'scripts', 'run-modern.sh'), '--timeout', str(int(secs) + 5), '--name', 'sybtool',
-           '--gdb-wait' if wait else '--gdb', '--dtb', os.path.join(ROOT, 'build', 'n95', 'syborg-n95.dtb'),
+           '--gdb-wait' if wait else '--gdb', '--dtb', DEVPATHS['dtb'],
            '--qmp', QMP_SOCK,
            *(['--nvmem', os.path.join(DRIVES, 'nvmemory.img'), '--nvmem2', os.path.join(DRIVES, 'nvmemory2.img')]
              if DRIVES else []),
@@ -255,7 +258,7 @@ def main():
     ap.add_argument('--keep', action='store_true')
     ap.add_argument('--keep-drives', metavar='DIR')
     ap.add_argument('--key', action='append', default=[], help='T:KEYS, QMP key chord at T s (wall clock)')
-    ap.add_argument('--rom', default=os.path.join(ROOT, 'build', 'n95', 'hybrid.img'))
+    ap.add_argument('--rom', default=DEVPATHS['rom'])
     a = ap.parse_args()
     global ROM_PATH, DRIVES
     ROM_PATH = a.rom

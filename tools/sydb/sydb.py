@@ -35,6 +35,9 @@ import argparse, json, os, shutil, socket, subprocess, sys, time, zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
+sys.path.insert(0, os.path.join(ROOT, 'tools'))
+import device as devmodel  # tools/device.py: build paths of the device ($SYBORG_DEVICE / devices/default)
+DEVPATHS = devmodel.paths(devmodel.load())
 sys.path.insert(0, HERE)
 DEFAULT_SESSION = os.path.join(ROOT, 'build', 'sydb')
 AGENT_EXE = os.path.join(ROOT, 'build', 'n95apps', 'devagent.exe')
@@ -164,7 +167,7 @@ def drive_rm(drives, path):
 
 DEVICE = {'nvmemory.img': 'drive-c.img', 'nvmemory2.img': 'drive-e.img', 'rtc-offset': 'rtc-offset'}
 DEVICE_SESSION = os.path.join(ROOT, 'build', 'sydb-device')
-DEVICE_ROM = os.path.join(ROOT, 'build', 'n95', 'hybrid-exp.img')
+DEVICE_ROM = os.path.join(DEVPATHS['dir'], 'hybrid-exp.img')   # the owner's run-gui ROM (sound on)
 
 
 def use_device(drives):
@@ -172,7 +175,7 @@ def use_device(drives):
     # drive-e.img, rtc-offset), as links in <session>/drives
     os.makedirs(drives, exist_ok=True)
     for link, f in DEVICE.items():
-        src = os.path.join(ROOT, 'build', 'n95', f)
+        src = os.path.join(DEVPATHS['dir'], f)
         if f.endswith('.img'):
             if not os.path.exists(src):
                 die('%s missing: boot once with scripts/run-gui.sh' % src)
@@ -384,7 +387,7 @@ def main():
                         '$AUDIO or pipewire, like run-gui) or any QEMU audiodev driver (pa, alsa, sdl, none)')
         ap.add_argument('--rom')
         a = ap.parse_args(rest)
-        a.rom = a.rom or (DEVICE_ROM if a.device else os.path.join(ROOT, 'build', 'n95', 'hybrid.img'))
+        a.rom = a.rom or (DEVICE_ROM if a.device else DEVPATHS['rom'])
         (cmd_start if cmd == 'start' else cmd_install)(sdir, a)
         return
 

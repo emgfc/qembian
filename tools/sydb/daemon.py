@@ -12,7 +12,10 @@ import shutil, base64, hashlib, io, json, os, re, signal, socket, socketserver, 
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CHUNK = 2048                                           # = KAckChunk in devagent.cpp
-IDLE_RE = re.compile(r'sets 101f8766/41 = 203')        # SysAp "self-test OK" = idle screen up
+sys.path.insert(0, os.path.join(ROOT, 'tools'))
+import device as devmodel                               # tools/device.py: the device profile (docs/devices.md)
+DEVICE = devmodel.load(os.environ.get('SYBORG_DEVICE'))  # $SYBORG_DEVICE or devices/default
+IDLE_RE = re.compile(re.escape(devmodel.get(DEVICE, 'milestones.idle', 'sets 101f8766/41 = 203')))   # SysAp self-test OK = idle
 MSGAC_RE = re.compile(r'^MsgAc: M:(-?\d+) (\S+)->(\S+)')
 MSGCO_RE = re.compile(r'^MsgCo: M:(-?\d+) r:(-?\d+) (\S+)->(\S+)')
 KIPC = 1 << 11
@@ -274,7 +277,7 @@ class Session:
         cmd = [os.path.join(ROOT, 'scripts', 'run-modern.sh'), '--qmp', os.path.join(sd, 'qmp.sock'),
                '--name', 'sydb', '--nvmem', os.path.join(dd, 'nvmemory.img'),
                '--nvmem2', os.path.join(dd, 'nvmemory2.img'),
-               '--dtb', os.path.join(ROOT, 'build', 'n95', 'syborg-n95.dtb')]
+               '--device', DEVICE['_id'], '--dtb', devmodel.paths(DEVICE)['dtb']]
         if self.gui:
             cmd.append('--gui')
         cmd.append(os.path.abspath(self.rom))
@@ -282,7 +285,8 @@ class Session:
                 '-gdb', 'tcp:127.0.0.1:%d' % self.gdb_port,
                 '-vnc', 'unix:' + os.path.join(sd, 'vnc.sock'),     # the screen for sydb phone
                 '-audiodev', self.audiodev(), '-machine', 'audiodev=snd0',
-                '-object', 'memory-backend-file,id=ram0,size=168M,share=on,mem-path=' + self.ram_path(),
+                '-object', 'memory-backend-file,id=ram0,size=%dM,share=on,mem-path=%s'
+                % (devmodel.get(DEVICE, 'board.ram_mb', 168), self.ram_path()),
                 '-machine', 'memory-backend=ram0',
                 # GLES: host GPU (syborg-gl, default) or the guest's software rasteriser
                 '-global', 'syborg-gl.backend=' + ('off' if self.gl == 'soft' else 'host'),
@@ -528,14 +532,8 @@ def screenshot(sess, path=None, scale=1.0, crop=None, only_if_changed=False):
     return {'changed': changed, 'hash': h, 'path': os.path.abspath(out)}
 
 
-KEYMAP = {'lsk': 'f5', 'rsk': 'f7', 'ok': 'f6', 'select': 'f6', 'menu': 'f8', 'star': 'kp_multiply',
-          'call': 'f2', 'end': 'f3', 'power': 'f4', 'volup': 'f11', 'voldown': 'f12',
-          'hash': 'f10', 'clear': 'backspace', 'back': 'f7',
-          # EKeyDeviceA/B: akncapserver switches the UI layout (the N95's media slide): landscape/portrait
-          'landscape': 'f13', 'portrait': 'f14',
-          # N95 keypad.dll codes (patch 0016): Multimedia = App6, Gallery = App1D, media keys App2-5
-          'multimedia': 'f20', 'gallery': 'f21', 'play': 'audioplay', 'stop': 'audiostop',
-          'prev': 'audioprev', 'next': 'audionext'}
+# key names -> QEMU qcodes: the device keymap (devices/<id>/keymap.toml via tools/device.py)
+KEYMAP = devmodel.key_aliases(DEVICE)
 
 
 def press(sess, keys, delay=0.3):

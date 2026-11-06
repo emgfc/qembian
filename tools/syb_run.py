@@ -21,13 +21,16 @@ DIR/report.txt (tools/syb_report.py) and prints the report.
 import argparse, os, shutil, signal, subprocess, sys, threading, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, 'tools'))
+import device as devmodel  # tools/device.py: build paths of the device ($SYBORG_DEVICE / devices/default)
+DEVPATHS = devmodel.paths(devmodel.load())
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--secs', type=float, default=30)
     ap.add_argument('--trace', default='0x80000C40')
-    ap.add_argument('--rom', default=os.path.join(ROOT, 'build', 'n95', 'hybrid.img'),
+    ap.add_argument('--rom', default=DEVPATHS['rom'],
                     help='ROM image to compose into and boot (default: the working build/n95/hybrid.img)')
     ap.add_argument('--patches', help='byte-patch file for the compose (default rom/hybrid/code-patches.txt)')
     ap.add_argument('--no-compose', action='store_true')
@@ -61,7 +64,7 @@ def main():
     os.makedirs(ddir, exist_ok=True)
     cmd = [os.path.join(ROOT, 'scripts', 'run-modern.sh'), '--qmp', qmp, '--name', 'sybtool',
            '--nvmem', os.path.join(ddir, 'nvmemory.img'), '--nvmem2', os.path.join(ddir, 'nvmemory2.img'),
-           '--dtb', os.path.join(ROOT, 'build', 'n95', 'syborg-n95.dtb')]
+           '--dtb', DEVPATHS['dtb']]
     if a.gui:
         cmd.append('--gui')
     cmd.append(os.path.abspath(ROM_PATH))

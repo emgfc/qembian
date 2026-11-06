@@ -166,6 +166,24 @@ def keymap_header(prof):
     return lines
 
 
+def key_aliases(prof):
+    """sydb key name -> QEMU qcode: the keymap's keys, its [aliases], and slide switch layouts
+    (landscape/portrait = the switch position that sets that layout)"""
+    km = keymap(prof)
+    out = {k['key']: k['host'][0] for k in km.get('keys', []) if k.get('host')}
+    for name, target in km.get('aliases', {}).items():
+        if target in out:
+            out[name] = out[target]
+    for sw in km.get('switches', []):
+        for pos in ('open', 'close'):
+            e = sw.get(pos)
+            if isinstance(e, dict) and e.get('host'):
+                out['%s-%s' % (sw['name'], pos)] = e['host'][0]
+                if e.get('layout'):
+                    out[e['layout']] = e['host'][0]
+    return out
+
+
 # ---------------------------------------------------------------- QEMU
 
 def qemu_args(prof, rom=None):
@@ -297,7 +315,7 @@ def main(argv=None):
             print('\n'.join(keymap_header(prof)))
             return 0
         if a.cmd == 'gen' and a.what == 'key-aliases':
-            print(json.dumps({k['key']: k['host'][0] for k in keymap(prof).get('keys', []) if k.get('host')}, indent=1))
+            print(json.dumps(key_aliases(prof), indent=1))
             return 0
     except DeviceError as e:
         print('device.py: %s' % e, file=sys.stderr)

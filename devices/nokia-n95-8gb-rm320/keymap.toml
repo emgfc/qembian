@@ -10,6 +10,10 @@
 schema = 1
 device = "nokia-n95-8gb-rm320"
 
+[aliases]          # extra names for keys (sydb key select = ok)
+select = "ok"
+back = "rsk"
+
 [[keys]]
 key = "lsk"
 label = "Left softkey"

@@ -14,13 +14,16 @@
 # Controls: docs/n95-controls.md (F5 left softkey / OK, F6 centre, F7 right softkey, arrows).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# the device: $SYBORG_DEVICE or devices/default (tools/device.py); its build dir holds ROM, DTB, drives
+DEVDIR="$(python3 -I "$ROOT/tools/device.py" paths dir)"
+DTB="$(python3 -I "$ROOT/tools/device.py" paths dtb)"
 D="$ROOT/build/runs/gui-$(date +%H%M%S)"
 mkdir -p "$D"
 ln -sfn "$D" "$ROOT/build/runs/gui-last"
 echo "serial log: $D/serial.log   qmp: $D/qmp.sock   (also build/runs/gui-last)"
 exec "$ROOT/scripts/run-modern.sh" --gui \
-  --nvmem "${DRIVE_C:-$ROOT/build/n95/drive-c.img}" --nvmem2 "${DRIVE_E:-$ROOT/build/n95/drive-e.img}" --qmp "$D/qmp.sock" --serial-log "$D/serial.log" \
-  --dtb "$ROOT/build/n95/syborg-n95.dtb" "${ROM:-$ROOT/build/n95/hybrid.img}" \
+  --nvmem "${DRIVE_C:-$DEVDIR/drive-c.img}" --nvmem2 "${DRIVE_E:-$DEVDIR/drive-e.img}" --qmp "$D/qmp.sock" --serial-log "$D/serial.log" \
+  --dtb "$DTB" "${ROM:-$DEVDIR/hybrid.img}" \
   -audiodev "${AUDIO:-pipewire},id=snd0" -machine audiodev=snd0 \
   -global "syborg-gl.backend=$([ "${GL:-host}" = soft ] && echo off || echo host)" \
-  -global "syborg-rtc.offset-file=${RTC_OFFSET:-$ROOT/build/n95/rtc-offset}" "$@"
+  -global "syborg-rtc.offset-file=${RTC_OFFSET:-$DEVDIR/rtc-offset}" "$@"

@@ -15,17 +15,20 @@ bytes, recent log) to <session>/catches/, raises a catch.hit event and then, per
   action freeze    stay stopped (inspect with dbg_*; catch_resume or dbg continue goes on)
   snapshot=true    also save a machine snapshot (session.snapshot), e.g. to fork the moment
 """
-import json, os, re, struct, threading, time
+import json, os, re, struct, sys, threading, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
+sys.path.insert(0, os.path.join(ROOT, 'tools'))
+import device as devmodel  # tools/device.py: build paths of the device ($SYBORG_DEVICE / devices/default)
+DEVPATHS = devmodel.paths(devmodel.load())
 USER_PANIC = 0x803a9f8a          # EUser.dll _ZN4User5PanicERK7TDesC16i (Thumb 0x803a9f8b), N95 ROM
 DIE = 'DThread::Die'
 EXIT_TYPES = {0: 'kill', 1: 'terminate', 2: 'panic', 3: 'pending'}
 CONTEXT_TABLES = 'ThreadUserContextTables'
 REGNAMES = ['r0', 'r1', 'r2', 'r3', 'r4', 'r5', 'r6', 'r7', 'r8', 'r9', 'r10', 'r11', 'r12', 'sp', 'lr', 'pc', 'cpsr']
 N95_USER_START, ROM_END = 0x8038f9a0, 0x84000000
-CORE_FLAT = os.path.join(ROOT, 'build', 'n95', 'core-flat.img')
+CORE_FLAT = DEVPATHS['core_flat']
 
 
 class Catcher:
