@@ -25,6 +25,8 @@
 //                                 as on the device); the display controller (the Syborg fb,
 //                                 ORIENTATION register) rotates it onto the portrait screen
 //   req 0x23                      display event notification: stays pending (as on the device)
+//   req 0x7f01                    ours (not on the device): complete at the next vsync. Used by the
+//                                 sygl blob's eglSwapBuffers (src/n95gl, hack H-vsync-wait)
 #include "nokiastub.h"
 #include "syborg.h"
 
@@ -192,6 +194,13 @@ static TUint8* FbKern;
 static void VsyncDfcFn(TAny*);
 static TDfc VsyncDfc(VsyncDfcFn, NULL, 1);
 
+// threads waiting for the next vsync (req 0x7f01), protected by DsbLock
+const TInt KReqVsyncWait = 0x7f01;
+const TInt KMaxVsyncWaiters = 16;
+struct SVsyncWaiter { DThread* iThread; TRequestStatus* iStatus; TAny* iChannel; };
+static SVsyncWaiter VsyncWaiters[KMaxVsyncWaiters];
+static TInt VsyncWaiterCount;
+
 static void SetVsyncIrq(TBool aOn)
 	{
 	TInt irq = NKern::DisableAllInterrupts();
@@ -215,13 +224,52 @@ static void CompleteAndRelease(DThread* aThread, TRequestStatus* aStatus, TInt a
 	NKern::ThreadLeaveCS();
 	}
 
+// complete the vsync waiters (all, or those of aChannel) with aReason
+static void VsyncWaitersComplete(TAny* aChannel, TInt aReason)
+	{
+	SVsyncWaiter done[KMaxVsyncWaiters];
+	TInt n = 0;
+	NKern::FMWait(&DsbLock);
+	for (TInt i = 0; i < VsyncWaiterCount; )
+		if (!aChannel || VsyncWaiters[i].iChannel == aChannel)
+			{
+			done[n++] = VsyncWaiters[i];
+			VsyncWaiters[i] = VsyncWaiters[--VsyncWaiterCount];
+			}
+		else
+			++i;
+	NKern::FMSignal(&DsbLock);
+	for (TInt i = 0; i < n; ++i)
+		CompleteAndRelease(done[i].iThread, done[i].iStatus, aReason);
+	}
+
+static void VsyncWait(DThread* aClient, TAny* aChannel, TRequestStatus* aStatus)
+	{
+	NKern::FMWait(&DsbLock);
+	TBool ok = VsyncWaiterCount < KMaxVsyncWaiters;
+	if (ok)
+		{
+		SVsyncWaiter& w = VsyncWaiters[VsyncWaiterCount++];
+		w.iThread = aClient; w.iStatus = aStatus; w.iChannel = aChannel;
+		aClient->Open();
+		}
+	NKern::FMSignal(&DsbLock);
+	if (ok)
+		SetVsyncIrq(ETrue);
+	else
+		Kern::RequestComplete(aStatus, KErrOverflow);
+	}
+
 static void VsyncDfcFn(TAny*)
 	{
+	VsyncWaitersComplete(NULL, KErrNone);
 	NKern::FMWait(&DsbLock);
 	if (!Dsb.iPending)
 		{
+		TBool waiters = VsyncWaiterCount > 0;		// queued after the completion above
 		NKern::FMSignal(&DsbLock);
-		SetVsyncIrq(EFalse);
+		if (!waiters)
+			SetVsyncIrq(EFalse);
 		return;
 		}
 	const TUint8* src = (const TUint8*)Dsb.iKern + Dsb.iReqBuf * Dsb.iBufBytes
@@ -407,6 +455,7 @@ public:
 	DDisplayChannel(DNokiaStubFactory* aF) : DNokiaStubChannel(aF) {}
 	virtual ~DDisplayChannel()
 		{
+		VsyncWaitersComplete(this, KErrCancel);
 		DsbCancelPending(this, KErrCancel);
 		if (Dsb.iChunk && Dsb.iOwner == this)
 			DsbRelease(this);
@@ -428,7 +477,13 @@ public:
 			DsbEnd(client, this, (TRequestStatus*)a1, ~aFn, args[0]);
 			return KErrNone;
 			}
+		case 26:							// rotation index: sygl asks every frame, not logged
+			return Kern::ThreadRawWrite(client, a1, &Rotation, sizeof(TInt));
+		case ~KReqVsyncWait:				// every frame: not logged
+			VsyncWait(client, this, (TRequestStatus*)a1);
+			return KErrNone;
 		case KMaxTInt:
+			VsyncWaitersComplete(this, KErrCancel);
 			DsbCancelPending(this, KErrCancel);
 			break;
 			}

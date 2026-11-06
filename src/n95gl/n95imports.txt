@@ -1,5 +1,35 @@
-# N95 exports our blob calls: <macro> <module> <mangled name>. Addresses come from
-# build/n95/symindex.json at build time (tools/gen-gles-glue.py --imports).
+# N95 exports the sygl blob calls: <macro> <module> <mangled name>. Addresses come from
+# build/n95/symindex.json at build time (tools/gen-gles-glue.py): N95_<macro> in n95imports.h,
+# and a veneer named by the mangled symbol (gen/imports.S) for C++ code built against the SDK headers.
 RDebug_Printf     EUser.dll  _ZN6RDebug6PrintfEPKcz
 UserSvr_DllTls    EUser.dll  _ZN7UserSvr6DllTlsEi
 UserSvr_DllSetTls EUser.dll  _ZN7UserSvr9DllSetTlsEiPv
+User_Alloc        EUser.dll  _ZN4User5AllocEi
+User_AllocZ       EUser.dll  _ZN4User6AllocZEi
+User_Free         EUser.dll  _ZN4User4FreeEPv
+User_NTickCount   EUser.dll  _ZN4User10NTickCountEv
+User_WaitForReq   EUser.dll  _ZN4User14WaitForRequestER14TRequestStatus
+TVersion_ctor     EUser.dll  _ZN8TVersionC1Eiii
+RHandle_Close     EUser.dll  _ZN11RHandleBase5CloseEv
+Chan_DoCreate     EUser.dll  _ZN18RBusLogicalChannel8DoCreateERK7TDesC16RK8TVersioniPS1_PK6TDesC8i
+Chan_DoControl    EUser.dll  _ZN18RBusLogicalChannel9DoControlEiPv
+Chan_DoRequest    EUser.dll  _ZN18RBusLogicalChannel9DoRequestEiR14TRequestStatus
+Chan_DoCancel     EUser.dll  _ZN18RBusLogicalChannel8DoCancelEj
+HAL_Get           Hal.dll    _ZN3HAL3GetEN7HALData10TAttributeERi
+Win_Size          Ws32.dll   _ZNK11RWindowBase4SizeEv
+Win_AbsPosition   Ws32.dll   _ZNK11RWindowBase11AbsPositionEv
+# EABI soft-float helpers: GCC's libgcc for symbianelf has none (Symbian code links DFPAEABI.dll)
+F_add    DFPAEABI.dll  __aeabi_fadd
+F_sub    DFPAEABI.dll  __aeabi_fsub
+F_mul    DFPAEABI.dll  __aeabi_fmul
+F_div    DFPAEABI.dll  __aeabi_fdiv
+F_i2f    DFPAEABI.dll  __aeabi_i2f
+F_ui2f   DFPAEABI.dll  __aeabi_ui2f
+F_f2iz   DFPAEABI.dll  __aeabi_f2iz
+F_f2uiz  DFPAEABI.dll  __aeabi_f2uiz
+F_cmpeq  DFPAEABI.dll  __aeabi_fcmpeq
+F_cmplt  DFPAEABI.dll  __aeabi_fcmplt
+F_cmple  DFPAEABI.dll  __aeabi_fcmple
+F_cmpgt  DFPAEABI.dll  __aeabi_fcmpgt
+F_cmpge  DFPAEABI.dll  __aeabi_fcmpge
+F_cmpun  DFPAEABI.dll  __aeabi_fcmpun

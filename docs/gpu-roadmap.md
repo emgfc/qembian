@@ -2,7 +2,10 @@
 
 **Status 2026-11-06: phase 0 done** (src/n95gl: blob at 0x80320000, 175 entry patches; ZigGLTri
 logs `eglInitialize err=12289` = our EGL_NOT_INITIALIZED, Carousel now shows "Feature not supported"
-instead of "Memory full"). Next: phase 1 (ZigGLTri triangle).
+instead of "Memory full"). **Phase 1 milestone 1 reached 2026-11-06:** ZigGLTri's Gouraud triangle spins
+at ~29 fps (app-paced to 30) through our EGL/GL/rasterizer (src/n95gl: egl.c, gl.c, raster.c,
+plat.cpp; 30 KB), vsync via d_display req 0x7f01. Presentation is still a direct frame-buffer copy
+(H-gles-fbdirect); DSA next.
 
 Static analysis, 2026-11-06. **[V]** = seen in code/binary/listing, **[I]** = inferred.
 Owner's constraints (2026-11-06): no host GPU / host-GL forwarding for now; start with a software
