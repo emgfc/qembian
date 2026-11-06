@@ -27,6 +27,16 @@ optional = true
 [hardware]
 wlan = false
 
+[firmware.identity]                          # fill from the RM-321 firmware (tools/device.py identify DIR)
+sw = { version = "", date = "", type_code = "RM-321" }
+langsw = {}
+drivers = []
+no_drivers = ["wlanldd.ldd", "wlanpdd.pdd"]  # the China variant has no WLAN
+[firmware.identity.sha256]
+"core-flat.img" = ""
+"rofs1.img" = ""
+"rofs2.img" = ""
+
 # The ROM differs, so every address-bearing input is per variant: byte patches, GL entry patches
 # and the blob gap must be regenerated from this ROM (tools/device.py gen --device nokia-n95-8gb-rm321).
 [rom]

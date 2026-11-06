@@ -12,7 +12,9 @@ inheritance) and answers the tools that need device facts, so no script carries 
   tools/device.py gen key-aliases [ID]         sydb key name -> QEMU qcode, as JSON
   tools/device.py gen standins-bldinf [ID]     bld.inf of the device's kernel-side stand-ins (src/standins)
   tools/device.py gen standins-oby [ID]        "kind name ext" per stand-in, in ROM order
-  tools/device.py build [ID] [--variant V] [--kernel] [--no-standins] [--out IMG]
+  tools/device.py identify [DIR|ID]            which profile an extracted firmware (core-flat.img, rofs*.img)
+                                               is: sw.txt/langsw.txt, image hashes, hardware drivers
+  tools/device.py build [ID] [--variant V] [--kernel] [--no-standins] [--out IMG] [--force]
                                                compose the device ROM (replaces hybrid-boot.sh
                                                --compose-only / compose-exp.sh)
 
@@ -220,6 +222,86 @@ def standins_oby(prof):
     return out
 
 
+# ---------------------------------------------------------------- firmware identity
+
+def _sha256(path):
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, 'rb') as f:
+        for b in iter(lambda: f.read(1 << 20), b''):
+            h.update(b)
+    return h.hexdigest()
+
+
+def _version_file(text):
+    """Nokia version files (sw.txt, langsw.txt): UTF-16 'V 35.0.001\\n11-11-09\\nRM-320\\nN95(c)NMP'"""
+    text = text.lstrip('\ufeff').replace('\\n', '\n').replace('\r', '')
+    f = [x.strip() for x in text.split('\n')]
+    return {'version': f[0] if f else '', 'date': f[1] if len(f) > 1 else '',
+            'type_code': f[2] if len(f) > 2 else '', 'product': f[3] if len(f) > 3 else ''}
+
+
+def firmware_facts(bdir):
+    """what an extracted firmware says about itself (build/devices/<id>/ or any dir with the same files)"""
+    sys.path.insert(0, os.path.join(ROOT, 'tools'))
+    import rofs as rofsmod
+    facts = {'images': {}, 'sw': None, 'langsw': None, 'drivers': []}
+    for name in ('core-flat.img', 'rofs1.img', 'rofs2.img'):
+        p = os.path.join(bdir, name)
+        if os.path.exists(p):
+            facts['images'][name] = _sha256(p)
+            if name.startswith('rofs'):
+                d = open(p, 'rb').read()
+                base, entries = rofsmod.files(d)
+                for off, n, path in entries:
+                    off -= base			# offsets are in the composite ROFS space
+                    if off < 0 or off + n > len(d):
+                        continue			# a file of an earlier ROFS (rofs2 lists rofs1's sw.txt)
+                    if path.lower() in ('resource/versions/sw.txt', 'resource/versions/langsw.txt'):
+                        key = 'sw' if path.lower().endswith('/sw.txt') else 'langsw'
+                        facts[key] = _version_file(d[off:off + n].decode('utf-16-le', 'replace'))
+    cj = os.path.join(bdir, 'core.json')
+    if os.path.exists(cj):
+        facts['drivers'] = sorted(f['path'].split('/')[-1].lower() for f in json.load(open(cj))['files']
+                                  if f['path'].lower().endswith(('.ldd', '.pdd')))
+    return facts
+
+
+def identity_problems(prof, facts):
+    """differences between the profile's [firmware.identity] and what the firmware says"""
+    idn = get(prof, 'firmware.identity', {})
+    out = []
+    for k in ('sw', 'langsw'):
+        want = idn.get(k, {})
+        have = facts.get(k) or {}
+        for f, v in want.items():
+            if v and have.get(f) != v:			# "" = not known yet
+                out.append('%s.txt %s: profile %r, firmware %r' % (k, f, v, have.get(f)))
+    for name, h in idn.get('sha256', {}).items():
+        got = facts['images'].get(name)
+        if h and got != h:
+            out.append('%s: sha256 %s, profile %s' % (name, (got or 'missing')[:16], h[:16]))
+    for drv in idn.get('drivers', []):
+        if drv.lower() not in facts['drivers']:
+            out.append('kernel driver %s not in the firmware (hardware the profile declares)' % drv)
+    for drv in idn.get('no_drivers', []):
+        if drv.lower() in facts['drivers']:
+            out.append('kernel driver %s is in the firmware (the profile says absent)' % drv)
+    return out
+
+
+def identify(bdir):
+    facts = firmware_facts(bdir)
+    matches = []
+    for d in device_ids():
+        prof = load(d)
+        if not get(prof, 'firmware.identity'):
+            continue
+        probs = identity_problems(prof, facts)
+        matches.append((len(probs), d, probs))
+    return facts, sorted(matches)
+
+
 # ---------------------------------------------------------------- ROM composition
 
 def _run(cmd, log=None):
@@ -233,9 +315,15 @@ def _run(cmd, log=None):
         raise DeviceError('%s failed (%d)%s' % (' '.join(cmd[:2]), r.returncode, ', see ' + log if log else ''))
 
 
-def build(prof, variant=None, kernel=False, standins=True, out=None, trace=None):
+def build(prof, variant=None, kernel=False, standins=True, out=None, trace=None, force=False):
     """the ROM pipeline of scripts/hybrid-boot.sh, every argument from the profile"""
     ps = paths(prof)
+    # the firmware must be the one the profile (its code patches, its addresses) was made for;
+    # romcompose additionally checks every patch's original bytes
+    probs = identity_problems(prof, firmware_facts(ps['dir']))
+    if probs and not force:
+        raise DeviceError('the firmware in %s is not the one %s describes:\n  %s\n(--force to compose anyway)'
+                          % (ps['dir'], prof['_id'], '\n  '.join(probs)))
     logs = os.path.join(ROOT, 'build', 'logs')
     os.makedirs(logs, exist_ok=True)
     env_dev = {'SYBORG_DEVICE': prof['_id']}
@@ -379,6 +467,8 @@ def main(argv=None):
     p = sub.add_parser('build'); p.add_argument('dev', nargs='?'); p.add_argument('--variant')
     p.add_argument('--kernel', action='store_true', help='also rebuild the Syborg baseport/kernel side')
     p.add_argument('--no-standins', action='store_true'); p.add_argument('--out'); p.add_argument('--trace')
+    p.add_argument('--force', action='store_true', help='compose even if the firmware identity does not match')
+    p = sub.add_parser('identify'); p.add_argument('where', nargs='?', help='firmware dir (default: the device build dir)')
     p = sub.add_parser('gen'); p.add_argument('what', choices=['keymap-header', 'key-aliases', 'standins-bldinf', 'standins-oby'])
     p.add_argument('dev', nargs='?')
     a = ap.parse_args(argv)
@@ -389,6 +479,20 @@ def main(argv=None):
                 print('%-28s %-24s %s' % (d, '%s %s' % (get(pr, 'device.vendor', ''), get(pr, 'device.model', '')),
                                          get(pr, 'status.level', '')))
             return 0
+        if a.cmd == 'identify':
+            where = a.where
+            if not where or not os.path.isdir(where):
+                where = paths(load(where))['dir']
+            facts, matches = identify(where)
+            sw, lsw = facts.get('sw') or {}, facts.get('langsw') or {}
+            print('firmware in %s' % where)
+            print('  sw.txt     %s %s %s %s' % (sw.get('version'), sw.get('date'), sw.get('type_code'), sw.get('product')))
+            print('  langsw.txt %s %s %s' % (lsw.get('version'), lsw.get('date'), lsw.get('type_code')))
+            wl = [x for x in facts['drivers'] if x.startswith('wlan')]
+            print('  WLAN drivers: %s' % (', '.join(wl) or 'none'))
+            for n, d, probs in matches:
+                print('%s %s%s' % ('MATCH' if n == 0 else '  -  ', d, '' if n == 0 else ': ' + '; '.join(probs[:3])))
+            return 0 if matches and matches[0][0] == 0 else 1
         if a.cmd == 'get':
             dev, key = (a.args[0], a.args[1]) if len(a.args) > 1 else (None, a.args[0])
             v = get(load(dev), key)
@@ -437,7 +541,7 @@ def main(argv=None):
             print('\n'.join(keymap_header(prof)))
             return 0
         if a.cmd == 'build':
-            img = build(prof, a.variant, a.kernel, not a.no_standins, a.out, a.trace)
+            img = build(prof, a.variant, a.kernel, not a.no_standins, a.out, a.trace, a.force)
             print(open(os.path.join(ROOT, 'build', 'logs', 'device-compose.txt')).read().strip().splitlines()[-1])
             print('ROM: %s' % img)
             return 0

@@ -5,7 +5,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, 'tools'))
 import device as D
 
-HEADER = os.path.join(ROOT, 'build', 'epocroot', 'sf', 'adapt', 'qemu', 'baseport', 'syborg', 'keyboard', 'syborg_keyboard.h')
+MAP = os.path.join(ROOT, 'build', 'epocroot', 'sf', 'adapt', 'qemu', 'baseport', 'syborg', 'keyboard', 'syborg_keyboard_map.h')
 
 
 class DeviceTest(unittest.TestCase):
@@ -36,13 +36,18 @@ class DeviceTest(unittest.TestCase):
         for want in ('syborg-fb.width=240', 'syborg-fb.height=320', '168M', 'arm1136-r2'):
             self.assertIn(want, a)
 
-    @unittest.skipUnless(os.path.exists(HEADER), 'no patched baseport tree (scripts/setup-epocroot.sh)')
-    def test_keymap_header_matches_patched_baseport(self):
+    @unittest.skipUnless(os.path.exists(MAP), 'no generated key map yet (scripts/build-syborg.sh)')
+    def test_built_keymap_is_current(self):
+        """the EKEYB table in the build tree (patch qemu-baseport 0005 includes it) = the profile's"""
         gen = '\n'.join(D.keymap_header(D.load('nokia-n95-8gb-rm320')))
-        g = {int(a, 16): b for a, b in re.findall(r"/\*([0-9a-f]{2})\*/ ([^\n]+),", gen)}
-        t = open(HEADER, newline='').read()
-        p = {int(a, 16): b.strip() for a, b in re.findall(r"/\*([0-9a-f]{2})\*/\s*([^,\r\n]+),", t)}
-        self.assertEqual({k: v for k, v in g.items() if p.get(k) != v}, {})
+        self.assertEqual(open(MAP).read().strip(), gen.strip())
+
+    @unittest.skipUnless(os.path.exists(os.path.join(ROOT, 'build', 'n95', 'rofs1.img')), 'no extracted firmware')
+    def test_identify(self):
+        facts, matches = D.identify(D.paths(D.load('nokia-n95-8gb-rm320'))['dir'])
+        self.assertEqual(facts['sw']['type_code'], 'RM-320')
+        self.assertEqual((matches[0][0], matches[0][1]), (0, 'nokia-n95-8gb-rm320'))
+        self.assertTrue(all(n for n, d, _ in matches[1:]))        # the RM-321 profile does not match
 
 
 if __name__ == '__main__':
