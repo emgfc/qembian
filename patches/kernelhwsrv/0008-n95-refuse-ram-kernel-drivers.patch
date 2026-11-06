@@ -1,0 +1,22 @@
+--- a/kernel/eka/kernel/device.cpp
++++ b/kernel/eka/kernel/device.cpp
+@@ -214,6 +214,19 @@
+ 	TUint32 uid2=aDeviceType ? KPhysicalDeviceDriverUidValue : KLogicalDeviceDriverUidValue;
+ 	if (TUint32(pS->iUids.iUid[1].iUid)!=uid2)
+ 		return KErrNotSupported;
++	// N95 hybrid (docs/hacks.md H-no-ram-kernel-drivers): a driver loaded from C:/E: was built
++	// against the N95's 9.2 kernel, whose DObject is 12 bytes smaller and has two virtuals fewer;
++	// run on this kernel its vtable slots and fields are off (RomPatcher+'s patcherShadow.ldd
++	// faulted the kernel in DLogicalDevice::Install). Refuse it instead of crashing the phone.
++	{
++	const TRomHeader& rh = Epoc::RomHeader();
++	if (pS->iRunAddress < rh.iRomBase || pS->iRunAddress >= rh.iRomBase + rh.iRomSize)
++		{
++		Kern::Printf("N95COMPAT: %S not loaded: RAM-loaded kernel drivers use the 9.2 kernel ABI (KErrNotSupported)",
++					 pS->iFileName);
++		return KErrNotSupported;
++		}
++	}
+ 
+ 	NKern::ThreadEnterCS();
+ 	TInt r;

@@ -140,3 +140,16 @@ App19/1A (camera) not verified. The
 "sideways Carousel" was the landscape layout left on by an F13 test; Carousel itself uses no fixed
 orientation. Also open: Carousel's boot instance still dies with USER-EXEC 3 on some boots
 (the race at its ConstructL); `sydb fg` on its window group then shows only the backdrop.
+
+**RomPatcher+ (2026-11-06, owner's device):** it hung the phone because its `patcherShadow.ldd` (built for
+the 9.2 kernel) crashed our kernel (H-no-ram-kernel-drivers); now refused, the app says
+`Patcher*.LDD Not Found!`. Its drivers only use `Epoc::AllocShadowPage` / `CopyToShadowMemory` /
+`FreeShadowPage` / `Epoc::RomHeader` / `Kern::SuperPage`. Options: (1) a 9.2 kernel-ABI personality
+for RAM-loaded drivers (loader marks the code segment; imports of DObject/DLogicalDevice/
+DLogicalChannelBase constructors, destructors, SetName, Close... go to 9.2-layout shims; the kernel
+talks to the driver's device/channel through proxy objects that call the 9.2 vtable slots); a
+contained but real job. (2) Apply the patches RomPatcher+ would apply at ROM composition
+(tools/romcompose.py `--patches`), which needs no driver at all. Also seen in the log: many recovered
+kernel faults in `__magic_address_readdesheader1` from `SessionSendSync` (clients passing small
+integers as descriptor pointers, e.g. TmScanServer, Anykey): worth checking against exec92's IPC
+argument-flag translation.
