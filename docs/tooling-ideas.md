@@ -29,6 +29,13 @@ a rough cost.
   (0 → [10], 18 → sb+2) looked like raw offsets.* Cost: small (table of the ISIMSG accessor
   switch statements + a disassembly walk in `tools/isi.py`).
 
+- **UI state probe**: one command that reports the foreground window group/app, whether the
+  keyguard/screensaver/autolock is active (Avkon/SysAp P&S keys) and the last screen-update time
+  (DisplayDriver ctl 9), so "screen frozen" vs "still locked" is decided from data, not from
+  screenshots taken during a slow redraw. *2026-11-06: the keyguard investigation took 7 boots
+  of key/screenshot guessing; the answer came from the code and the absence of ctl 9 lines.*
+  Cost: small (extend `N95PROP:` to the Avkon/SysAp categories + a `syb_report` section).
+
 ## Done
 - `tools/syb_gdb.py` fixes (2026-11-05): stack reads clipped at the end of the supervisor stack (they
   failed silently, so `--stack` and kernel-symbol probes looked broken; the kernel .sym mapping was
