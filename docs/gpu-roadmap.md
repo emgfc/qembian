@@ -10,6 +10,14 @@ fixed-function lighting; tex.c: texture objects, all ES 1.1 formats; raster.c: p
 texturing every 16 px, 5 env modes, alpha test, blend, scissor; surfaces/textures in a per-thread
 32 MB chunk heap like Nokia's PVRHeap, since apps often have a 1 MB heap). Carousel now gets past
 eglInitialize and stops at eglCreatePbufferSurface ("Feature not supported"): milestone 3.
+**Milestone 3 in progress (2026-11-06):** pbuffer and pixmap surfaces (CFbsBitmap 565/444/888/
+8888/gray, written back at the EGL sync points), eglCopyBuffers, eglBindTexImage, glReadPixels,
+glCopyTex(Sub)Image2D, glPolygonOffset, GL limits answered without a context, EGL_NO_DISPLAY
+accepted as our display, GL error log and a per-thread EGL call trace (`SYGL: trace`). Carousel
+renders its Music page (washed out: white on white). Open: a timing-dependent USER-EXEC 3 in
+Hitchcock (integer divide by zero: its renderer releases the display ~3 s after start and
+rebuilds on the window; a texture upload in that gap gets max texture size 0). See
+tooling-ideas.md "Freeze and snapshot on panic".
 
 Static analysis, 2026-11-06. **[V]** = seen in code/binary/listing, **[I]** = inferred.
 Owner's constraints (2026-11-06): no host GPU / host-GL forwarding for now; start with a software

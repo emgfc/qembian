@@ -57,3 +57,11 @@ Dsa_Close         Ws32.dll     _ZN19RDirectScreenAccess5CloseEv
 Sched_RunIfReady  EUser.dll    _ZN16CActiveScheduler10RunIfReadyERii
 User_WaitAny      EUser.dll    _ZN4User17WaitForAnyRequestEv
 ChunkHeap         EUser.dll    _ZN8UserHeap9ChunkHeapEPK7TDesC16iiiii
+# pixmap surfaces / eglCopyBuffers (CFbsBitmap pixels)
+Bmp_Lock          FbsCli.dll   _ZNK10CFbsBitmap8LockHeapEi
+Bmp_Unlock        FbsCli.dll   _ZNK10CFbsBitmap10UnlockHeapEi
+Bmp_Data          FbsCli.dll   _ZNK10CFbsBitmap11DataAddressEv
+Bmp_Mode          FbsCli.dll   _ZNK10CFbsBitmap11DisplayModeEv
+Bmp_Size          FbsCli.dll   _ZNK10CFbsBitmap12SizeInPixelsEv
+Bmp_Stride        FbsCli.dll   _ZNK10CFbsBitmap10DataStrideEv
+Bmp_Handle        FbsCli.dll   _ZNK10CFbsBitmap6HandleEv

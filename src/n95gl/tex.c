@@ -292,3 +292,70 @@ void sy_glTexEnvxv(GLenum target, GLenum pname, const GLfixed* v)
 		f[0] = (GLfloat)v[0];
 	sy_glTexEnvfv(target, pname, f);
 	}
+
+/* ---------------------------------------------------------------- textures from the colour buffer */
+
+/* copy a rectangle of the surface (GL coordinates: row 0 at the bottom) into t at (dx, dy) */
+static void copy_from_surface(SyTex* t, const SySurface* s, int dx, int dy, int x, int y, int w, int h)
+	{
+	for (int j = 0; j < h; ++j)
+		{
+		int sy = s->h - 1 - (y + j);
+		u32* d = t->data + (dy + j) * t->w + dx;
+		for (int i = 0; i < w; ++i)
+			{
+			int sx = x + i;
+			u32 px = (sx >= 0 && sx < s->w && sy >= 0 && sy < s->h) ? s->color[sy * s->w + sx] : 0;
+			d[i] = px | 0xff000000u;	/* our colour buffers have no alpha: opaque */
+			}
+		}
+	}
+
+static int tex_storage(SyTex* t, int w, int h)
+	{
+	if (t->w == w && t->h == h && t->data)
+		return 1;
+	sy_big_free(t->data);
+	t->data = 0; t->w = 0; t->h = 0;
+	if (w && h)
+		{
+		t->data = (u32*)sy_big_alloc(w * h * 4);
+		if (!t->data) return 0;
+		}
+	t->w = w; t->h = h;
+	return 1;
+	}
+
+void sy_glCopyTexImage2D(GLenum target, GLint level, GLenum internalformat, GLint x, GLint y, GLsizei w, GLsizei h, GLint border)
+	{
+	SyContext* c = sy_cur(); if (!c || !c->draw) return;
+	if (target != GL_TEXTURE_2D) { sy_seterr(c, GL_INVALID_ENUM); return; }
+	if (level < 0 || w < 0 || h < 0 || w > 1024 || h > 1024 || border != 0) { sy_seterr(c, GL_INVALID_VALUE); return; }
+	if (level > 0) return;
+	SyTex* t = c->bound;
+	if (!tex_storage(t, w, h)) { sy_seterr(c, GL_OUT_OF_MEMORY); return; }
+	t->base = internalformat;
+	copy_from_surface(t, c->draw, 0, 0, x, y, w, h);
+	}
+
+void sy_glCopyTexSubImage2D(GLenum target, GLint level, GLint xoff, GLint yoff, GLint x, GLint y, GLsizei w, GLsizei h)
+	{
+	SyContext* c = sy_cur(); if (!c || !c->draw) return;
+	if (target != GL_TEXTURE_2D) { sy_seterr(c, GL_INVALID_ENUM); return; }
+	if (level > 0) return;
+	SyTex* t = c->bound;
+	if (xoff < 0 || yoff < 0 || w < 0 || h < 0 || xoff + w > t->w || yoff + h > t->h) { sy_seterr(c, GL_INVALID_VALUE); return; }
+	copy_from_surface(t, c->draw, xoff, yoff, x, y, w, h);
+	}
+
+/* eglBindTexImage: the pbuffer's colour buffer becomes the bound texture's level 0 */
+int sy_gl_tex_from_surface(struct SyContext* c, SySurface* s, int aHasAlpha)
+	{
+	SyTex* t = c->bound;
+	if (!tex_storage(t, s->w, s->h))
+		return -1;
+	t->base = aHasAlpha ? GL_RGBA : GL_RGB;
+	/* texture row 0 = the surface's bottom row (GL convention) */
+	copy_from_surface(t, s, 0, 0, 0, 0, s->w, s->h);
+	return 0;
+	}

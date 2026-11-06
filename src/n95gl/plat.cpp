@@ -6,6 +6,7 @@
 #include <hal.h>
 #include <w32std.h>
 #include <coemain.h>
+#include <fbs.h>
 #include "sygl_int.h"
 
 static const TInt KSyglTlsKey = 0x5359474c;		// 'SYGL': our TLS slot (any int key works on EKA2)
@@ -169,6 +170,92 @@ int sy_dsa_region(SyThread* aT, SySurface* aS, int* aRects, int aMax)
 		aRects[k * 4 + 2] = r[i].Width(); aRects[k * 4 + 3] = r[i].Height();
 		}
 	return k;
+	}
+
+// CFbsBitmap pixels for pixmap surfaces and eglCopyBuffers. Our colour buffers are 0x00RRGGBB.
+int sy_bitmap_info(void* aBmp, int* aW, int* aH, int* aMode)
+	{
+	CFbsBitmap* b = (CFbsBitmap*)aBmp;
+	if (!b || !b->Handle())
+		return -1;
+	TSize s = b->SizeInPixels();
+	*aW = s.iWidth; *aH = s.iHeight; *aMode = b->DisplayMode();
+	return 0;
+	}
+
+static inline u32 from565(TUint16 v)
+	{
+	u32 r = (v >> 11) & 31, g = (v >> 5) & 63, b = v & 31;
+	return (((r << 3) | (r >> 2)) << 16) | (((g << 2) | (g >> 4)) << 8) | ((b << 3) | (b >> 2));
+	}
+
+// aToBitmap: copy aPix (w x h, top row first) into the bitmap, else read the bitmap into aPix.
+// Copies the overlapping area; returns 0, or -1 for an unsupported display mode.
+int sy_bitmap_copy(void* aBmp, u32* aPix, int aW, int aH, int aToBitmap)
+	{
+	CFbsBitmap* b = (CFbsBitmap*)aBmp;
+	int bw, bh, mode;
+	if (sy_bitmap_info(aBmp, &bw, &bh, &mode))
+		return -1;
+	int w = aW < bw ? aW : bw, h = aH < bh ? aH : bh;
+	b->LockHeap(ETrue);
+	TUint8* base = (TUint8*)b->DataAddress();
+	TInt stride = b->DataStride();
+	int r = 0;
+	for (int y = 0; y < h && base; ++y)
+		{
+		TUint8* row = base + y * stride;
+		u32* p = aPix + y * aW;
+		switch (mode)
+			{
+		case EColor64K:
+			for (int x = 0; x < w; ++x)
+				{
+				TUint16* q = (TUint16*)row + x;
+				if (aToBitmap) { u32 c = p[x]; *q = (TUint16)(((c >> 8) & 0xf800) | ((c >> 5) & 0x07e0) | ((c >> 3) & 0x1f)); }
+				else p[x] = from565(*q);
+				}
+			break;
+		case EColor4K:
+			for (int x = 0; x < w; ++x)
+				{
+				TUint16* q = (TUint16*)row + x;
+				if (aToBitmap) { u32 c = p[x]; *q = (TUint16)(((c >> 12) & 0xf00) | ((c >> 8) & 0xf0) | ((c >> 4) & 0xf)); }
+				else { u32 v = *q; p[x] = (((v >> 8) & 15) * 17 << 16) | (((v >> 4) & 15) * 17 << 8) | ((v & 15) * 17); }
+				}
+			break;
+		case EColor16M:		// B, G, R bytes
+			for (int x = 0; x < w; ++x)
+				{
+				TUint8* q = row + x * 3;
+				if (aToBitmap) { u32 c = p[x]; q[0] = (TUint8)c; q[1] = (TUint8)(c >> 8); q[2] = (TUint8)(c >> 16); }
+				else p[x] = ((u32)q[2] << 16) | ((u32)q[1] << 8) | q[0];
+				}
+			break;
+		case EColor16MU:
+		case EColor16MA:
+			for (int x = 0; x < w; ++x)
+				{
+				u32* q = (u32*)row + x;
+				if (aToBitmap) *q = p[x] | 0xff000000u;
+				else p[x] = *q & 0x00ffffffu;
+				}
+			break;
+		case EGray256:
+			for (int x = 0; x < w; ++x)
+				{
+				if (aToBitmap) { u32 c = p[x]; row[x] = (TUint8)((((c >> 16) & 255) * 77 + ((c >> 8) & 255) * 150 + (c & 255) * 29) >> 8); }
+				else p[x] = (u32)row[x] * 0x010101u;
+				}
+			break;
+		default:
+			r = -1;
+			y = h;
+			break;
+			}
+		}
+	b->UnlockHeap(ETrue);
+	return r;
 	}
 
 void sy_dsa_destroy(SySurface* aS)

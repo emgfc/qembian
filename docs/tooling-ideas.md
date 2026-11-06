@@ -64,3 +64,20 @@ Eikon error note as an event (app, error code, leave site). Breakpoints on `CEik
 / `CTextResolver::ResolveError`, or `User::Leave` with an error filter, plus the caller from LR. A
 cheaper first step is `sydb dbg leaves CODE --thread T` (conditional Leave breakpoint and
 backtrace as one command).
+
+## Freeze and snapshot on panic ("fork on exception"), 2026-11-06
+Hunting Carousel's USER-EXEC 3 (an integer divide by zero in Hitchcock that only happens with
+some timing) took many runs: every breakpoint or watchpoint changed the timing and the bug went
+away. Symbian has no fork(), but three things would give the same effect:
+1. **Freeze on panic/exception** (kernel side, fits the phase-2 debug LDD): a DKernelEventHandler
+   for EEventKillThread / EEventHwExc that, for a watched process, suspends the thread before it
+   dies, prints registers, about 1 KB of stack with symbolised return addresses (N95CODE/XIP map)
+   and the faulting module, and raises a sydb event. Then `sydb dbg attach` sees the live state.
+   It also catches User::Panic / RaiseException (USER-EXEC 3) through EEventKillThread.
+2. **Snapshot on panic** (host side): the daemon sees `thread.panic` for the watched process,
+   stops QEMU (QMP `stop`) and saves a snapshot (`savevm panic-N`; needs a qcow2 overlay for
+   the drives). The moment can then be reloaded and inspected with gdb as often as needed,
+   like a forked copy.
+3. **Record/replay** for races: QEMU `-icount shift=auto,rr=record` and then `rr=replay` makes a
+   failing run deterministic, so breakpoints no longer change the outcome.
+1 is the cheapest and most useful first step; 2 builds on the daemon events we already have.

@@ -79,6 +79,13 @@ typedef void* NativeWindowType;
 #define EGL_DRAW 0x3059
 #define EGL_READ 0x305A
 #define EGL_CORE_NATIVE_ENGINE 0x305B
+#define EGL_TEXTURE_FORMAT 0x3080
+#define EGL_TEXTURE_TARGET 0x3081
+#define EGL_MIPMAP_TEXTURE 0x3082
+#define EGL_NO_TEXTURE 0x305C
+#define EGL_TEXTURE_RGB 0x305D
+#define EGL_TEXTURE_RGBA 0x305E
+#define EGL_BACK_BUFFER 0x3084
 #define EGL_PBUFFER_BIT 0x01
 #define EGL_PIXMAP_BIT 0x02
 #define EGL_WINDOW_BIT 0x04
@@ -112,8 +119,20 @@ static SyThread* ok_display(EGLDisplay d, int needInit)
 	{
 	SyThread* t = sy_thread();
 	if (!t) return 0;
-	if (d != SY_DISPLAY) { t->eglError = EGL_BAD_DISPLAY; return 0; }
-	if (needInit && !t->initialized) { t->eglError = EGL_NOT_INITIALIZED; return 0; }
+	/* one display: EGL_NO_DISPLAY (0) is accepted as ours too. Hitchcock calls eglChooseConfig on a
+	   renderer object whose display field is still 0 (filled lazily later); the N95's EGL takes it. */
+	if (d != SY_DISPLAY && d != 0) { t->eglError = EGL_BAD_DISPLAY; return 0; }
+	if (needInit && !t->initialized)
+		{
+		if (t->notInitLogged < 10)
+			{
+			++t->notInitLogged;
+			SYLOG("EGL call from thread state %08x without eglInitialize in this thread (caller %08x)",
+				  (u32)t, (u32)__builtin_return_address(1));
+			}
+		t->eglError = EGL_NOT_INITIALIZED;
+		return 0;
+		}
 	t->eglError = EGL_SUCCESS;
 	return t;
 	}
@@ -143,12 +162,14 @@ EGLint sy_eglGetError(void)
 
 EGLDisplay sy_eglGetDisplay(void* aNative)
 	{
+	SYTRACE(sy_thread(), "eglGetDisplay(%d)", (u32)__builtin_return_address(0), (int)aNative);
 	(void)aNative;
 	return SY_DISPLAY;
 	}
 
 EGLBoolean sy_eglInitialize(EGLDisplay d, EGLint* aMajor, EGLint* aMinor)
 	{
+	SYTRACE(sy_thread(), "eglInitialize(%d)", (u32)__builtin_return_address(0), (int)d);
 	SyThread* t = ok_display(d, 0);
 	if (!t) return EGL_FALSE;
 	if (!t->initialized)
@@ -161,6 +182,7 @@ EGLBoolean sy_eglInitialize(EGLDisplay d, EGLint* aMajor, EGLint* aMinor)
 
 EGLBoolean sy_eglTerminate(EGLDisplay d)
 	{
+	SYTRACE(sy_thread(), "eglTerminate(%d)", (u32)__builtin_return_address(0), (int)d);
 	SyThread* t = ok_display(d, 0);
 	if (!t) return EGL_FALSE;
 	t->initialized = 0;
@@ -205,7 +227,7 @@ static int config_attr(const SyConfig* c, EGLint a, EGLint* v)
 	case EGL_MAX_PBUFFER_WIDTH: case EGL_MAX_PBUFFER_HEIGHT: *v = 1024; break;
 	case EGL_MAX_PBUFFER_PIXELS: *v = 1024 * 1024; break;
 	case EGL_NATIVE_RENDERABLE: *v = EGL_FALSE; break;
-	case EGL_NATIVE_VISUAL_ID: *v = c->buffer == 16 ? 8 : 11; break;		/* TDisplayMode EColor64K / EColor16MU */
+	case EGL_NATIVE_VISUAL_ID: *v = c->buffer == 16 ? 7 : 11; break;		/* TDisplayMode EColor64K / EColor16MU */
 	case EGL_NATIVE_VISUAL_TYPE: *v = EGL_NONE; break;
 	case EGL_SAMPLES: case EGL_SAMPLE_BUFFERS: *v = 0; break;
 	case EGL_SURFACE_TYPE: *v = c->types; break;
@@ -265,10 +287,37 @@ static int config_matches(const SyConfig* c, const EGLint* aAttr)
 	return 1;
 	}
 
+static void log_attribs(const char* aWhat, const EGLint* aAttr)
+	{
+	char buf[200];
+	int n = 0;
+	for (const EGLint* p = aAttr; p && p[0] != EGL_NONE && n < 180; p += 2)
+		{
+		static const char hex[] = "0123456789abcdef";
+		u32 a = (u32)p[0], v = (u32)p[1];
+		buf[n++] = ' ';
+		for (int k = 12; k >= 0; k -= 4) buf[n++] = hex[(a >> k) & 15];
+		buf[n++] = '=';
+		if ((int)v < 0) { buf[n++] = '-'; v = (u32)(-(int)v); }
+		char tmp[12]; int m = 0;
+		do { tmp[m++] = (char)('0' + v % 10); v /= 10; } while (v && m < 11);
+		while (m) buf[n++] = tmp[--m];
+		}
+	buf[n] = 0;
+	SYLOG("%s:%s", aWhat, buf);
+	}
+
 EGLBoolean sy_eglChooseConfig(EGLDisplay d, const EGLint* aAttr, EGLConfig* aConfigs, EGLint aSize, EGLint* aNum)
 	{
+	SYTRACE(sy_thread(), "eglChooseConfig(%d)", (u32)__builtin_return_address(0), (int)d);
 	SyThread* t = ok_display(d, 1);
-	if (!t) return EGL_FALSE;
+	if (!t)
+		{
+		SyThread* p = sy_thread_peek();
+		SYLOG("eglChooseConfig failed: error 0x%x (display %d)", p ? p->eglError : -1, (int)d);
+		log_attribs("  attribs", aAttr);
+		return EGL_FALSE;
+		}
 	if (!aNum) return fail(t, EGL_BAD_PARAMETER);
 	int n = 0;
 	for (int i = 0; i < NCONFIGS; ++i)		/* table order = EGL sort order (smaller buffers first) */
@@ -278,11 +327,14 @@ EGLBoolean sy_eglChooseConfig(EGLDisplay d, const EGLint* aAttr, EGLConfig* aCon
 			++n;
 			}
 	*aNum = aConfigs && n > aSize ? aSize : n;
+	if (n == 0)
+		log_attribs("eglChooseConfig: no config matches", aAttr);
 	return EGL_TRUE;
 	}
 
 EGLBoolean sy_eglGetConfigAttrib(EGLDisplay d, EGLConfig aConfig, EGLint aAttr, EGLint* aValue)
 	{
+	SYTRACE(sy_thread(), "eglGetConfigAttrib(cfg %d, 0x%x)", (u32)__builtin_return_address(0), (int)aConfig, aAttr);
 	SyThread* t = ok_display(d, 1);
 	if (!t) return EGL_FALSE;
 	const SyConfig* c = config_of(aConfig);
@@ -315,6 +367,7 @@ static int surface_alloc(SySurface* s, int w, int h)
 
 EGLSurface sy_eglCreateWindowSurface(EGLDisplay d, EGLConfig aConfig, NativeWindowType aWin, const EGLint* aAttr)
 	{
+	SYTRACE(sy_thread(), "eglCreateWindowSurface(cfg %d)", (u32)__builtin_return_address(0), (int)aConfig);
 	(void)aAttr;
 	SyThread* t = ok_display(d, 1);
 	if (!t) return 0;
@@ -340,30 +393,128 @@ EGLSurface sy_eglCreateWindowSurface(EGLDisplay d, EGLConfig aConfig, NativeWind
 	return (EGLSurface)s;
 	}
 
+static SySurface* new_surface(SyThread* t, const SyConfig* c, int aKind, int w, int h)
+	{
+	SySurface* s = (SySurface*)sy_allocz(sizeof(SySurface));
+	if (!s) { t->eglError = EGL_BAD_ALLOC; return 0; }
+	s->magic = SY_MAGIC_SURFACE;
+	s->config = c->id;
+	s->kind = aKind;
+	if (!surface_alloc(s, w, h))
+		{
+		sy_free(s);
+		t->eglError = EGL_BAD_ALLOC;
+		return 0;
+		}
+	return s;
+	}
+
 EGLSurface sy_eglCreatePbufferSurface(EGLDisplay d, EGLConfig aConfig, const EGLint* aAttr)
 	{
-	(void)aConfig; (void)aAttr;
+	SYTRACE(sy_thread(), "eglCreatePbufferSurface(cfg %d)", (u32)__builtin_return_address(0), (int)aConfig);
 	SyThread* t = ok_display(d, 1);
-	SYLOG("eglCreatePbufferSurface: not implemented yet");
-	if (t) t->eglError = EGL_BAD_MATCH;
-	return 0;
+	if (!t) return 0;
+	const SyConfig* c = config_of(aConfig);
+	if (!c) { t->eglError = EGL_BAD_CONFIG; return 0; }
+	if (!(c->types & EGL_PBUFFER_BIT)) { t->eglError = EGL_BAD_MATCH; return 0; }
+	int w = 0, h = 0, largest = 0, texFormat = EGL_NO_TEXTURE;
+	for (const EGLint* p = aAttr; p && p[0] != EGL_NONE; p += 2)
+		switch (p[0])
+			{
+		case EGL_WIDTH: w = p[1]; break;
+		case EGL_HEIGHT: h = p[1]; break;
+		case EGL_LARGEST_PBUFFER: largest = p[1]; break;
+		case EGL_TEXTURE_FORMAT: texFormat = p[1]; break;
+		case EGL_TEXTURE_TARGET: case EGL_MIPMAP_TEXTURE: break;
+		default: t->eglError = EGL_BAD_ATTRIBUTE; return 0;
+			}
+	if (w < 0 || h < 0) { t->eglError = EGL_BAD_PARAMETER; return 0; }
+	if (w > 1024 || h > 1024)
+		{
+		if (!largest) { t->eglError = EGL_BAD_ALLOC; return 0; }
+		if (w > 1024) w = 1024;
+		if (h > 1024) h = 1024;
+		}
+	SySurface* s = new_surface(t, c, 2, w, h);
+	if (!s) return 0;
+	s->texFormat = texFormat;
+	SYLOG("pbuffer surface %dx%d, config %d", w, h, c->id);
+	return (EGLSurface)s;
+	}
+
+/* pixmap surfaces render into our 32 bpp buffer, initialised from the bitmap, and are written back
+   into the bitmap (its own display mode) at the EGL sync points: eglWaitGL, glFinish/glFlush,
+   eglSwapBuffers, eglCopyBuffers, and when the surface stops being current or is destroyed */
+static void pixmap_flush(SySurface* s)
+	{
+	if (s && s->kind == 3 && s->pixmap && s->color)
+		sy_bitmap_copy(s->pixmap, s->color, s->w, s->h, 1);
+	}
+
+void sy_flush_current(void)
+	{
+	SyThread* t = sy_thread_peek();
+	if (t) pixmap_flush(t->draw);
 	}
 
 EGLSurface sy_eglCreatePixmapSurface(EGLDisplay d, EGLConfig aConfig, void* aPixmap, const EGLint* aAttr)
 	{
-	(void)aConfig; (void)aPixmap; (void)aAttr;
+	SYTRACE(sy_thread(), "eglCreatePixmapSurface(cfg %d)", (u32)__builtin_return_address(0), (int)aConfig);
+	(void)aAttr;
 	SyThread* t = ok_display(d, 1);
-	SYLOG("eglCreatePixmapSurface: not implemented yet");
-	if (t) t->eglError = EGL_BAD_MATCH;
-	return 0;
+	if (!t) return 0;
+	const SyConfig* c = config_of(aConfig);
+	if (!c) { t->eglError = EGL_BAD_CONFIG; return 0; }
+	if (!(c->types & EGL_PIXMAP_BIT)) { t->eglError = EGL_BAD_MATCH; return 0; }
+	int w, h, mode;
+	if (!aPixmap || sy_bitmap_info(aPixmap, &w, &h, &mode)) { t->eglError = EGL_BAD_NATIVE_PIXMAP; return 0; }
+	SySurface* s = new_surface(t, c, 3, w, h);
+	if (!s) return 0;
+	s->pixmap = aPixmap;
+	if (sy_bitmap_copy(aPixmap, s->color, w, h, 0))
+		SYLOG("pixmap surface: bitmap display mode %d not supported (rendering, not written back)", mode);
+	SYLOG("pixmap surface %dx%d mode %d, config %d", w, h, mode, c->id);
+	return (EGLSurface)s;
 	}
 
-EGLBoolean sy_eglDestroySurface(EGLDisplay d, EGLSurface aSurface)
+EGLBoolean sy_eglCopyBuffers(EGLDisplay d, EGLSurface aSurface, void* aPixmap)
 	{
 	SyThread* t = ok_display(d, 1);
 	if (!t) return EGL_FALSE;
 	SySurface* s = surface_of(aSurface);
 	if (!s) return fail(t, EGL_BAD_SURFACE);
+	if (!aPixmap || sy_bitmap_copy(aPixmap, s->color, s->w, s->h, 1)) return fail(t, EGL_BAD_NATIVE_PIXMAP);
+	return EGL_TRUE;
+	}
+
+EGLBoolean sy_eglBindTexImage(EGLDisplay d, EGLSurface aSurface, EGLint aBuffer)
+	{
+	SyThread* t = ok_display(d, 1);
+	if (!t) return EGL_FALSE;
+	SySurface* s = surface_of(aSurface);
+	if (!s || s->kind != 2) return fail(t, EGL_BAD_SURFACE);
+	if (aBuffer != EGL_BACK_BUFFER) return fail(t, EGL_BAD_PARAMETER);
+	if (s->texFormat == EGL_NO_TEXTURE) return fail(t, EGL_BAD_MATCH);
+	if (!t->ctx) return EGL_TRUE;
+	return sy_gl_tex_from_surface(t->ctx, s, s->texFormat == EGL_TEXTURE_RGBA) ? fail(t, EGL_BAD_ALLOC) : EGL_TRUE;
+	}
+
+EGLBoolean sy_eglReleaseTexImage(EGLDisplay d, EGLSurface aSurface, EGLint aBuffer)
+	{
+	(void)aBuffer;
+	SyThread* t = ok_display(d, 1);
+	if (!t) return EGL_FALSE;
+	return surface_of(aSurface) ? EGL_TRUE : fail(t, EGL_BAD_SURFACE);
+	}
+
+EGLBoolean sy_eglDestroySurface(EGLDisplay d, EGLSurface aSurface)
+	{
+	SYTRACE(sy_thread(), "eglDestroySurface(%08x)", (u32)__builtin_return_address(0), (u32)aSurface);
+	SyThread* t = ok_display(d, 1);
+	if (!t) return EGL_FALSE;
+	SySurface* s = surface_of(aSurface);
+	if (!s) return fail(t, EGL_BAD_SURFACE);
+	pixmap_flush(s);
 	if (t->draw == s) t->draw = 0;
 	if (t->read == s) t->read = 0;
 	if (t->ctx) sy_gl_made_current(t->ctx, t->draw);
@@ -376,6 +527,7 @@ EGLBoolean sy_eglDestroySurface(EGLDisplay d, EGLSurface aSurface)
 
 EGLBoolean sy_eglQuerySurface(EGLDisplay d, EGLSurface aSurface, EGLint aAttr, EGLint* aValue)
 	{
+	SYTRACE(sy_thread(), "eglQuerySurface(%08x, 0x%x)", (u32)__builtin_return_address(0), (u32)aSurface, aAttr);
 	SyThread* t = ok_display(d, 1);
 	if (!t) return EGL_FALSE;
 	SySurface* s = surface_of(aSurface);
@@ -404,6 +556,7 @@ EGLBoolean sy_eglSurfaceAttrib(EGLDisplay d, EGLSurface aSurface, EGLint aAttr, 
 
 EGLContext sy_eglCreateContext(EGLDisplay d, EGLConfig aConfig, EGLContext aShare, const EGLint* aAttr)
 	{
+	SYTRACE(sy_thread(), "eglCreateContext(cfg %d)", (u32)__builtin_return_address(0), (int)aConfig);
 	(void)aShare; (void)aAttr;
 	SyThread* t = ok_display(d, 1);
 	if (!t) return 0;
@@ -415,6 +568,7 @@ EGLContext sy_eglCreateContext(EGLDisplay d, EGLConfig aConfig, EGLContext aShar
 
 EGLBoolean sy_eglDestroyContext(EGLDisplay d, EGLContext aCtx)
 	{
+	SYTRACE(sy_thread(), "eglDestroyContext(%08x)", (u32)__builtin_return_address(0), (u32)aCtx);
 	SyThread* t = ok_display(d, 1);
 	if (!t) return EGL_FALSE;
 	struct SyContext* c = context_of(aCtx);
@@ -426,8 +580,11 @@ EGLBoolean sy_eglDestroyContext(EGLDisplay d, EGLContext aCtx)
 
 EGLBoolean sy_eglMakeCurrent(EGLDisplay d, EGLSurface aDraw, EGLSurface aRead, EGLContext aCtx)
 	{
+	SYTRACE(sy_thread(), "eglMakeCurrent(d %d, draw %08x, read %08x, ctx %08x)", (u32)__builtin_return_address(0), (int)d, (u32)aDraw, (u32)aRead, (u32)aCtx);
 	SyThread* t = ok_display(d, 1);
 	if (!t) return EGL_FALSE;
+	if (t->draw && t->draw != (SySurface*)aDraw)
+		pixmap_flush(t->draw);
 	if (!aCtx && !aDraw && !aRead)
 		{
 		t->ctx = 0; t->draw = 0; t->read = 0;
@@ -444,11 +601,17 @@ EGLBoolean sy_eglMakeCurrent(EGLDisplay d, EGLSurface aDraw, EGLSurface aRead, E
 	}
 
 EGLContext sy_eglGetCurrentContext(void) { SyThread* t = sy_thread_peek(); return t ? (EGLContext)t->ctx : 0; }
-EGLDisplay sy_eglGetCurrentDisplay(void) { SyThread* t = sy_thread_peek(); return t && t->ctx ? SY_DISPLAY : 0; }
+EGLDisplay sy_eglGetCurrentDisplay(void)
+	{
+	SyThread* t = sy_thread_peek();
+	SYTRACE(t, "eglGetCurrentDisplay -> %d", (u32)__builtin_return_address(0), t && t->ctx ? 1 : 0);
+	return t && t->ctx ? SY_DISPLAY : 0;
+	}
 EGLSurface sy_eglGetCurrentSurface(EGLint aWhich)
 	{
 	SyThread* t = sy_thread_peek();
 	if (!t) return 0;
+	SYTRACE(t, "eglGetCurrentSurface(0x%x) -> %08x", (u32)__builtin_return_address(0), aWhich, (u32)(aWhich == EGL_READ ? t->read : t->draw));
 	return (EGLSurface)(aWhich == EGL_READ ? t->read : t->draw);
 	}
 
@@ -462,7 +625,7 @@ EGLBoolean sy_eglQueryContext(EGLDisplay d, EGLContext aCtx, EGLint aAttr, EGLin
 	return EGL_TRUE;
 	}
 
-EGLBoolean sy_eglWaitGL(void) { return EGL_TRUE; }
+EGLBoolean sy_eglWaitGL(void) { sy_flush_current(); return EGL_TRUE; }
 EGLBoolean sy_eglWaitNative(EGLint aEngine) { (void)aEngine; return EGL_TRUE; }
 
 EGLBoolean sy_eglSwapInterval(EGLDisplay d, EGLint aInterval)
@@ -519,7 +682,7 @@ EGLBoolean sy_eglSwapBuffers(EGLDisplay d, EGLSurface aSurface)
 	if (!t) return EGL_FALSE;
 	SySurface* s = surface_of(aSurface);
 	if (!s) return fail(t, EGL_BAD_SURFACE);
-	if (s->kind != 1) return EGL_TRUE;
+	if (s->kind != 1) { pixmap_flush(s); return EGL_TRUE; }	/* no-op for pbuffers (EGL 1.1) */
 	sy_present(t, s);
 	for (int i = 0; i < t->swapInterval; ++i)
 		sy_display_wait_vsync(t);
@@ -548,13 +711,6 @@ EGLBoolean sy_eglSwapBuffers(EGLDisplay d, EGLSurface aSurface)
 	return EGL_TRUE;
 	}
 
-EGLBoolean sy_eglCopyBuffers(EGLDisplay d, EGLSurface aSurface, void* aPixmap)
-	{
-	(void)aSurface; (void)aPixmap;
-	SyThread* t = ok_display(d, 1);
-	SYLOG("eglCopyBuffers: not implemented yet");
-	return fail(t, EGL_BAD_NATIVE_PIXMAP);
-	}
 
 /* default for every entry point not implemented yet (r0 = ordinal, from the generated stub) */
 extern const char* const sygl_names[];

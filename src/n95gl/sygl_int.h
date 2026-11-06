@@ -25,7 +25,9 @@ typedef struct SySurface
 	{
 	u32 magic;
 	int config;			/* config id */
-	int kind;			/* 1 window */
+	int kind;			/* 1 window, 2 pbuffer, 3 pixmap */
+	void* pixmap;		/* CFbsBitmap* of a pixmap surface */
+	int texFormat;		/* pbuffer EGL_TEXTURE_FORMAT (eglBindTexImage) */
 	void* window;		/* RWindow* (native window) */
 	void* dsa;			/* CSyDsa* (plat.cpp): direct screen access for window surfaces */
 	int w, h;
@@ -50,7 +52,15 @@ typedef struct SyThread
 	unsigned fpsTick;	/* NTickCount at the last fps report */
 	int fpsFrames;
 	void* bigHeap;		/* RHeap* (plat.cpp) */
+	int traced;			/* EGL calls traced so far (SYTRACE) */
+	int notInitLogged;
 	} SyThread;
+
+/* trace of the first EGL calls of each thread with the caller's address (sygl entry points are
+   reached by a plain branch from libgles_cm, so LR is the app's return address) */
+#define SY_TRACE_MAX 300
+#define SYTRACE(t, fmt, ...) do { if ((t) && (t)->traced < SY_TRACE_MAX) { ++(t)->traced; \
+	((SyPrintf)N95_RDebug_Printf)("SYGL: trace [%08x] %08x " fmt, (u32)(t), __VA_ARGS__); } } while (0)
 
 /* ---- platform (plat.cpp) ---- */
 void* sy_alloc(int aBytes);
@@ -66,6 +76,8 @@ void sy_display_wait_vsync(SyThread* aT);
 void sy_display_close(SyThread* aT);
 int sy_fb_info(SyThread* aT);			/* fills aT->fb / fbPitch, 0 ok */
 int sy_dsa_region(SyThread* aT, SySurface* aS, int* aRects, int aMax);	/* visible rects (screen), -1: no DSA */
+int sy_bitmap_info(void* aBmp, int* aW, int* aH, int* aMode);			/* CFbsBitmap*: 0 ok */
+int sy_bitmap_copy(void* aBmp, u32* aPix, int aW, int aH, int aToBitmap);	/* 0 ok, -1 unsupported mode */
 void sy_dsa_destroy(SySurface* aS);
 
 /* ---- libc bits (libc.c); C++ gets them from the SDK headers ---- */
@@ -104,6 +116,7 @@ typedef struct SyRState
 	int blend, blendSrc, blendDst;
 	int scX0, scY0, scX1, scY1;			/* drawable rect in surface coords (x1/y1 exclusive) */
 	int writeColor;
+	int polyOffset; float polyFactor, polyUnits;	/* glPolygonOffset (depth units of 1/65535) */
 	} SyRState;
 void sy_raster_triangle(SySurface* aS, const SyRState* aSt, const SyRVtx* aV0, const SyRVtx* aV1, const SyRVtx* aV2);
 void sy_raster_clear(SySurface* aS, int aColor, u32 aRgb, int aDepth, u16 aZ, int aX, int aY, int aW, int aH);
@@ -115,6 +128,9 @@ void sy_big_free(void* aPtr);
 
 /* ---- EGL (egl.c) ---- */
 void sy_present(SyThread* aT, SySurface* aS);
+void sy_flush_current(void);			/* glFlush/glFinish: write pixmap surfaces back */
+struct SyContext;
+int sy_gl_tex_from_surface(struct SyContext* aCtx, SySurface* aS, int aHasAlpha);	/* eglBindTexImage */
 
 #ifdef __cplusplus
 }

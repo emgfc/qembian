@@ -169,6 +169,8 @@ typedef struct SyContext
 	int alphaTest; GLenum alphaFunc; float alphaRef;
 	int scissor; int scX, scY, scW, scH;
 	int colorMask;			/* bit 0..3 = r g b a; only all-or-nothing honoured */
+	int polyOffset; float polyFactor, polyUnits;
+	int errLogged;
 	SySurface* draw;
 	struct SyCV* vbuf; int vcap;
 	} SyContext;

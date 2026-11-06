@@ -230,6 +230,13 @@ void sy_raster_triangle(SySurface* aS, const SyRState* aSt, const SyRVtx* v0, co
 	setup_attr(&g, v0->g, v1->g, v2->g, 65536.0f, e1x, e1y, e2x, e2y, inv, offx, offy);
 	setup_attr(&b, v0->b, v1->b, v2->b, 65536.0f, e1x, e1y, e2x, e2y, inv, offx, offy);
 	setup_attr(&z, v0->z, v1->z, v2->z, 65535.0f * 16384.0f, e1x, e1y, e2x, e2y, inv, offx, offy);
+	if (aSt->polyOffset)
+		{
+		/* offset = factor * max depth slope + units * r, r = one 16-bit depth step */
+		float zx = (float)(z.dx < 0 ? -z.dx : z.dx), zy = (float)(z.dy < 0 ? -z.dy : z.dy);
+		float o = aSt->polyFactor * (zx > zy ? zx : zy) + aSt->polyUnits * 16384.0f;
+		z.start += (int)o;
+		}
 
 	int dtest = aSt->depthTest && aS->depth, dwrite = aSt->depthWrite && aS->depth, dfunc = aSt->depthFunc;
 	int general = aSt->tex || aSt->blend || aSt->alphaTest;

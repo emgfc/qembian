@@ -54,6 +54,9 @@
 #define GL_SCISSOR_BOX 0x0C10
 #define GL_FOG 0x0B60
 #define GL_DITHER 0x0BD0
+#define GL_POLYGON_OFFSET_FILL 0x8037
+#define GL_IMPLEMENTATION_COLOR_READ_TYPE_OES 0x8B9A
+#define GL_IMPLEMENTATION_COLOR_READ_FORMAT_OES 0x8B9B
 
 typedef struct SyCV { float x, y, z, w, r, g, b, a, s, t; } SyCV;		/* clip-space vertex */
 #define CV_FLOATS 10
@@ -68,7 +71,13 @@ SyContext* sy_cur(void)
 
 void sy_seterr(SyContext* c, int e)
 	{
-	if (c && c->error == GL_NO_ERROR)
+	if (!c) return;
+	if (c->errLogged < 30)		/* the first errors, with the GL entry point's return address */
+		{
+		++c->errLogged;
+		SYLOG("GL error 0x%x (caller %08x)", e, (u32)__builtin_return_address(0));
+		}
+	if (c->error == GL_NO_ERROR)
 		c->error = e;
 	}
 
@@ -369,6 +378,7 @@ static void set_cap(GLenum cap, int on)
 	case GL_BLEND: c->blend = on; break;
 	case GL_ALPHA_TEST: c->alphaTest = on; break;
 	case GL_SCISSOR_TEST: c->scissor = on; break;
+	case GL_POLYGON_OFFSET_FILL: c->polyOffset = on; break;
 	default: break;		/* fog, dither, multisample, polygon offset ...: accepted, not implemented yet */
 		}
 	}
@@ -400,6 +410,13 @@ GLboolean sy_glIsEnabled(GLenum cap)
 		}
 	}
 
+void sy_glPolygonOffset(GLfloat factor, GLfloat units)
+	{
+	SyContext* c = sy_cur(); if (!c) return;
+	c->polyFactor = factor; c->polyUnits = units;
+	}
+void sy_glPolygonOffsetx(GLfixed factor, GLfixed units) { sy_glPolygonOffset(sy_fx(factor), sy_fx(units)); }
+
 void sy_glDepthFunc(GLenum f) { SyContext* c = sy_cur(); if (c) c->depthFunc = f; }
 void sy_glDepthMask(GLboolean m) { SyContext* c = sy_cur(); if (c) c->depthWrite = m != 0; }
 void sy_glColorMask(GLboolean r, GLboolean g, GLboolean b, GLboolean a)
@@ -416,8 +433,8 @@ void sy_glAlphaFunc(GLenum f, GLclampf ref)
 	c->alphaFunc = f; c->alphaRef = ref < 0 ? 0 : (ref > 1 ? 1 : ref);
 	}
 void sy_glAlphaFuncx(GLenum f, GLfixed ref) { sy_glAlphaFunc(f, sy_fx(ref)); }
-void sy_glFlush(void) {}
-void sy_glFinish(void) {}
+void sy_glFlush(void) { sy_flush_current(); }
+void sy_glFinish(void) { sy_flush_current(); }
 void sy_glHint(GLenum t, GLenum m) { (void)t; (void)m; }
 
 void sy_glColor4f(GLfloat r, GLfloat g, GLfloat b, GLfloat a)
@@ -514,32 +531,53 @@ const GLubyte* sy_glGetString(GLenum name)
 		}
 	}
 
+/* implementation limits: answered with or without a current context (Hitchcock reads
+   GL_MAX_TEXTURE_SIZE into an uninitialised variable and divides by it to tile big images) */
+static int get_const(GLenum name, GLint* v)
+	{
+	switch (name)
+		{
+	case GL_MAX_VIEWPORT_DIMS: v[0] = 1024; v[1] = 1024; return 1;
+	case GL_MAX_TEXTURE_SIZE: *v = 1024; return 1;
+	case GL_MAX_MODELVIEW_STACK_DEPTH: *v = MV_DEPTH; return 1;
+	case GL_MAX_PROJECTION_STACK_DEPTH: *v = PROJ_DEPTH; return 1;
+	case GL_MAX_TEXTURE_STACK_DEPTH: *v = TEX_DEPTH; return 1;
+	case GL_MAX_LIGHTS: *v = SY_MAX_LIGHTS; return 1;
+	case GL_MAX_TEXTURE_UNITS: *v = 1; return 1;
+	case GL_RED_BITS: case GL_GREEN_BITS: case GL_BLUE_BITS: *v = 8; return 1;
+	case GL_ALPHA_BITS: case GL_STENCIL_BITS: *v = 0; return 1;
+	case GL_DEPTH_BITS: *v = 16; return 1;
+	case GL_IMPLEMENTATION_COLOR_READ_FORMAT_OES: *v = GL_RGB; return 1;
+	case GL_IMPLEMENTATION_COLOR_READ_TYPE_OES: *v = GL_UNSIGNED_SHORT_5_6_5; return 1;
+	default: return 0;
+		}
+	}
+
 void sy_glGetIntegerv(GLenum name, GLint* v)
 	{
-	SyContext* c = sy_cur(); if (!c || !v) return;
+	if (!sy_cur())
+		SYTRACE(sy_thread_peek(), "glGetIntegerv(0x%x) without a context", (u32)__builtin_return_address(0), name);
+	if (!v) return;
+	if (get_const(name, v)) return;
+	SyContext* c = sy_cur(); if (!c) return;
 	switch (name)
 		{
 	case GL_VIEWPORT: v[0] = c->vpX; v[1] = c->vpY; v[2] = c->vpW; v[3] = c->vpH; break;
 	case GL_SCISSOR_BOX: v[0] = c->scX; v[1] = c->scY; v[2] = c->scW; v[3] = c->scH; break;
-	case GL_MAX_VIEWPORT_DIMS: v[0] = 1024; v[1] = 1024; break;
-	case GL_MAX_TEXTURE_SIZE: *v = 1024; break;
-	case GL_MAX_MODELVIEW_STACK_DEPTH: *v = MV_DEPTH; break;
-	case GL_MAX_PROJECTION_STACK_DEPTH: *v = PROJ_DEPTH; break;
-	case GL_MAX_TEXTURE_STACK_DEPTH: *v = TEX_DEPTH; break;
-	case GL_MAX_LIGHTS: *v = SY_MAX_LIGHTS; break;
-	case GL_MAX_TEXTURE_UNITS: *v = 1; break;
-	case GL_RED_BITS: case GL_GREEN_BITS: case GL_BLUE_BITS: *v = 8; break;
-	case GL_ALPHA_BITS: case GL_STENCIL_BITS: *v = 0; break;
-	case GL_DEPTH_BITS: *v = 16; break;
 	case GL_TEXTURE_BINDING_2D: *v = (GLint)c->bound->name; break;
 	case GL_MATRIX_MODE: *v = (GLint)c->matrixMode; break;
+	case GL_UNPACK_ALIGNMENT: *v = c->unpackAlign; break;
+	case GL_PACK_ALIGNMENT: *v = c->packAlign; break;
 	default: sy_seterr(c, GL_INVALID_ENUM); break;
 		}
 	}
 
 void sy_glGetFloatv(GLenum name, GLfloat* v)
 	{
-	SyContext* c = sy_cur(); if (!c || !v) return;
+	if (!v) return;
+	GLint cv[2] = {0, 0};
+	if (get_const(name, cv)) { v[0] = (GLfloat)cv[0]; v[1] = (GLfloat)cv[1]; return; }
+	SyContext* c = sy_cur(); if (!c) return;
 	switch (name)
 		{
 	case GL_MODELVIEW_MATRIX: memcpy(v, c->mv[c->mvTop], 64); break;
@@ -790,6 +828,10 @@ static int prepare(SyContext* c, int count, SyFrame* f, SyRState* st, SyRTex* rt
 	memset(st, 0, sizeof(*st));
 	st->depthTest = c->depthTest; st->depthWrite = c->depthWrite; st->depthFunc = (int)c->depthFunc;
 	st->writeColor = c->colorMask != 0;
+	if (c->polyOffset)
+		{
+		st->polyOffset = 1; st->polyFactor = c->polyFactor; st->polyUnits = c->polyUnits;
+		}
 	if (f->textured)
 		{
 		rt->data = t->data; rt->w = t->w; rt->h = t->h;
@@ -868,4 +910,32 @@ void sy_glDrawElements(GLenum mode, GLsizei count, GLenum type, const void* indi
 		transform(c, &f, idx, &c->vbuf[i]);
 		}
 	assemble(c, &st, mode, c->vbuf, count);
+	}
+
+/* ---------------------------------------------------------------- pixel reads */
+
+void sy_glReadPixels(GLint x, GLint y, GLsizei w, GLsizei h, GLenum format, GLenum type, void* pixels)
+	{
+	SyContext* c = sy_cur(); if (!c || !c->draw || !pixels) return;
+	if (w < 0 || h < 0) { sy_seterr(c, GL_INVALID_VALUE); return; }
+	int bpp;
+	if (format == GL_RGBA && type == GL_UNSIGNED_BYTE) bpp = 4;
+	else if (format == GL_RGB && type == GL_UNSIGNED_BYTE) bpp = 3;
+	else if (format == GL_RGB && type == GL_UNSIGNED_SHORT_5_6_5) bpp = 2;
+	else { sy_seterr(c, GL_INVALID_OPERATION); return; }
+	int rowBytes = (w * bpp + c->packAlign - 1) / c->packAlign * c->packAlign;
+	SySurface* s = c->draw;
+	for (int j = 0; j < h; ++j)
+		{
+		u8* d = (u8*)pixels + j * rowBytes;
+		int sy = s->h - 1 - (y + j);			/* GL row 0 is the bottom */
+		for (int i = 0; i < w; ++i, d += bpp)
+			{
+			int sx = x + i;
+			u32 px = (sx >= 0 && sx < s->w && sy >= 0 && sy < s->h) ? s->color[sy * s->w + sx] : 0;
+			u8 r = (u8)(px >> 16), g = (u8)(px >> 8), b = (u8)px;
+			if (bpp == 2) { u16 v = (u16)(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)); d[0] = (u8)v; d[1] = (u8)(v >> 8); }
+			else { d[0] = r; d[1] = g; d[2] = b; if (bpp == 4) d[3] = 255; }
+			}
+		}
 	}
