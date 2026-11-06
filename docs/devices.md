@@ -6,9 +6,21 @@ from the state of the repository (commit 44c48d2). [V] = checked in the code or 
 [I] = inferred or proposed. The ordered refactor is in [refactor-plan.md](refactor-plan.md); the
 flow for a new phone is in [adding-a-device.md](adding-a-device.md).
 
-## 1. What exists today, and where the N95 is hard-wired
+## 0. Status (2026-11-06)
 
-| Layer | Today | Device-specific bits buried in it |
+Implemented (docs/refactor-plan.md "Status"): profiles + `tools/device.py` (check, show, get, paths,
+qemu-args, identify, build, gen keymap-header / key-aliases / qemu-keymap / standins-*), firmware
+identity, `tools/fw/inventory.py`, `src/standins/` composed from `[[standins]]`, `personalities/sym92`
+with `tools/personality/check.py` (driver ABI + exec numbering), key translation in QEMU, RAM size and
+device id from the board, stand-in settings from the board (`[modem]` imei, power-off delay), GL per
+device (`src/sygl`, `devices/<id>/gl`), ISI names shared / replies per device, device docs and hacks
+under `docs/devices/<id>/` and `devices/<id>/hacks.md`, a phone window generated from `keymap.toml`.
+Not yet: personality chosen at run time (4.3), the LCD HAL from fb registers (`lcd_n95` is still a
+profile-chosen build). Section 1 describes the state *before* the refactor, kept for the record.
+
+## 1. Before the refactor: where the N95 was hard-wired
+
+| Layer | Before (2026-11-06 morning) | Device-specific bits buried in it |
 |---|---|---|
 | QEMU board `src/qemu-syborg/hw/arm/` (one binary, `scripts/build-qemu-modern.sh`) | all devices always present; options via `-global` (fb width/height/refresh-rate/blank-dim, gl backend, rtc offset-file, pointer input), `-cpu`, `-m`, `-drive if=mtd`, `-device loader` for ROFS [V] | machine class defaults (`arm1136-r2`, 168 MB) and the description string say "N95" [V `syborg.c`]; nothing else |
 | Run scripts `scripts/run-modern.sh`, `run-gui.sh`, `tools/sydb/daemon.py` | compose the QEMU command line | `build/n95/*` paths, `syborg-n95.dtb`, 168M memory backend, drive sizes 64M/1G, audio/gl defaults [V] |
@@ -92,7 +104,7 @@ checks the overlap, the GL blob goes below it).
 - `[[drives]]`: `letter`, `local_drive`, `kind` (`iram`, `nvmem`, `nvmem2`, `composite`, later
   `mmc`), `image`, `size`, `removable`, `flags` (ESTART flags; the tool can generate ESTARTCOMP
   from these later).
-- `input`: `keymap` file, `translation` (`guest` today, `qemu` after refactor step 7).
+- `input`: `keymap` file, `translation` (`qemu`: QEMU translates mapped keys, the guest set-1 table is the fallback; `guest`: set-1 table only).
 
 **`[hardware]`** presence flags: `wlan`, `bluetooth`, `camera`, `fm_radio`, `gps`,
 `accelerometer`, `slides`, `leds`, `memory_card`, `mass_memory_gb`, `tv_out`, `dsp`, `gpu`. Read by
