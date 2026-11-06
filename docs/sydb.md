@@ -6,7 +6,7 @@ phase 3's basic debugger works. Done: session daemon, agent (files, processes, a
 P&S), CLI, MCP server (43 tools), live agent update, persistent gdb with kernel DWARF and app ELF
 symbols placed from the kernel's `N95CODE:` line. IPC strace via the kernel's KIPC trace works. Not yet:
 exec-call strace (phase-2 LDD), XIP
-symbol ELFs for Nokia code in gdb backtraces, snapshots, TUI.
+symbol ELFs for Nokia code in gdb backtraces, snapshots, SIS install.
 
 ## Pieces
 
@@ -45,6 +45,13 @@ sydb update-agent                                     # rebuilt agent deployed w
 sydb hmp 'info registers' | status | stop
 ```
 Key aliases: `lsk rsk ok menu star hash clear back` (F5, F7, F6, F8, numpad *, F10, backspace, F7).
+
+## TUI
+
+`sydb tui` (curses) shows the status line (phone state, agent, focused window group), the named
+window groups, live events, and the serial log tail (`:log REGEX` filters it). Its command line
+takes any sydb command. Tab switches to key mode: arrows, Enter = OK, F5/F7/F8 and digits go to
+the phone; Esc leaves. `q` quits.
 
 ## IPC strace
 

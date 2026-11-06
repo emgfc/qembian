@@ -1,6 +1,8 @@
 # Devtools bridge: an LLM-driven debug/dev bridge for the virtual N95
 
-Design note (2026-11-06). Builds on [app-dev-debugging.md](app-dev-debugging.md) (which settled
+Design note (2026-11-06). **Implemented as sydb, see [sydb.md](sydb.md)** (phases 0/1, the IPC
+part of phase 2 via the kernel's KIPC trace, the basic phase-3 debugger, TUI). The autostart
+ended up as hack H-sydb-autostart. Builds on [app-dev-debugging.md](app-dev-debugging.md) (which settled
 "no AppTRK, gdbstub + guest launcher + JSON wrapper"); this note turns that into a complete bridge
 whose main user is an LLM (MCP server), with a human TUI as an extra. Tags: [verified] = seen in
 this repo / the firmware / the kernel sources, [inferred] = best guess, not checked.

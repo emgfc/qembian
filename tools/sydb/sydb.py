@@ -15,6 +15,7 @@
   sydb dbg attach|break LOC [--thread T]|continue [--wait S]|wait|step|next|stepi|finish|regs|bt|
            mem ADDR [LEN]|write ADDR HEX|eval EXPR|symbols NAME [ELF]|interrupt|detach|cmd GDBCMD
   sydb strace MATCH [--secs S]       IPC messages to/from processes matching MATCH (kernel KIPC trace)
+  sydb tui                           curses view: status, window groups, events, log, command line
   sydb hmp CMD | mcp (MCP stdio server) | --json (raw JSON output) | --session DIR
 Keys: QKeyCode names or aliases lsk rsk ok menu star hash clear back; a number = pause in seconds.
 """
@@ -162,6 +163,10 @@ def main():
         ap.add_argument('--gui', action='store_true')
         x = ap.parse_args(rest)
         daemon.serve(sdir, x.rom, x.drives, x.gui, [])
+        return
+    if cmd == 'tui':
+        import tui
+        tui.main(sdir)
         return
     if cmd == 'mcp':
         import mcp
