@@ -208,6 +208,7 @@ class Phone(QtWidgets.QWidget):
     def __init__(self, sdir, scale):
         super().__init__()
         self.sdir, self.c = sdir, S.Client(sdir)
+        self.buttons = {}                  # qcode -> buttons, so host keys show on the phone
         self.setWindowTitle('N95 8GB - sydb phone (%s)' % os.path.basename(sdir))
         self.setStyleSheet("""
             QWidget#body { background: #2b2b2e; border-radius: 28px; }
@@ -308,6 +309,7 @@ class Phone(QtWidgets.QWidget):
         else:
             b.pressed.connect(lambda q=qcode: self.send(q, True))
             b.released.connect(lambda q=qcode: self.send(q, False))
+            self.buttons.setdefault(qcode, []).append(b)
         if isinstance(grid, QtWidgets.QGridLayout):
             grid.addWidget(b, row, col)
         elif grid is not None:
@@ -346,16 +348,25 @@ class Phone(QtWidgets.QWidget):
         if q and not e.isAutoRepeat() and q not in self.held:
             self.held.add(q)
             self.send(q, True)
+            self.show_key(q, True)
 
     def keyReleaseEvent(self, e):
         q = HOST_KEYS.get(e.key())
         if q and not e.isAutoRepeat() and q in self.held:
             self.held.discard(q)
             self.send(q, False)
+            self.show_key(q, False)
+
+    def show_key(self, qcode, down):
+        # the on-screen key follows the host key: pressed while it is held (visual only: setDown
+        # emits no pressed/released, so the key event is not sent twice)
+        for b in self.buttons.get(qcode, []):
+            b.setDown(down)
 
     def focusOutEvent(self, e):
         for q in list(self.held):          # never leave a key held down
             self.send(q, False)
+            self.show_key(q, False)
         self.held.clear()
 
     def slide(self, i, tell=True):

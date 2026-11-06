@@ -130,7 +130,7 @@ sydb pause | resume
 (`status` → `ram`); the window follows the fb registers for base, pitch, rotation, partial band and
 blanking, ~60 frames/s, pixel-identical to QEMU's screendump; `SYDB_VNC=1` or an older session falls
 back to VNC on `<session>/vnc.sock`), the phone's keys with real press/release (hold Menu = task
-switcher, hold Power = switch off), the host keyboard, and a side toolbar: Power, Vol +/-,
+switcher, hold Power = switch off), the host keyboard (its keys show pressed on the phone while held), and a side toolbar: Power, Vol +/-,
 **Landscape (media slide)** (taps F13, the phone switches its layout, the view turns so it stays
 upright; Ctrl+Left/Right toggles it too), **Keypad slide** (shows the number keys; no slide event to
 the phone yet), Shot, Snapshot, Pause, Reset. **Multimedia** (F20), **Gallery** (F21) and the media

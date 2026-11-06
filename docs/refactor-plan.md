@@ -19,6 +19,9 @@ plan below, on purpose:
   #defines); variants omit patches by `[H-...]` tag in the patch line.
 - Step 4: no SWI-table comparison in `check.py` yet (driver ABI only).
 - Step 5: the phone window and docs/n95-controls.md are not generated from keymap.toml yet.
+Owner's list additions: the phone window mirrors the host keyboard on its on-screen keys (pressed
+while held) - done 2026-11-06; it must keep doing so when step 5's skin generation builds the
+buttons from keymap.toml (one button per key, found by its host qcodes).
 Next: step 6 (firmware pipeline per device), 7 (key translation in QEMU), then the rest.
 
 ## Proposed section for CLAUDE.md (paste as is)
