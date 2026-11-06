@@ -366,6 +366,7 @@ EGLBoolean sy_eglDestroySurface(EGLDisplay d, EGLSurface aSurface)
 	if (t->draw == s) t->draw = 0;
 	if (t->read == s) t->read = 0;
 	if (t->ctx) sy_gl_made_current(t->ctx, t->draw);
+	sy_dsa_destroy(s);
 	sy_free(s->color); sy_free(s->depth);
 	s->magic = 0;
 	sy_free(s);
@@ -473,23 +474,42 @@ EGLBoolean sy_eglSwapInterval(EGLDisplay d, EGLint aInterval)
 
 /* ---------------------------------------------------------------- presentation */
 
-/* copy the surface into the frame buffer at its window's position, clipped to the screen
-   (H-gles-fbdirect: the frame buffer holds the picture in WSERV's current rotation, so window
-   coordinates map 1:1; windows on top are not respected yet) */
+static void blit(SyThread* t, SySurface* s, int wx, int wy, int x0, int y0, int x1, int y1)
+	{
+	int sw = (sy_display_rotation(t) & 1) ? 240 : 320, sh = sw == 240 ? 320 : 240;
+	if (x0 < wx) x0 = wx;
+	if (y0 < wy) y0 = wy;
+	if (x1 > wx + s->w) x1 = wx + s->w;
+	if (y1 > wy + s->h) y1 = wy + s->h;
+	if (x0 < 0) x0 = 0;
+	if (y0 < 0) y0 = 0;
+	if (x1 > sw) x1 = sw;
+	if (y1 > sh) y1 = sh;
+	for (int yy = y0; yy < y1; ++yy)
+		memcpy((u8*)t->fb + yy * t->fbPitch + x0 * 4, s->color + (yy - wy) * s->w + (x0 - wx), (unsigned)(x1 - x0) * 4);
+	}
+
+/* present: copy the surface into the frame buffer, inside the window's visible region from direct
+   screen access (the frame buffer holds the picture in WSERV's current rotation, so screen
+   coordinates map 1:1). Without a CONE environment (no DSA): the whole window, clipped to the
+   screen only (H-gles-fbdirect). */
 void sy_present(SyThread* t, SySurface* s)
 	{
 	int x, y, w, h;
 	if (sy_fb_info(t) || sy_window_rect(s->window, &x, &y, &w, &h))
 		return;
-	int rot = sy_display_rotation(t);
-	int sw = (rot & 1) ? 240 : 320, sh = (rot & 1) ? 320 : 240;
-	int cw = s->w < w ? s->w : w, ch = s->h < h ? s->h : h;
-	int x0 = x < 0 ? 0 : x, y0 = y < 0 ? 0 : y;
-	int x1 = x + cw > sw ? sw : x + cw, y1 = y + ch > sh ? sh : y + ch;
+	int rects[16 * 4];
+	int n = sy_dsa_region(t, s, rects, 16);
 	if (s->frames == 0)
-		SYLOG("first frame: surface %dx%d -> window (%d,%d) %dx%d, screen %dx%d rot %d", s->w, s->h, x, y, w, h, sw, sh, rot);
-	for (int yy = y0; yy < y1; ++yy)
-		memcpy((u8*)t->fb + yy * t->fbPitch + x0 * 4, s->color + (yy - y) * s->w + (x0 - x), (unsigned)(x1 - x0) * 4);
+		SYLOG("first frame: surface %dx%d -> window (%d,%d) %dx%d, %s %d rects", s->w, s->h, x, y, w, h,
+			  n < 0 ? "no DSA (direct)," : "DSA", n);
+	if (n < 0)
+		{
+		blit(t, s, x, y, x, y, x + w, y + h);
+		return;
+		}
+	for (int i = 0; i < n; ++i)
+		blit(t, s, x, y, rects[i * 4], rects[i * 4 + 1], rects[i * 4] + rects[i * 4 + 2], rects[i * 4 + 1] + rects[i * 4 + 3]);
 	}
 
 EGLBoolean sy_eglSwapBuffers(EGLDisplay d, EGLSurface aSurface)

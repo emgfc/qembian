@@ -5,6 +5,7 @@
 #include <e32svr.h>
 #include <hal.h>
 #include <w32std.h>
+#include <coemain.h>
 #include "sygl_int.h"
 
 static const TInt KSyglTlsKey = 0x5359474c;		// 'SYGL': our TLS slot (any int key works on EKA2)
@@ -23,7 +24,164 @@ public:
 	void Req(TInt aReq, TRequestStatus& aStatus) { DoRequest(aReq, aStatus); }
 	};
 
+// Direct screen access for one window surface (what Nokia's libpvrTechviewWSEGL does through
+// CDirectScreenAccess). We use the non-leaving RDirectScreenAccess (the blob has no exception
+// unwinding) in a small active object. An abort from WSERV is acknowledged either by RunL (when the
+// app's scheduler runs) or at the next swap, where Cancel() also consumes the completion signal,
+// so a game loop that never yields to its scheduler cannot cause a stray-signal panic.
+class CSyDsa : public CActive
+	{
+public:
+	CSyDsa(RWsSession& aWs) : CActive(RDirectScreenAccess::EPriorityVeryHigh), iDsa(aWs) {}
+	~CSyDsa()
+		{
+		Cancel();
+		FreeRegion();
+		if (iConstructed)
+			iDsa.Close();
+		}
+	TInt Start(RWindowBase& aWin)
+		{
+		if (!iConstructed)
+			{
+			TInt r = iDsa.Construct();
+			if (r != KErrNone)
+				return r;
+			iConstructed = ETrue;
+			if (CActiveScheduler::Current())
+				{
+				CActiveScheduler::Add(this);
+				iAdded = ETrue;
+				}
+			}
+		FreeRegion();
+		TInt r = iDsa.Request(iRegion, iStatus, aWin);
+		if (r < KErrNone)
+			return r;
+		if (iAdded)
+			SetActive();
+		else
+			iPolled = ETrue;		// no scheduler: we poll iStatus at each swap
+		iRunning = ETrue;
+		return KErrNone;
+		}
+	// at a swap: handle an abort that the scheduler has not delivered (yet). On the N95, WSERV's
+	// abort reaches ws32's own active object (priority 2000, waiting on a message queue), which
+	// then completes our iStatus; an app whose loop never yields to its scheduler (ZigGLTri drains
+	// WSERV events itself) would never see it. So run only the ready active objects of DSA priority
+	// (ws32's and ours), consuming one completion signal each, as the scheduler loop would.
+	void Poll()
+		{
+		TInt err;
+		for (TInt i = 0; i < 4 && CActiveScheduler::RunIfReady(err, RDirectScreenAccess::EPriorityVeryHigh); ++i)
+			User::WaitForAnyRequest();
+		if (!iRunning || iStatus == KRequestPending)
+			return;
+		if (IsActive())
+			Cancel();				// DoCancel acknowledges; WaitForRequest consumes the signal
+		else if (iPolled)
+			{
+			User::WaitForRequest(iStatus);
+			Stop();
+			}
+		}
+	TBool Running() const { return iRunning; }
+	RRegion* Region() const { return iRegion; }
+	TInt iAborts;
+private:
+	void Stop()
+		{
+		if (iRunning)
+			{
+			iDsa.Completed();		// tell WSERV we stopped drawing
+			iRunning = EFalse;
+			++iAborts;
+			}
+		iPolled = EFalse;
+		FreeRegion();
+		}
+	void FreeRegion()
+		{
+		if (iRegion)
+			{
+			iRegion->Close();
+			User::Free(iRegion);
+			iRegion = NULL;
+			}
+		}
+	void RunL() { Stop(); }
+	void DoCancel()
+		{
+		if (iStatus == KRequestPending)
+			{
+			iDsa.Cancel();			// our own stop (surface destroyed)
+			iRunning = EFalse;
+			FreeRegion();
+			}
+		else
+			Stop();					// an abort that arrived before the scheduler ran us
+		}
+	RDirectScreenAccess iDsa;
+	RRegion* iRegion;
+	TBool iConstructed, iAdded, iRunning, iPolled;
+	};
+
 extern "C" {
+
+// visible region of the surface's window, in screen coordinates: fills up to aMax rects
+// (x, y, w, h each) and returns their number, or -1 when DSA is not available (no CONE env)
+int sy_dsa_region(SyThread* aT, SySurface* aS, int* aRects, int aMax)
+	{
+	(void)aT;
+	CCoeEnv* env = CCoeEnv::Static();
+	if (!env || !aS->window || !CActiveScheduler::Current())	// ws32's DSA needs a scheduler
+		return -1;
+	CSyDsa* d = (CSyDsa*)aS->dsa;
+	if (!d)
+		{
+		d = new CSyDsa(env->WsSession());	// CBase::new: User::AllocZ, no leave
+		if (!d)
+			return -1;
+		aS->dsa = d;
+		}
+	d->Poll();
+	// safety net while DSA aborts do not reach polling apps (see Poll): draw only while the
+	// window's group has focus. On the device the app is minimised when another app comes up.
+	RWsSession& ws = env->WsSession();
+	if (ws.GetFocusWindowGroup() != ((RWindowTreeNode*)aS->window)->WindowGroupId())
+		return 0;
+	if (!d->Running())
+		{
+		TInt r = d->Start(*(RWindowBase*)aS->window);
+		if (r != KErrNone)
+			{
+			if (aS->frames < 3)
+				SYLOG("DSA request failed %d", r);
+			return 0;
+			}
+		if (d->iAborts && d->iAborts < 50)
+			SYLOG("DSA restarted (%d aborts), %d rects", d->iAborts, d->Region() ? d->Region()->Count() : -1);
+		}
+	RRegion* reg = d->Region();
+	if (!reg)
+		return 0;
+	TInt n = reg->Count();
+	const TRect* r = reg->RectangleList();
+	TInt k = 0;
+	for (TInt i = 0; i < n && k < aMax; ++i, ++k)
+		{
+		aRects[k * 4] = r[i].iTl.iX; aRects[k * 4 + 1] = r[i].iTl.iY;
+		aRects[k * 4 + 2] = r[i].Width(); aRects[k * 4 + 3] = r[i].Height();
+		}
+	return k;
+	}
+
+void sy_dsa_destroy(SySurface* aS)
+	{
+	CSyDsa* d = (CSyDsa*)aS->dsa;
+	aS->dsa = NULL;
+	delete d;
+	}
 
 void* sy_alloc(int aBytes) { return User::Alloc(aBytes); }
 void* sy_allocz(int aBytes) { return User::AllocZ(aBytes); }

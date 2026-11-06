@@ -27,6 +27,7 @@ typedef struct SySurface
 	int config;			/* config id */
 	int kind;			/* 1 window */
 	void* window;		/* RWindow* (native window) */
+	void* dsa;			/* CSyDsa* (plat.cpp): direct screen access for window surfaces */
 	int w, h;
 	u32* color;
 	u16* depth;
@@ -63,6 +64,8 @@ int sy_display_rotation(SyThread* aT);	/* WSERV rotation index 0..3 (3 = portrai
 void sy_display_wait_vsync(SyThread* aT);
 void sy_display_close(SyThread* aT);
 int sy_fb_info(SyThread* aT);			/* fills aT->fb / fbPitch, 0 ok */
+int sy_dsa_region(SyThread* aT, SySurface* aS, int* aRects, int aMax);	/* visible rects (screen), -1: no DSA */
+void sy_dsa_destroy(SySurface* aS);
 
 /* ---- libc bits (libc.c); C++ gets them from the SDK headers ---- */
 #ifndef __cplusplus
