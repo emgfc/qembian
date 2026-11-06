@@ -368,6 +368,7 @@ static u32 pack_rgb(const float* c)
 void sy_glClear(GLbitfield mask)
 	{
 	SyContext* c = sy_cur(); if (!c || !c->draw) return;
+	SY_FOLLOW(c);
 	if (mask & ~(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT)) { sy_seterr(c, GL_INVALID_VALUE); return; }
 	float d = c->clearDepth * 65535.0f + 0.5f;
 	int x = 0, y = 0, w = c->draw->w, h = c->draw->h;
@@ -1007,6 +1008,7 @@ void sy_glDrawArrays(GLenum mode, GLint first, GLsizei count)
 	SyContext* c = sy_cur(); if (!c) return;
 	if (count < 0 || first < 0) { sy_seterr(c, GL_INVALID_VALUE); return; }
 	if (mode > GL_TRIANGLE_FAN) { sy_seterr(c, GL_INVALID_ENUM); return; }
+	SY_FOLLOW(c);
 	SyFrame f; SyRState st; SyRTex rt;
 	if (count == 0 || !prepare(c, count, &f, &st, &rt)) return;
 	for (int i = 0; i < count; ++i)
@@ -1020,6 +1022,7 @@ void sy_glDrawElements(GLenum mode, GLsizei count, GLenum type, const void* indi
 	SyContext* c = sy_cur(); if (!c) return;
 	if (count < 0) { sy_seterr(c, GL_INVALID_VALUE); return; }
 	if (mode > GL_TRIANGLE_FAN || (type != GL_UNSIGNED_BYTE && type != GL_UNSIGNED_SHORT)) { sy_seterr(c, GL_INVALID_ENUM); return; }
+	SY_FOLLOW(c);
 	SyFrame f; SyRState st; SyRTex rt;
 	if (count == 0 || !indices || !prepare(c, count, &f, &st, &rt)) return;
 	for (int i = 0; i < count; ++i)

@@ -7,7 +7,8 @@
   press/release through the daemon op `keyev`, so long presses work;
 - the host keyboard (autorepeat ignored, keys released on focus loss);
 - Reset, Pause/Resume, Shot (saves to `<session>/shots`) and Snapshot;
-- the slider (closed / keypad / media; media turns the screen to landscape).
+- the slider (closed / keypad / media; media taps F13 = EKeyDeviceA, the phone's own landscape
+  layout switch, and turns the view; built 2026-11-06 as the side toolbar's Landscape button).
 The phone now has Call/End/Power/volume keys (baseport patch 0014, docs/n95-controls.md). Still
 open: camera, Multimedia and media-key scan codes, and the slide and accelerometer stand-ins
 (steps 3–4).

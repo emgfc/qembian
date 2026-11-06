@@ -503,7 +503,9 @@ def screenshot(sess, path=None, scale=1.0, crop=None, only_if_changed=False):
 
 KEYMAP = {'lsk': 'f5', 'rsk': 'f7', 'ok': 'f6', 'select': 'f6', 'menu': 'f8', 'star': 'kp_multiply',
           'call': 'f2', 'end': 'f3', 'power': 'f4', 'volup': 'f11', 'voldown': 'f12',
-          'hash': 'f10', 'clear': 'backspace', 'back': 'f7'}
+          'hash': 'f10', 'clear': 'backspace', 'back': 'f7',
+          # EKeyDeviceA/B: akncapserver switches the UI layout (the N95's media slide): landscape/portrait
+          'landscape': 'f13', 'portrait': 'f14'}
 
 
 def press(sess, keys, delay=0.3):

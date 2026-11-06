@@ -332,7 +332,12 @@ def main():
     if cmd == 'status':
         out(c.call({'op': 'status'}))
     elif cmd == 'stop':
-        out(c.call({'op': 'stop'}))
+        r = c.call({'op': 'stop'})
+        for _ in range(150):               # return once the daemon is gone, so a start can follow
+            if not c.alive():
+                break
+            time.sleep(0.1)
+        out(r)
     elif cmd == 'wait':
         ap = argparse.ArgumentParser(); ap.add_argument('what'); ap.add_argument('--timeout', type=float, default=120)
         x = ap.parse_args(rest)

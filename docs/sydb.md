@@ -127,8 +127,11 @@ sydb pause | resume
 
 `sydb phone [--scale 2]` opens an emulator window like the Android emulator's: the live screen
 (QEMU's VNC on `<session>/vnc.sock`), the phone's keys with real press/release (hold Menu = task
-switcher, hold Power = switch off), the host keyboard, reset, pause, screenshot, snapshot and the
-slider. It starts a session if none is running. Details: [phone-skin.md](phone-skin.md).
+switcher, hold Power = switch off), the host keyboard, and a side toolbar: Power, Vol +/-,
+**Landscape (media slide)** (taps F13, the phone switches its layout, the view turns so it stays
+upright; Ctrl+Left/Right toggles it too), **Keypad slide** (shows the number keys; no slide event to
+the phone yet), Shot, Snapshot, Pause, Reset. It starts a session if none is running. Details:
+[phone-skin.md](phone-skin.md).
 
 ## TUI
 

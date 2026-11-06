@@ -7,9 +7,11 @@ phone's keys and machine controls, talking to a running sydb session (docs/phone
   encoding, 32 bpp) reads it. Drawn pixel-exact (nearest) at --scale.
 - Keys: mouse press/release on the buttons and the host keyboard send real key down/up events
   (daemon op keyev), so long presses work (hold Menu = task switcher, hold Power = switch off).
-- Machine: reset, pause/resume, screenshot, snapshot; slider closed / keypad / media (media turns
-  the screen to landscape; the phone itself gets no slide events yet: Nokia's keypad.dll is not in
-  our ROM, see docs/phone-skin.md).
+- Side toolbar: Power, Vol +/-, Landscape (media slide; Ctrl+Left/Right), Keypad slide, Shot,
+  Snapshot, Pause, Reset. Landscape taps F13 (EKeyDeviceA: akncapserver switches the UI to landscape) and turns the view so the
+  landscape UI is upright, as when the real phone is turned; closed/keypad tap F14 (EKeyDeviceB,
+  portrait). The keypad slide itself sends no event yet (Nokia's keypad.dll is not in our ROM,
+  see docs/phone-skin.md).
 """
 import os, socket, struct, sys, threading, time
 
@@ -135,8 +137,9 @@ class Screen(QtWidgets.QWidget):
         p.fillRect(self.rect(), QtGui.QColor(0, 0, 0))
         if self.img:
             img = self.img
-            if self.landscape:          # the media slide: the phone is turned, the picture with it
-                img = img.transformed(QtGui.QTransform().rotate(-90))
+            if self.landscape:          # the media slide: the phone is turned. In landscape the
+                # picture's top is at the screen's left edge (d_display stand-in), so turn it clockwise
+                img = img.transformed(QtGui.QTransform().rotate(90))
             p.drawImage(self.rect(), img)
 
 
@@ -150,6 +153,7 @@ class Phone(QtWidgets.QWidget):
             QPushButton { background: #4a4a50; color: #eee; border: 1px solid #666; border-radius: 8px;
                           padding: 4px; min-height: 26px; }
             QPushButton:pressed { background: #8a8a95; }
+            QPushButton:checked { background: #1565c0; border-color: #64b5f6; }
             QPushButton:disabled { color: #777; background: #38383c; }
             QPushButton#call { background: #2e7d32; } QPushButton#end { background: #b71c1c; }
             QLabel#status { color: #ccc; }
@@ -161,19 +165,6 @@ class Phone(QtWidgets.QWidget):
         outer.addLayout(side)
         v = QtWidgets.QVBoxLayout(body)
         v.setContentsMargins(24, 24, 24, 24)
-        # machine toolbar
-        bar = QtWidgets.QHBoxLayout()
-        for label, fn in (('Reset', self.reset), ('Pause', self.pause), ('Shot', self.shot), ('Snapshot', self.snap)):
-            b = QtWidgets.QPushButton(label)
-            b.clicked.connect(fn)
-            bar.addWidget(b)
-            if label == 'Pause':
-                self.pause_btn = b
-        self.slider = QtWidgets.QComboBox()
-        self.slider.addItems(['closed', 'keypad open', 'media keys open'])
-        self.slider.currentIndexChanged.connect(self.slide)
-        bar.addWidget(self.slider)
-        v.addLayout(bar)
         self.screen = Screen(scale)
         v.addWidget(self.screen, alignment=Qt.AlignmentFlag.AlignHCenter)
         self.status = QtWidgets.QLabel('connecting...', objectName='status')
@@ -202,12 +193,32 @@ class Phone(QtWidgets.QWidget):
             b.setToolTip('media keys: N95 scan codes not mapped yet')
             mg.addWidget(b)
         v.addWidget(self.media)
-        # side keys
+        # side toolbar (like the Android emulator's): hardware keys, slides, machine
         for label, qc in (('Power', 'f4'), ('Vol +', 'f11'), ('Vol -', 'f12'), ('Camera', None)):
             b = self.key(None, label, qc)
             if qc is None:
                 b.setToolTip('camera key: N95 scan code not mapped yet')
             side.addWidget(b)
+        side.addSpacing(10)
+        self.slide_state = 0
+        self.land_btn = QtWidgets.QPushButton('Landscape\n(media slide)')
+        self.land_btn.setToolTip('Open the media-key slide: the phone switches to landscape and the view '
+                                 'turns with it (Ctrl+Left / Ctrl+Right)')
+        self.pad_btn = QtWidgets.QPushButton('Keypad\nslide')
+        self.pad_btn.setToolTip('Open the keypad slide (shows the number keys; the phone gets no slide event yet)')
+        for b, i in ((self.land_btn, 2), (self.pad_btn, 1)):
+            b.setCheckable(True)
+            b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            b.clicked.connect(lambda on, i=i: self.slide(i if on else 0))
+            side.addWidget(b)
+        side.addSpacing(10)
+        for label, fn in (('Shot', self.shot), ('Snapshot', self.snap), ('Pause', self.pause), ('Reset', self.reset)):
+            b = QtWidgets.QPushButton(label)
+            b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            b.clicked.connect(fn)
+            side.addWidget(b)
+            if label == 'Pause':
+                self.pause_btn = b
         side.addStretch(1)
         self.slide(0)
         # screen + status
@@ -245,7 +256,22 @@ class Phone(QtWidgets.QWidget):
     def send(self, qcode, down):
         self.call({'op': 'keyev', 'keys': [qcode], 'down': down})
 
+    def tap(self, qcode, hold=0.15):
+        def go():                          # down and up in order, from one thread
+            try:
+                self.c.call({'op': 'keyev', 'keys': [qcode], 'down': True})
+                time.sleep(hold)
+                self.c.call({'op': 'keyev', 'keys': [qcode], 'down': False})
+            except Exception as e:
+                QtCore.QMetaObject.invokeMethod(self.status, 'setText', Qt.ConnectionType.QueuedConnection,
+                                                QtCore.Q_ARG(str, 'error: %s' % e))
+        threading.Thread(target=go, daemon=True).start()
+
     def keyPressEvent(self, e):
+        if e.modifiers() & Qt.KeyboardModifier.ControlModifier and e.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right):
+            if not e.isAutoRepeat():       # rotate, as in the Android emulator
+                self.slide(0 if self.slide_state == 2 else 2)
+            return
         q = HOST_KEYS.get(e.key())
         if q and not e.isAutoRepeat() and q not in self.held:
             self.held.add(q)
@@ -262,15 +288,27 @@ class Phone(QtWidgets.QWidget):
             self.send(q, False)
         self.held.clear()
 
-    def slide(self, i):
+    def slide(self, i, tell=True):
+        """0 closed, 1 keypad slide open, 2 media slide open (landscape)"""
+        if tell:                           # the layout switch the N95 makes for the media slide
+            self.tap('f13' if i == 2 else 'f14')
+        self.slide_state = i
+        self.land_btn.setChecked(i == 2)
+        self.pad_btn.setChecked(i == 1)
         self.keypad.setVisible(i == 1)
         self.media.setVisible(i == 2)
         self.screen.landscape = i == 2
         self.screen.resize_for()
-        self.adjustSize()
+        QtCore.QTimer.singleShot(0, self.fit)
+
+    def fit(self):                         # follow the screen's size, shrinking back too
+        self.layout().invalidate()
+        self.layout().activate()
+        self.resize(self.layout().totalMinimumSize())
 
     def reset(self):
         self.call({'op': 'qmp', 'cmd': 'system_reset'})
+        self.slide(0, tell=False)          # the phone boots portrait, slides closed
 
     def pause(self):
         paused = self.pause_btn.text() == 'Resume'
@@ -300,7 +338,10 @@ class Phone(QtWidgets.QWidget):
                 txt = '%s  %.0fs  agent %s' % (st.get('state'), st.get('uptime', 0), 'up' if ag else 'down')
             except Exception as e:
                 txt = 'session: %s' % e
-            QtCore.QMetaObject.invokeMethod(self, '_status', Qt.ConnectionType.QueuedConnection, QtCore.Q_ARG(str, txt))
+            try:
+                QtCore.QMetaObject.invokeMethod(self, '_status', Qt.ConnectionType.QueuedConnection, QtCore.Q_ARG(str, txt))
+            except RuntimeError:           # the window closed meanwhile
+                pass
         threading.Thread(target=go, daemon=True).start()
 
     @QtCore.pyqtSlot(str)

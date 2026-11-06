@@ -126,12 +126,14 @@ sample rate not honoured by our audio path (DevSound/DSP stand-in or syborg-audi
 buffers consumed faster than real time. Check with `sydb strace` on the audio server and the
 syborg-audio device's rate handling.
 
-**Keys in progress (2026-11-06):** baseport patch 0015 maps F13/F14 = EStdKeyDeviceA/B,
-F15/F16 = EStdKeyApplication19/1A (camera app captures them), F17/F18 = EStdKeyApplication7/8
-(akncapserver captures their up/downs). None of F13/F14/F17/F18 brought Carousel up at the idle
-screen: the Multimedia key is not identified yet. Camera keys untested (camera has no stand-in).
-Finding: akncapserver (key handler around 0x82df0600) publishes RProperty 0x101f876e/4 on the
-key-down of scan code 0xbb (EStdKeyApplication7: value 1) or 0xbc (EStdKeyApplication8): most
-likely the Multimedia/media key path. Pressing F17/F18 left the property at 0, so check first that
-QEMU's f17/f18 qcodes reach our table slots 0x68/0x69 (set-1 scan codes), e.g. by moving them to
-known-good slots.
+**Keys (2026-11-06, patch 0015 fixed):** QEMU sends F13-F19 as set-1 0x5d/0x5e/0x5f/0x55/0xe003/
+0xe077/0xe004 (not 0x64-0x69), so the first 0015 filled unreachable slots. Now: F13 = EKeyDeviceA,
+which akncapserver turns into the **landscape** layout switch (the N95's media slide; whole UI),
+F14 = EKeyDeviceB = **portrait** (sydb key aliases `landscape`/`portrait`; `sydb phone`'s Landscape
+button). F15/F16 = EStdKeyApplication19/1A (camera app captures them; camera untested).
+F17 = EStdKeyApplication7: akncapserver sets P&S 0x101f876e/4 = 1, F19 = App8 sets it to 0 (meaning
+unknown, not the Multimedia key; F18 = 0xe077 would index past the 0xf0-entry table).
+**Open: the Multimedia key** is still unidentified (Carousel launches from it on the device). The
+"sideways Carousel" was the landscape layout left on by an F13 test; Carousel itself uses no fixed
+orientation. Also open: Carousel's boot instance still dies with USER-EXEC 3 on some boots
+(the race at its ConstructL); `sydb fg` on its window group then shows only the backdrop.

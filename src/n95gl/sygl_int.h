@@ -34,7 +34,12 @@ typedef struct SySurface
 	u32* color;
 	u16* depth;
 	int frames;
+	int follow;			/* window surface: check the window size before the next frame's drawing */
 	} SySurface;
+
+/* follow a resized window before drawing (egl.c); gl.c calls it through SY_FOLLOW */
+void sy_surface_follow(SySurface* s);
+#define SY_FOLLOW(c) do { if ((c)->draw && (c)->draw->follow) sy_surface_follow((c)->draw); } while (0)
 
 struct SyContext;
 
