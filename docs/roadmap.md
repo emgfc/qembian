@@ -91,4 +91,4 @@ with `src/n95apps/wgprobe` (focus/window-group order) and `syb_gdb brk 0x8170b89
 a reply the fake modem does not give; keys pressed meanwhile seem lost. Needs the `0x29` reply
 layout (NOKIATSY parser not located yet). Screensaver band clipping fixed 2026-11-06 (WSERV
 rotation index 0 = landscape picture, now 1280-byte lines and rotated by the fb; H-lcd-native-landscape);
-orientation direction [inferred], owner to check.
+orientation confirmed by the owner.

@@ -63,9 +63,9 @@ const TUint KPanelRows = 240;		// native landscape panel: 320 columns x 240 rows
 
 // The phone is held portrait: the portrait UI (rotation index 3) is upright on the screen. The
 // controller turns the picture by (3 - index) quarter turns, so at the native index 0 (the
-// screensaver) the landscape picture's top is at the screen's left edge [inferred: at index 3 the
-// screensaver passes its portrait X range as panel rows unreversed, so panel row r is screen
-// column r; if the real phone shows it the other way round, use (Rotation + 1) & 3 here].
+// screensaver) the landscape picture's top is at the screen's left edge (inferred from the
+// screensaver passing its portrait X range as panel rows unreversed at index 3; confirmed by the
+// owner against the real N95 8GB).
 static void SetFbOrientation()
 	{
 	WriteReg(KHwBaseClcd, KFbOrientation, (3 - Rotation) & 3);

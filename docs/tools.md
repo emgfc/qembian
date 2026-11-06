@@ -2,6 +2,11 @@
 
 Quick reference for people and agents. All tools run on the host from the project root.
 
+**Live phone first:** [sydb](sydb.md) (`tools/sydb/sydb.py`, MCP `mcp__sydb__*`) is the bridge to a
+running phone: apps, files, processes, UI keys/screenshots, keyguard, P&S, IPC strace, persistent
+gdb with symbols. Use it instead of ad-hoc QEMU/gdb runs; the tools below are for scripted boot
+experiments, ROM work and offline analysis.
+
 ## Boot, observe, summarise: `tools/syb_run.py`
 
 ```
