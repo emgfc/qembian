@@ -83,7 +83,7 @@ def drive_put(drives, local, remote_dir, name=None):
     d = ''
     for part in remote_dir.strip('/').split('/'):       # mkdir -p (errors = already there)
         d += '/' + part
-        subprocess.run([os.path.join(ROOT, 'scripts', 'n95-drive.sh'), 'mkdir', 'c', d], env=env, capture_output=True)
+        subprocess.run([os.path.join(ROOT, 'scripts', 'n95-drive.sh'), 'mkdir', 'c', d], env=env, capture_output=True, stdin=subprocess.DEVNULL)
     args = [os.path.join(ROOT, 'scripts', 'n95-drive.sh'), 'put', 'c', local, remote_dir]
     r = subprocess.run(args, env=env, capture_output=True, text=True)
     if r.returncode:
@@ -132,8 +132,11 @@ def cmd_uninstall(sdir, a):
 
 
 def mt(drives, *args):
-    return subprocess.run(list(args[:1]) + ['-i', os.path.join(drives, 'nvmemory.img')] + list(args[1:]),
-                          capture_output=True)
+    # mtools asks on a name clash (mmd of an existing directory waited forever for an answer):
+    # never give it a terminal, and let mmd skip existing directories
+    clash = ['-D', 's'] if args[0] == 'mmd' else []
+    return subprocess.run(list(args[:1]) + clash + ['-i', os.path.join(drives, 'nvmemory.img')] + list(args[1:]),
+                          capture_output=True, stdin=subprocess.DEVNULL, timeout=120)
 
 
 def drive_read(drives, path):
