@@ -582,10 +582,14 @@ const GLubyte* sy_glGetString(GLenum name)
 	{
 	switch (name)
 		{
-	case GL_VENDOR: return (const GLubyte*)"syborg-pg";
-	case GL_RENDERER: return (const GLubyte*)"sygl software rasterizer";
+	/* the N95's own strings (libgles_cm.dll glGetString): apps pick their GL path by them, e.g.
+	   Crash Bandicoot Nitro Kart 3D uses GL only on "POWERVR", else its built-in software renderer.
+	   Extensions: only what sygl implements (the device also lists PVRTC, draw_texture, ...).
+	   Hack H-gles-identity (docs/hacks.md). */
+	case GL_VENDOR: return (const GLubyte*)"Nokia";
+	case GL_RENDERER: return (const GLubyte*)"1.2.19.1 HW PowerVR MBX with VGP";
 	case GL_VERSION: return (const GLubyte*)"OpenGL ES-CM 1.1";
-	case GL_EXTENSIONS: return (const GLubyte*)"";
+	case GL_EXTENSIONS: return (const GLubyte*)"GL_OES_byte_coordinates GL_OES_fixed_point GL_OES_single_precision GL_OES_read_format ";
 	default: sy_seterr(sy_cur(), GL_INVALID_ENUM); return 0;
 		}
 	}

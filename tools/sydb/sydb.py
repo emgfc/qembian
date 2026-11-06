@@ -26,7 +26,7 @@
   sydb restore SNAP [--run]          the same into this session  | sydb pause | resume
   sydb gc [--keep-auto 5] [--keep-dumps 200] [--no-forks] [--dry-run]   retention (also after each catch hit)
   sydb qmp CMD [JSON-ARGS] | hmp CMD | mcp (MCP stdio server) | --json (raw JSON output) | --session DIR
-Keys: QKeyCode names or aliases lsk rsk ok menu star hash clear back; a number = pause in seconds;
+Keys: QKeyCode names or aliases lsk rsk ok menu star hash clear back; 1.5 or 10 = pause in seconds (1 = key 1);
       KEY:SECONDS = hold (long press), e.g. menu:1.5 opens the task switcher.
 """
 import argparse, json, os, shutil, socket, subprocess, sys, time, zlib
@@ -410,7 +410,8 @@ def main():
     elif cmd == 'key':
         ap = argparse.ArgumentParser(); ap.add_argument('keys', nargs='+'); ap.add_argument('--delay', type=float, default=0.3)
         x = ap.parse_args(rest)
-        keys = [float(k) if k.replace('.', '', 1).isdigit() and '.' in k else k for k in x.keys]
+        # a pause: a number with a dot, or 2+ digits (single digits are the phone's number keys)
+        keys = [float(k) if k.replace('.', '', 1).isdigit() and ('.' in k or len(k) > 1) else k for k in x.keys]
         out(c.call({'op': 'key', 'keys': keys, 'delay': x.delay}))
     elif cmd == 'type':
         out(c.call({'op': 'type', 'text': ' '.join(rest)}))

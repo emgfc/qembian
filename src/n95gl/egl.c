@@ -195,8 +195,8 @@ const char* sy_eglQueryString(EGLDisplay d, EGLint name)
 	if (!t) return 0;
 	switch (name)
 		{
-	case EGL_VENDOR: return "syborg-pg";
-	case EGL_VERSION: return "1.1 sygl";
+	case EGL_VENDOR: return "Imagination Technologies";		/* the N95's libimgegl strings */
+	case EGL_VERSION: return "1.1 build 3.3.33.750.2";
 	case EGL_EXTENSIONS: return "";
 	default: t->eglError = EGL_BAD_PARAMETER; return 0;
 		}
