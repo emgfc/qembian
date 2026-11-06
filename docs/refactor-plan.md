@@ -46,7 +46,12 @@ buttons from keymap.toml (one button per key, found by its host qcodes).
   gles-patches.txt in devices/<id>/gl/; identity strings from [gl.identity] (generated identity.h);
   src/sygl/build.sh --device ID builds into build/devices/<id>/sygl/. Blob identical except the
   __DATE__/__TIME__ stamp; smoke green with host and soft GL.
-Next: steps 9 and 12.
+- Step 12 (done): docs/n95-*.md and nokia-*.md -> docs/devices/nokia-n95-8gb-rm320/ (pointer files
+  at the old paths, every link rewritten); the device sections of docs/hacks.md (stand-ins, ROM
+  configuration, user-side code patches) -> devices/nokia-n95-8gb-rm320/hacks.md (same hack ids);
+  tests/docs-links.sh (all links resolve); tool defaults (syb_sym, ghidra/decompile.sh, n95-drive.sh)
+  follow device.py paths (build/n95 remains a symlink for old command lines).
+Next: step 9 (personality chosen at run time) - only needed when a second personality exists.
 
 ## Proposed section for CLAUDE.md (paste as is)
 

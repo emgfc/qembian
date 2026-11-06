@@ -108,7 +108,7 @@ verified. All fixes live in scripts or the container definition, so nothing is a
 # Option 1 (E1): our kernel + 9.2 exec personality + N95 user side
 
 The plan is in [roadmap.md](roadmap.md) and the firmware facts in
-[n95-firmware-inventory.md](n95-firmware-inventory.md). To reproduce:
+[n95-firmware-inventory.md](devices/nokia-n95-8gb-rm320/n95-firmware-inventory.md). To reproduce:
 `scripts/n95-inventory.sh` once, then `scripts/hybrid-boot.sh [--no-build] [--secs N] [--trace MASK]`.
 
 ## E1.1 ROM composer (`tools/romcompose.py`) [verified]
@@ -159,7 +159,7 @@ The plan is in [roadmap.md](roadmap.md) and the firmware facts in
 | 15 | no fault in 300 s (3.4 M trace lines); Starter's critical list runs: RfsServer, tzserver, DBRECOVERY/EDbsrv, HWRMServer, AccServer, MediatorServer, **SplashScreen**, randsvr, AknIconSrv, ApsExe, **akncapserver, EikSrvs, aknskinsrv**, cdlserver, FepSwitch, RightsServer; the frame buffer is filled dark (first S60 drawing) | RightsServer keeps retrying `secldd` (N95 security LDD, dropped kernel side) | next: SecLdd stand-in; further modem replies (second research agent) |
 | 16 | SecEnvInit spins (1.7 M `SecEnv` requests, the boot crawls) | `secldd.ldd` stand-in (channel `SecEnv`) completed every request; SecEnvInit keeps request 2 outstanding as "wait for next job" | request 2 stays pending (`EPendRequest`) |
 | 17 | RightsServer `USER 130` right after SecEnv request 6 | secure-environment crypto calls completed with success but no output | requests 3/4/5/6/7/16 complete `KErrNotSupported` |
-| 18 | NOKIATSY `IsiMessage: OFFS -9` | modem reply additions from the second research agent ([part 2](n95-isc-isi-protocol-2.md)): the proposed `NET_MODEM_REG_STATUS` reply is shorter than NOKIATSY parses | that reply dropped (nothing waits for it); other additions kept (product profile for FeatMgr/SAServer, network/GSS reads, SIM/permanent-data reads that cost LanguageSelection ~170 s of timeouts); ISC peer now enters a critical section around its mutex |
+| 18 | NOKIATSY `IsiMessage: OFFS -9` | modem reply additions from the second research agent ([part 2](devices/nokia-n95-8gb-rm320/n95-isc-isi-protocol-2.md)): the proposed `NET_MODEM_REG_STATUS` reply is shorter than NOKIATSY parses | that reply dropped (nothing waits for it); other additions kept (product profile for FeatMgr/SAServer, network/GSS reads, SIM/permanent-data reads that cost LanguageSelection ~170 s of timeouts); ISC peer now enters a critical section around its mutex |
 | 19 | no fault in 420 s, 53 k trace lines; all of run 15's processes plus `DRMHELPERSERVER`; RightsServer restarted twice (crypto unavailable) | | next: find what Starter waits on after the UI servers (SysAp not started yet) |
 | 20 | RightsServer `USER 130` after SecEnv request 6 | DrmBb5KeyStorage mode 3 with empty input reads the device certificate chain (`[len][DER]` records); our identity copy returned 0 bytes and `FUN_0000823a` indexed the record array at −1 | dummy self-signed cert chain (H-secenv-cert) |
 | 21 | RightsServer: "Great Success!! Crypto PA is used for DRM", then waits on ETel for the IMEI: ISI `1B 00` unanswered | | fake IMEI reply (H-imei) |
@@ -200,7 +200,7 @@ What already works in run 13, all N95 binaries on our kernel ([boot summary](evi
 **Fake modem (run 14):** `src/n95compat/stubs/iscpeer.inl`, built into `nokiaiscdriver.ldd`
 (channels 0..31) and `nokiaiscdriverextension.ldd` (32..63), implements the IscApi channel interface
 and answers like a modem in NORMAL state with no SIM, per
-[n95-isc-isi-protocol.md](n95-isc-isi-protocol.md) (researched by a Fable subagent with headless
+[n95-isc-isi-protocol.md](devices/nokia-n95-8gb-rm320/n95-isc-isi-protocol.md) (researched by a Fable subagent with headless
 Ghidra, `tools/ghidra/decompile.sh`; key claims re-checked against the decompiled IscApi). With it,
 DosServer finishes, Starter runs its start list (c32start/c32exe with ETel and NOKIATSY,
 FeatMgrServer, mpmserver, SAServer), and LanguageSelection no longer panics. All ISC traffic is

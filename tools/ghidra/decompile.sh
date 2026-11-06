@@ -5,10 +5,11 @@
 # GHIDRA_HOME defaults to the newest ~/ghidra_* install.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"; cd "$ROOT"
-NAME="$1"; OUT="${2:-build/n95/ghidra}"; mkdir -p "$OUT"
+DEVDIR="$(python3 -I tools/device.py paths dir)"   # the device ($SYBORG_DEVICE / devices/default)
+NAME="$1"; OUT="${2:-$DEVDIR/ghidra}"; mkdir -p "$OUT"
 GHIDRA_HOME="${GHIDRA_HOME:-$(ls -d $HOME/ghidra_* | sort -V | tail -1)}"
 if [[ "$NAME" == *.elf ]]; then cp "$NAME" "$OUT/"; NAME=$(basename "$NAME" .elf)
-else python3 -I tools/xip2elf.py build/n95/core-flat.img build/n95/core.json "$NAME" "$OUT/$NAME.elf"; fi
+else python3 -I tools/xip2elf.py "$DEVDIR/core-flat.img" "$DEVDIR/core.json" "$NAME" "$OUT/$NAME.elf"; fi
 PROJ=$(mktemp -d)
 "$GHIDRA_HOME/support/analyzeHeadless" "$PROJ" p -import "$OUT/$NAME.elf" -overwrite \
   -scriptPath "$ROOT/tools/ghidra" -postScript ExportDecompiled.java "$ROOT/$OUT/$NAME.c" \

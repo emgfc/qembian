@@ -14,8 +14,8 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 command -v mcopy > /dev/null || { echo "needs mtools (sudo zypper install mtools)" >&2; exit 1; }
 cmd="${1:-}"; drv="${2:-}"; shift 2 || { sed -n '2,12p' "$0"; exit 2; }
 case "$drv" in
-  c|C|c:|C:) IMG="${DRIVE_C:-$ROOT/build/n95/drive-c.img}" ;;
-  e|E|e:|E:) IMG="${DRIVE_E:-$ROOT/build/n95/drive-e.img}" ;;
+  c|C|c:|C:) IMG="${DRIVE_C:-$(python3 -I "$ROOT/tools/device.py" paths dir)/drive-c.img}" ;;
+  e|E|e:|E:) IMG="${DRIVE_E:-$(python3 -I "$ROOT/tools/device.py" paths dir)/drive-e.img}" ;;
   *) echo "drive must be c or e" >&2; exit 2 ;;
 esac
 [ -f "$IMG" ] || { echo "no image $IMG: boot once with scripts/run-gui.sh first" >&2; exit 1; }

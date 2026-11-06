@@ -1,7 +1,7 @@
 # Roadmap
 
 Decision (2026-11-04, by the project owner): **option 1 first, then option A.** Options are
-defined in [n95-compatibility.md §6](n95-compatibility.md).
+defined in [n95-compatibility.md §6](devices/nokia-n95-8gb-rm320/n95-compatibility.md).
 
 1. **Option 1: our EKA2 kernel with a Symbian 9.2 exec personality, running the N95 8GB user side
    byte-identical** on the Syborg virtual platform. This continues until the N95 user side is

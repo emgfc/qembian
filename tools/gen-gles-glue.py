@@ -28,8 +28,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--blob-addr', type=lambda x: int(x, 0), required=True)
     ap.add_argument('--ordinals', default=os.path.join(ROOT, 'devices/default/gl/libgles_cm.ordinals'))
-    ap.add_argument('--img', default=os.path.join(ROOT, 'build/n95/core-flat.img'))
-    ap.add_argument('--symindex', default=os.path.join(ROOT, 'build/n95/symindex.json'))
+    ap.add_argument('--img', default=os.path.join(ROOT, 'build/devices/nokia-n95-8gb-rm320/core-flat.img'))   # build.sh passes the device's
+    ap.add_argument('--symindex', default=os.path.join(ROOT, 'build/devices/nokia-n95-8gb-rm320/symindex.json'))
     ap.add_argument('--patches')
     ap.add_argument('--asm')
     ap.add_argument('--names')

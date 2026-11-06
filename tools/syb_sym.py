@@ -20,9 +20,11 @@ import bisect, json, os, re, struct, subprocess, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, 'tools'))
+import device as devmodel  # tools/device.py ($SYBORG_DEVICE / devices/default)
+sys.path.insert(0, os.path.join(ROOT, 'tools'))
 import dso_ordinals  # noqa: E402
 
-N95 = os.path.join(ROOT, 'build', 'n95')
+N95 = devmodel.paths(devmodel.load())['dir']   # the device's extracted firmware (build/devices/<id>)
 IMG = os.path.join(N95, 'core-flat.img')
 JSN = os.path.join(N95, 'core.json')
 IDX = os.path.join(N95, 'symindex.json')
