@@ -104,3 +104,18 @@ as "Memory full. Close some applications and try again". It is not a real memory
 happens when Carousel builds its UI (it is in the foreground, e.g. `sydb launch 0x10282bf6`), not
 while it idles in the background. Other GLES/M3G users will fail the same way. Fix = a GPU model
 (PowerVR services driver or a GLES stand-in), not planned yet.
+
+**Planned: GPU (OpenGL ES 1.1 + EGL), 2026-11-06.** Plan in [gpu-roadmap.md](gpu-roadmap.md):
+- keep the ROM's `libgles_cm.dll` and redirect its 175 entry points (generated code-patches) to our
+  own GLES/EGL implementation, built for a fixed address in our part of the ROM;
+- software rendering on the phone first (owner: no host GPU for now), split into a front end and a
+  back end so a QEMU device can take over the back end later;
+- frames shown through direct screen access (as Nokia's WSEGL does), vsync-paced;
+- milestones: ZigGLTri (triangle) → ZigGT2Car (textures/lighting) → Carousel/Hitchcock → M3G.
+Owner decisions pending: entry-point patches vs. replacing the DLL, own renderer vs. a base library,
+colour depths, where the vsync wait lives.
+
+**Planned: phone skin (emulator window with hardware buttons), 2026-11-06.** Plan in
+[phone-skin.md](phone-skin.md): a PyQt6 `sydb phone` window (VNC screen, button bar, slider). Side
+keys need only keymap entries. The slider and accelerometer need stand-ins for Nokia's kernel-side
+`keypad.dll` / accelerometer drivers, which are not in our ROM.
