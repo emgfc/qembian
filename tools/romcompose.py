@@ -12,6 +12,11 @@ exception search table, paging/compression off).
 
   romcompose.py --ours OUR.img --n95 core-flat.img -o hybrid.img [--manifest OUT.txt]
                [--keep-ours NAME ...]   also list these of our user-side files (e.g. test tools)
+               [--patches FILE ...]     byte patches (repeatable)
+               [--blob ADDR=FILE ...]   raw prelinked code (e.g. build/n95gl/sygl.bin) placed at ADDR
+                                        in the free gap of our window, between the end of our listed
+                                        files and the N95 user side (holds only our dead user-side
+                                        files); listed nowhere, reached through code patches
 """
 import argparse, os, struct, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -138,8 +143,10 @@ def main():
                     help='ROFS image(s) for the N95 ROFS media (MEDROFS.PDD): first ROFS, then ROFx extension')
     ap.add_argument('--exec92', action='store_true', help='set the 9.2 exec personality flag (kernel config bit 29)')
     ap.add_argument('--trace', type=lambda x: int(x, 0), help='kernel trace mask word 0 (nk_trace.h bits)')
-    ap.add_argument('--patches', metavar='FILE',
+    ap.add_argument('--patches', metavar='FILE', action='append', default=[],
                     help='code patch list: "ADDR ORIGHEX NEWHEX  # why" per line; original bytes are verified')
+    ap.add_argument('--blob', metavar='ADDR=FILE', action='append', default=[],
+                    help='raw code placed at ADDR in the gap between our listed files and the N95 user side')
     a = ap.parse_args()
 
     od, orom, ofiles = load(a.ours)
@@ -160,6 +167,15 @@ def main():
     out = bytearray(od[:ustart - B].ljust(ustart - B, b'\0'))
     out += nd[ustart - B:]
     assert len(out) == n95end - B
+    for spec in a.blob:
+        at, path = spec.split('=', 1)
+        at = int(at, 0)
+        blob = open(path, 'rb').read()
+        if at < oend or at + len(blob) > ustart:
+            raise SystemExit('blob %s (0x%08x+0x%x) outside the free gap 0x%08x..0x%08x'
+                             % (path, at, len(blob), oend, ustart))
+        out[at - B:at - B + len(blob)] = blob
+        print('blob %s: 0x%x bytes at 0x%08x (gap 0x%08x..0x%08x)' % (path, len(blob), at, oend, ustart))
 
     # directory tree: N95 user side, then ours (ours win on name clash, reported)
     entries = {}
@@ -249,8 +265,8 @@ def main():
         put(184, struct.unpack_from('<I', out, 184)[0] | (1 << 29))   # iKernelConfigFlags
     if a.trace is not None:
         put(256, a.trace)                         # iTraceMask[0]
-    if a.patches:
-        for ln in open(a.patches):
+    for pf in a.patches:
+        for ln in open(pf):
             ln = ln.split('#', 1)[0].split()
             if not ln:
                 continue

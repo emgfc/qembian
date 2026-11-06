@@ -1,0 +1,5 @@
+# N95 exports our blob calls: <macro> <module> <mangled name>. Addresses come from
+# build/n95/symindex.json at build time (tools/gen-gles-glue.py --imports).
+RDebug_Printf     EUser.dll  _ZN6RDebug6PrintfEPKcz
+UserSvr_DllTls    EUser.dll  _ZN7UserSvr6DllTlsEi
+UserSvr_DllSetTls EUser.dll  _ZN7UserSvr9DllSetTlsEiPv

@@ -1,5 +1,9 @@
 # GPU (OpenGL ES 1.x + EGL) roadmap for the virtual N95
 
+**Status 2026-11-06: phase 0 done** (src/n95gl: blob at 0x80320000, 175 entry patches; ZigGLTri
+logs `eglInitialize err=12289` = our EGL_NOT_INITIALIZED, Carousel now shows "Feature not supported"
+instead of "Memory full"). Next: phase 1 (ZigGLTri triangle).
+
 Static analysis, 2026-11-06. **[V]** = seen in code/binary/listing, **[I]** = inferred.
 Owner's constraints (2026-11-06): no host GPU / host-GL forwarding for now; start with a software
 rasterizer; keep room for acceleration later.

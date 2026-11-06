@@ -26,11 +26,16 @@ if [ $BUILD = 1 ]; then
   grep -E ': error|undefined reference' build/logs/syborg-udeb.log | head -20 && { echo "BUILD ERRORS"; exit 1; } || true
 fi
 scripts/build-n95compat.sh udeb > build/logs/hybrid-n95compat-build.txt 2>&1 || { tail -30 build/logs/hybrid-n95compat-build.txt; exit 1; }
+# GLES/EGL blob (src/n95gl/build.sh) and the libgles_cm entry patches that need it; SYGL=0 leaves both out
+GL=()
+if [ "${SYGL:-1}" = 1 ] && [ -f build/n95gl/sygl.bin ]; then
+  GL=(--patches rom/hybrid/gles-patches.txt --blob "$(cat build/n95gl/sygl.addr)=build/n95gl/sygl.bin")
+fi
 python3 -I tools/romcompose.py --ours build/rom-hybrid/syborg_hybrid_kernel_ARMV5_udeb.img \
   --n95 build/n95/core-flat.img -o "$IMG" --manifest build/n95/hybrid-manifest.txt \
   --exec92 --trace "$TRACE" \
   --file Sys/Data/ESTARTCOMP.TXT=rom/hybrid/ESTARTCOMP.TXT \
-  --rofs build/n95/rofs1.img --rofs build/n95/rofs2.img --patches "$PATCHES"
+  --rofs build/n95/rofs1.img --rofs build/n95/rofs2.img --patches "$PATCHES" "${GL[@]}"
 python3 -I tools/dtb_set.py external/oss.FCL.sf.adapt.Qemu/baseport/syborg/syborg.dtb build/n95/syborg-n95.dtb \
   framebuffer:width=240 framebuffer:height=320 > /dev/null
 [ $COMPOSE_ONLY = 1 ] && exit 0
