@@ -22,7 +22,11 @@ plan below, on purpose:
 Owner's list additions: the phone window mirrors the host keyboard on its on-screen keys (pressed
 while held) - done 2026-11-06; it must keep doing so when step 5's skin generation builds the
 buttons from keymap.toml (one button per key, found by its host qcodes).
-Next: step 6 (firmware pipeline per device), 7 (key translation in QEMU), then the rest.
+- Step 6 (done): tools/fw/inventory.py --device ID (profile [[firmware.files]], checksums, partitions,
+  unpaging, core.json, kernel-drivers.txt, ABI reports, identify); re-extraction of the RM-320 set is
+  byte-identical (core-flat, core.json, rofs1/2). The helper tools stay in tools/ for now (imported
+  by others); the firmware-inventory doc did not move.
+Next: step 7 (key translation in QEMU), then the rest.
 
 ## Proposed section for CLAUDE.md (paste as is)
 
