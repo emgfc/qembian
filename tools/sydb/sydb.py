@@ -227,7 +227,7 @@ def cmd_fork(sdir, cmd, rest):
     os.makedirs(drives, exist_ok=True)
     for f in ('nvmemory.img', 'nvmemory2.img', 'rtc-offset'):
         if os.path.exists(os.path.join(snap, f)):
-            subprocess.run(['cp', '--sparse=always', os.path.join(snap, f), os.path.join(drives, f)], check=True)
+            subprocess.run(['cp', '--reflink=auto', '--sparse=always', os.path.join(snap, f), os.path.join(drives, f)], check=True)
     log = open(os.path.join(target, 'daemon.log'), 'w')
     subprocess.Popen([sys.executable, os.path.abspath(__file__), '--session', target, '_daemon', meta['rom'], drives,
                       '--restore', snap] + (['--gui'] if a.gui else []), stdout=log, stderr=log,

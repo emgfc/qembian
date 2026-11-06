@@ -111,7 +111,7 @@ sydb pause | resume
   whose preceding instruction is a BL/BLX/`mov lr,pc` and symbolises them against ROM modules (syb_sym)
   and RAM code segments (`N95CODE` lines), followed by the log tail.
 - **Snapshots** (`<session>/snaps/NAME/`): QMP `migrate` to `state.bin` (RAM + all device state,
-  about 120 MB, under 1 s) plus sparse copies of the drive images and the RTC offset. QEMU runs with
+  about 120 MB, under 1 s) plus copies of the drive images (reflinks on btrfs: instant, shared blocks) and the RTC offset. QEMU runs with
   `migration.store-global-state=off` so snapshots taken while gdb holds the machine can be
   restored; after saving, the block devices are reactivated (`blockdev-set-active`) so the source
   runs on. **Forks** start a new daemon + QEMU with `-incoming file:… -S` on copies of the drives:

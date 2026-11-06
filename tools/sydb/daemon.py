@@ -348,7 +348,7 @@ class Session:
         for f in ('nvmemory.img', 'nvmemory2.img', 'rtc-offset'):
             src = os.path.join(self.drives, f)
             if os.path.exists(src):
-                subprocess.run(['cp', '--sparse=always', src, os.path.join(d, f)], check=True)
+                subprocess.run(['cp', '--reflink=auto', '--sparse=always', src, os.path.join(d, f)], check=True)
         # a completed migration leaves the block devices inactive (handed over to the destination);
         # this machine goes on, so take them back (QMP cont would too, gdb's continue does not)
         try:
