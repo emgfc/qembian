@@ -365,21 +365,6 @@ static int surface_alloc(SySurface* s, int w, int h)
 	return 1;
 	}
 
-/* EGL: window surfaces track their window. Called before the first drawing of a frame */
-void sy_surface_follow(SySurface* s)
-	{
-	s->follow = 0;
-	int x, y, w, h;
-	if (sy_window_rect(s->window, &x, &y, &w, &h) || (w == s->w && h == s->h))
-		return;
-	SYLOG("window resized %dx%d -> %dx%d", s->w, s->h, w, h);
-	if (!surface_alloc(s, w, h))
-		{
-		SYLOG("window resize: out of memory");
-		surface_alloc(s, 0, 0);
-		}
-	}
-
 EGLSurface sy_eglCreateWindowSurface(EGLDisplay d, EGLConfig aConfig, NativeWindowType aWin, const EGLint* aAttr)
 	{
 	SYTRACE(sy_thread(), "eglCreateWindowSurface(cfg %d)", (u32)__builtin_return_address(0), (int)aConfig);
@@ -397,6 +382,10 @@ EGLSurface sy_eglCreateWindowSurface(EGLDisplay d, EGLConfig aConfig, NativeWind
 	s->config = c->id;
 	s->kind = 1;
 	s->window = aWin;
+	/* the N95's window-system glue (libpvrTechviewWSEGL) reads the window's size and position once,
+	   here; afterwards it only gets the visible region (docs/gpu-roadmap.md "Fidelity",
+	   H-gles-window-fixed). So does sygl: the surface never tracks a resize or a rotation */
+	s->wx = x; s->wy = y;
 	if (!surface_alloc(s, w, h))
 		{
 		sy_free(s);
@@ -548,10 +537,6 @@ EGLBoolean sy_eglQuerySurface(EGLDisplay d, EGLSurface aSurface, EGLint aAttr, E
 	SySurface* s = surface_of(aSurface);
 	if (!s) return fail(t, EGL_BAD_SURFACE);
 	if (!aValue) return fail(t, EGL_BAD_PARAMETER);
-	/* a window surface has its window's current size: Hitchcock queries it after a layout switch
-	   and sets the viewport from it before drawing (glViewport(0, oldH - newH, ...) otherwise) */
-	if (s->kind == 1 && (aAttr == EGL_WIDTH || aAttr == EGL_HEIGHT))
-		sy_surface_follow(s);
 	switch (aAttr)
 		{
 	case EGL_WIDTH: *aValue = s->w; break;
@@ -680,17 +665,17 @@ static void blit(SyThread* t, SySurface* s, int wx, int wy, int x0, int y0, int 
    screen only (H-gles-fbdirect). */
 void sy_present(SyThread* t, SySurface* s)
 	{
-	int x, y, w, h;
-	if (sy_fb_info(t) || sy_window_rect(s->window, &x, &y, &w, &h))
+	if (sy_fb_info(t))
 		return;
+	int x = s->wx, y = s->wy;			/* fixed at creation (WSEGL) */
 	int rects[16 * 4];
 	int n = sy_dsa_region(t, s, rects, 16);
 	if (s->frames == 0)
-		SYLOG("first frame: surface %dx%d -> window (%d,%d) %dx%d, %s %d rects", s->w, s->h, x, y, w, h,
+		SYLOG("first frame: surface %dx%d at (%d,%d), %s %d rects", s->w, s->h, x, y,
 			  n < 0 ? "no DSA (direct)," : "DSA", n);
 	if (n < 0)
 		{
-		blit(t, s, x, y, x, y, x + w, y + h);
+		blit(t, s, x, y, x, y, x + s->w, y + s->h);
 		return;
 		}
 	for (int i = 0; i < n; ++i)
@@ -707,11 +692,6 @@ EGLBoolean sy_eglSwapBuffers(EGLDisplay d, EGLSurface aSurface)
 	sy_present(t, s);
 	for (int i = 0; i < t->swapInterval; ++i)
 		sy_display_wait_vsync(t);
-	/* the window may be resized before the next frame (a layout switch): the first clear or draw
-	   of that frame follows it (sy_surface_follow). Not here: Hitchcock redraws everything once
-	   after a resize and then only dirty regions, so a buffer reallocated (cleared) after that
-	   full redraw stayed black outside the dirty regions */
-	s->follow = 1;
 	++s->frames;
 	unsigned now = sy_ms();
 	if (++t->fpsFrames == 1)

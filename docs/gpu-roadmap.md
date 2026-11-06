@@ -222,7 +222,8 @@ switch and sets glViewport from it, without recreating the surface. Carousel pas
 landscape" to Hitchcock (carousel.exe: hitchcock ord145(display, Orientation() == 2)), so it may
 rotate its own rendering instead. Check on the real phone before making strict the default.
 
-Plan: with the host-GL work, make this a setting: `follow` (today's behaviour) and `strict` (the
-WSEGL behaviour above: size and position fixed at creation, present clipped to the DSA region,
-eglQuerySurface returns the creation size, native-orientation buffers when rotated). Default
-`strict` once Carousel is checked against it.
+Done 2026-11-06 (owner: compatibility, not imitation): sygl is strict, there is no follow mode
+(H-gles-window-fixed). Next: the rotation field. With strict sizes Carousel's landscape switch draws
+its 240x320 surface at (0,0) of the 320x240 screen; Carousel works on the device, so the real
+driver's native-orientation buffers + rotated pvr2d blit (FUN_80a6c3b2 swaps w/h at rotation 1/3)
+probably matter. RE that path (pvr2d ordinals used by WSEGL's present) before the host-GL backend.
