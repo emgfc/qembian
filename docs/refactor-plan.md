@@ -5,6 +5,22 @@ booting, and a test. **[M]** = must-have before a second device can be started, 
 follow soon (removes a guest rebuild or a hand edit per device), **[L]** = later. Design:
 [devices.md](devices.md); flow for new phones: [adding-a-device.md](adding-a-device.md).
 
+## Status (2026-11-06)
+
+Done: steps 0-5 (commits 8ec4d46..694fc05) and firmware identity (4497c5a). Deviations from the
+plan below, on purpose:
+- Step 1: the ISI database moved whole to `devices/<id>/isi-db.txt` (`[modem].db`); the split into
+  platform names + device replies is still to do. `platform/symbian/syborg-pc-keys.toml` is the base
+  key layer (shipped Syborg table + patch 0005's extended navigation).
+- Step 2: `build/n95` is a symlink to `build/devices/nokia-n95-8gb-rm320`; mcp.py, boot milestones and
+  measure-boot.sh still read the old defaults. run-modern.sh also refuses a drive image another QEMU
+  has open (after an incident on the owner's drives).
+- Step 3: stand-in options (`[[standins]].options`) are not generated yet (the extension LDD keeps its
+  #defines); variants omit patches by `[H-...]` tag in the patch line.
+- Step 4: no SWI-table comparison in `check.py` yet (driver ABI only).
+- Step 5: the phone window and docs/n95-controls.md are not generated from keymap.toml yet.
+Next: step 6 (firmware pipeline per device), 7 (key translation in QEMU), then the rest.
+
 ## Proposed section for CLAUDE.md (paste as is)
 
 ```

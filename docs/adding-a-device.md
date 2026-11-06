@@ -159,3 +159,13 @@ levels are logged in `[status].level` as they are reached.
 - [ ] L4 / L5 / L6 as the hardware allows
 - [ ] hacks documented with file paths; `docs/tooling-ideas.md` updated if a tool was missing
 - [ ] `devices/<id>/README.md` and the roadmap line written
+
+## Firmware identity (implemented)
+
+After extracting the firmware into `build/devices/<id>/`, run `tools/device.py identify` (or
+`identify DIR`): it prints the firmware's own `sw.txt` / `langsw.txt` (version, date, type code), its
+WLAN drivers, and which profile matches. Copy the values into `[firmware.identity]` (sw, langsw,
+drivers / no_drivers, sha256 of the extracted images). `device.py build` refuses to compose a ROM
+when they differ, because every code patch address belongs to one exact build (romcompose also checks
+each patch's original bytes).
+

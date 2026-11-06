@@ -22,6 +22,27 @@ hand-made QEMU/gdb command lines:
   right for one-shot boot experiments and ROM composition (`docs/tools.md`). They kill only their
   own `sybtool` QEMUs, so they don't stop a sydb session.
 
+## Devices (declarative device model)
+
+One QEMU binary serves every phone; everything phone-specific is declared in
+`devices/<id>/device.toml` (+ `keymap.toml`, `isi-db.txt`, `code-patches.txt`, `ESTARTCOMP.TXT`,
+`gl/`). Read `docs/devices.md` (schema, layering) before touching `devices/`, `src/standins/`,
+`personalities/` or the run scripts; `docs/adding-a-device.md` is the flow for a new phone.
+- No new N95 literal in a script or tool: put it in the profile and read it through `tools/device.py`
+  (`list`, `check`, `show`, `get`, `paths`, `qemu-args`, `identify`, `build`, `gen`). Default device:
+  `devices/default` (symlink) or `$SYBORG_DEVICE`.
+- Compose a device ROM with `tools/device.py build [ID] [--variant V] [--kernel]` (hybrid-boot.sh /
+  compose-exp.sh are wrappers). It refuses firmware whose `[firmware.identity]` (sw.txt, image hashes,
+  hardware drivers) does not match; `tools/device.py identify DIR` tells which profile a firmware is.
+- Stand-ins: `src/standins/<driver>/` (shared headers in `_shared/`); the profile's `[[standins]]` picks
+  them (bld.inf and ROM order generated). Keys: `keymap.toml` -> EKEYB table, sydb aliases.
+- Personalities (`personalities/sym92/`: exec map, kernel patches, `kabi.toml`) make our EPL kernel look
+  like the phone's own; verify with `tools/personality/check.py --device ID`.
+- Smoke test after every platform change: `tests/device-smoke.sh [ID]` (own session; idle, Carousel,
+  Switch off), unit tests `tests/device_py_test.py`.
+- Firmware and the owner's phone images stay in `build/devices/<id>/` (git-ignored). Never boot the
+  owner's drives (`run-gui.sh` defaults) for a test: use `sydb --session build/sydb-<name>` sessions.
+
 ## Subagent research rules (owner's instruction)
 
 Research agents deliver **just enough API/protocol knowledge to mock a driver or system**, never a
