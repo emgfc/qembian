@@ -13,7 +13,7 @@ phone's keys and machine controls, talking to a running sydb session (docs/phone
   portrait). The keypad slide itself sends no event yet (Nokia's keypad.dll is not in our ROM,
   see docs/phone-skin.md).
 """
-import os, socket, struct, sys, threading, time
+import mmap, os, re, socket, struct, sys, threading, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -116,6 +116,67 @@ class Rfb(QtCore.QObject):
 
     def request(self, incremental):
         self.s.sendall(struct.pack('>BBHHHH', 3, 1 if incremental else 0, 0, 0, self.w, self.h))
+
+
+class ShmFb(QtCore.QObject):
+    """the screen straight from guest RAM: the session backs RAM with a shared file (daemon
+    ram_path), the Syborg fb registers (polled through the daemon) say where the picture is and
+    how the controller shows it. Does what syborg_fb.c does: rotation, partial band, dimming."""
+    frame = QtCore.pyqtSignal(QtGui.QImage)
+    status = QtCore.pyqtSignal(str)
+    DIM = 25                                   # syborg-fb blank-dim default (percent)
+
+    def __init__(self, client, path, parent=None):
+        super().__init__(parent)
+        self.c, self.regs = client, None
+        f = open(path, 'rb')
+        self.mm = mmap.mmap(f.fileno(), 0, prot=mmap.PROT_READ)
+        f.close()
+        threading.Thread(target=self.poll_regs, daemon=True).start()
+        self.timer = QtCore.QTimer(self)
+        self.timer.timeout.connect(self.tick)
+        self.timer.start(16)                   # ~60 Hz, the panel's refresh
+
+    def poll_regs(self):
+        while True:
+            try:
+                out = self.c.call({'op': 'hmp', 'cmd': 'xp /17wx 0xc0005000'}, 3)['out']
+                # "c0005000: 0x.. 0x.. 0x.. 0x.." lines: word 0 = ID, 1 BASE, 2 HEIGHT, 3 WIDTH, ...
+                self.regs = [int(v, 16) for line in out.splitlines()
+                             for v in re.findall(r'0x([0-9a-f]{8})', line.split(':', 1)[-1])]
+                self.status.emit('screen: shared memory')
+            except Exception as e:
+                self.regs = None
+                self.status.emit('screen: %s' % e)
+            time.sleep(0.25)
+
+    def tick(self):
+        r = self.regs
+        if not r or len(r) < 17:
+            return
+        base, height, width, rot, blank, bpp, pitch, enabled = r[1], r[2], r[3], r[4] & 3, r[5], r[8], r[12], r[13]
+        pstart, pend, pmode = r[14], r[15], r[16]
+        if not base or bpp != 32 or not width or not height:
+            return
+        pw, ph = (height, width) if rot & 1 else (width, height)
+        pitch = pitch or pw * 4
+        if base + pitch * ph > len(self.mm):
+            return
+        img = QtGui.QImage(self.mm[base:base + pitch * ph], pw, ph, pitch, QtGui.QImage.Format.Format_RGB32).copy()
+        if pmode & 1 or not enabled or blank:
+            p = QtGui.QPainter(img)
+            if pmode & 1:                      # partial display: only the band is lit
+                black = QtGui.QColor(0, 0, 0)
+                if pmode & 4:                  # band = picture rows
+                    p.fillRect(0, 0, pw, pstart, black); p.fillRect(0, pend + 1, pw, ph - pend - 1, black)
+                else:                          # band = picture columns
+                    p.fillRect(0, 0, pstart, ph, black); p.fillRect(pend + 1, 0, pw - pend - 1, ph, black)
+            if not enabled or blank:           # no backlight: dimmed
+                p.fillRect(0, 0, pw, ph, QtGui.QColor(0, 0, 0, 255 * (100 - self.DIM) // 100))
+            p.end()
+        if rot:                                # quarter turns clockwise onto the screen
+            img = img.transformed(QtGui.QTransform().rotate(90 * rot))
+        self.frame.emit(img)
 
 
 class Screen(QtWidgets.QWidget):
@@ -221,7 +282,15 @@ class Phone(QtWidgets.QWidget):
         side.addStretch(1)
         self.slide(0)
         # screen + status
-        self.rfb = Rfb(os.path.join(sdir, 'vnc.sock'))
+        ram = None
+        try:
+            ram = self.c.call({'op': 'status'}, 5).get('ram')
+        except Exception:
+            pass
+        if ram and os.path.exists(ram) and os.environ.get('SYDB_VNC') != '1':
+            self.rfb = ShmFb(self.c, ram, self)   # direct from guest RAM
+        else:
+            self.rfb = Rfb(os.path.join(sdir, 'vnc.sock'))   # older sessions: VNC
         self.rfb.frame.connect(self.screen.set_frame)
         self.rfb.status.connect(lambda m: self.set_status(screen=m))
         self.st = {}

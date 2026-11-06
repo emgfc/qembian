@@ -251,8 +251,18 @@ class Session:
         drv = os.environ.get('AUDIO', 'pipewire') if self.audio == 'host' else self.audio
         return drv + ',id=snd0'
 
+    def ram_path(self):
+        # guest RAM as a shared file: sydb phone maps it and reads the frame buffer directly
+        # (no VNC encoding); /dev/shm, so it costs nothing beyond the RAM QEMU allocates anyway
+        import hashlib
+        return '/dev/shm/sydb-%s.ram' % hashlib.md5(os.path.abspath(self.sdir).encode()).hexdigest()[:10]
+
     def start(self):
         sd, dd = self.sdir, self.drives
+        try:
+            os.unlink(self.ram_path())
+        except FileNotFoundError:
+            pass
         for f in ('agent.sock', 'qmp.sock', 'vnc.sock'):
             try:
                 os.unlink(os.path.join(sd, f))
@@ -271,6 +281,8 @@ class Session:
                 '-gdb', 'tcp:127.0.0.1:%d' % self.gdb_port,
                 '-vnc', 'unix:' + os.path.join(sd, 'vnc.sock'),     # the screen for sydb phone
                 '-audiodev', self.audiodev(), '-machine', 'audiodev=snd0',
+                '-object', 'memory-backend-file,id=ram0,size=168M,share=on,mem-path=' + self.ram_path(),
+                '-machine', 'memory-backend=ram0',
                 '-global', 'syborg-rtc.offset-file=' + os.path.join(dd, 'rtc-offset'),
                 # snapshots may be taken while gdb holds the machine ('debug'), a run state an incoming
                 # machine cannot enter: do not carry the run state; restores start paused (-S)
@@ -331,6 +343,10 @@ class Session:
                 self.qemu.wait(5)
             except subprocess.TimeoutExpired:
                 os.killpg(self.qemu.pid, signal.SIGKILL)
+        try:
+            os.unlink(self.ram_path())
+        except FileNotFoundError:
+            pass
 
     # ---- machine snapshots ("fork"): RAM + device state by QMP migrate to a file, drives copied ----
     def snapshot(self, name=None, keep_stopped=False):
@@ -542,7 +558,8 @@ def handle(sess, req):
     if op == 'status':
         return {'state': sess.state, 'uptime': sess.now(), 'agent': bool(a.connected()) and a.hello,
                 'qemu_pid': sess.qemu.pid if sess.qemu else None, 'session': sess.sdir,
-                'gdb_port': sess.gdb_port, 'log_lines': sess.log_lines, 'events': sess.ev_seq}
+                'gdb_port': sess.gdb_port, 'log_lines': sess.log_lines, 'events': sess.ev_seq,
+                'ram': sess.ram_path()}
     if op == 'stop':
         threading.Thread(target=lambda: (time.sleep(0.2), sess.stop(), os._exit(0)), daemon=True).start()
         return {'ok': True}

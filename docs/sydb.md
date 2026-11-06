@@ -126,7 +126,10 @@ sydb pause | resume
 ## Phone window
 
 `sydb phone [--scale 2]` opens an emulator window like the Android emulator's: the live screen
-(QEMU's VNC on `<session>/vnc.sock`), the phone's keys with real press/release (hold Menu = task
+(read straight from guest RAM, which sessions back with a shared file `/dev/shm/sydb-<hash>.ram`
+(`status` → `ram`); the window follows the fb registers for base, pitch, rotation, partial band and
+blanking, ~60 frames/s, pixel-identical to QEMU's screendump; `SYDB_VNC=1` or an older session falls
+back to VNC on `<session>/vnc.sock`), the phone's keys with real press/release (hold Menu = task
 switcher, hold Power = switch off), the host keyboard, and a side toolbar: Power, Vol +/-,
 **Landscape (media slide)** (taps F13, the phone switches its layout, the view turns so it stays
 upright; Ctrl+Left/Right toggles it too), **Keypad slide** (shows the number keys; no slide event to
