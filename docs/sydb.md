@@ -123,6 +123,13 @@ sydb pause | resume
 - MCP: `catch_add/list/rm/hits/show/resume`, `snap_save/list/rm`, `session_fork`, `session_select`
   (point the tools at a fork and back), `vm_pause/resume`.
 
+## Phone window
+
+`sydb phone [--scale 2]` opens an emulator window like the Android emulator's: the live screen
+(QEMU's VNC on `<session>/vnc.sock`), the phone's keys with real press/release (hold Menu = task
+switcher, hold Power = switch off), the host keyboard, reset, pause, screenshot, snapshot and the
+slider. It starts a session if none is running. Details: [phone-skin.md](phone-skin.md).
+
 ## TUI
 
 `sydb tui` (curses) shows the status line (phone state, agent, focused window group), the named

@@ -245,7 +245,7 @@ class Session:
 
     def start(self):
         sd, dd = self.sdir, self.drives
-        for f in ('agent.sock', 'qmp.sock'):
+        for f in ('agent.sock', 'qmp.sock', 'vnc.sock'):
             try:
                 os.unlink(os.path.join(sd, f))
             except FileNotFoundError:
@@ -261,6 +261,7 @@ class Session:
         cmd.append(os.path.abspath(self.rom))
         cmd += ['-serial', 'unix:%s,server=on,wait=off' % os.path.join(sd, 'agent.sock'),
                 '-gdb', 'tcp:127.0.0.1:%d' % self.gdb_port,
+                '-vnc', 'unix:' + os.path.join(sd, 'vnc.sock'),     # the screen for sydb phone
                 '-audiodev', 'wav,id=snd0,path=' + os.path.join(sd, 'audio.wav'), '-machine', 'audiodev=snd0',
                 '-global', 'syborg-rtc.offset-file=' + os.path.join(dd, 'rtc-offset'),
                 # snapshots may be taken while gdb holds the machine ('debug'), a run state an incoming
@@ -501,6 +502,7 @@ def screenshot(sess, path=None, scale=1.0, crop=None, only_if_changed=False):
 
 
 KEYMAP = {'lsk': 'f5', 'rsk': 'f7', 'ok': 'f6', 'select': 'f6', 'menu': 'f8', 'star': 'kp_multiply',
+          'call': 'f2', 'end': 'f3', 'power': 'f4', 'volup': 'f11', 'voldown': 'f12',
           'hash': 'f10', 'clear': 'backspace', 'back': 'f7'}
 
 
@@ -681,6 +683,11 @@ def handle(sess, req):
             if sess.state == 'restored':
                 sess.state = 'idle'
         return {'status': sess.qmp('query-status')['status'], 'state': sess.state}
+    if op == 'keyev':                     # key down or up (sydb phone: real presses, long presses)
+        keys = [KEYMAP.get(k, k) for k in req['keys']]
+        sess.qmp('input-send-event', events=[{'type': 'key', 'data': {'down': bool(req['down']),
+                                              'key': {'type': 'qcode', 'data': k}}} for k in keys])
+        return {'ok': True}
     if op == 'qmp':                       # raw QMP command (e.g. input-send-event)
         return {'ok': True, 'return': sess.qmp(req['cmd'], **(req.get('args') or {}))}
     if op == 'hmp':

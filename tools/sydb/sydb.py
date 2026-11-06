@@ -17,6 +17,8 @@
            mem ADDR [LEN]|write ADDR HEX|eval EXPR|symbols NAME [ELF]|interrupt|detach|cmd GDBCMD
   sydb strace MATCH [--secs S]       IPC messages to/from processes matching MATCH (kernel KIPC trace)
   sydb tui                           curses view: status, window groups, events, log, command line
+  sydb phone [--scale 2]             emulator window: screen, phone keys (long presses), reset/pause/
+                                     screenshot/snapshot, slider (starts a session if none runs)
   sydb catch add --at ADDR [--thread RE] [--max N] [--action dump|freeze]   dump each time ADDR runs
   sydb catch add [--kind panic|kill|terminate|exit|any] [--thread RE] [--category CAT] [--reason N]
                  [--action dump|freeze] [--snapshot] [--once]   catch thread deaths (see docs/sydb.md)
@@ -26,7 +28,7 @@
   sydb restore SNAP [--run]          the same into this session  | sydb pause | resume
   sydb gc [--keep-auto 5] [--keep-dumps 200] [--no-forks] [--dry-run]   retention (also after each catch hit)
   sydb qmp CMD [JSON-ARGS] | hmp CMD | mcp (MCP stdio server) | --json (raw JSON output) | --session DIR
-Keys: QKeyCode names or aliases lsk rsk ok menu star hash clear back; 1.5 or 10 = pause in seconds (1 = key 1);
+Keys: QKeyCode names or aliases lsk rsk ok menu star hash clear back call end power volup voldown; 1.5 or 10 = pause in seconds (1 = key 1);
       KEY:SECONDS = hold (long press), e.g. menu:1.5 opens the task switcher.
 """
 import argparse, json, os, shutil, socket, subprocess, sys, time, zlib
@@ -278,6 +280,14 @@ def main():
         x = ap.parse_args(rest)
         daemon.serve(sdir, x.rom, x.drives, x.gui, [], x.restore)
         return
+    if cmd == 'phone':                 # emulator window: screen + phone keys + machine controls
+        ap = argparse.ArgumentParser(prog='sydb phone')
+        ap.add_argument('--scale', type=float, default=2.0)
+        x = ap.parse_args(rest)
+        if not Client(sdir).alive():
+            subprocess.run([sys.executable, os.path.abspath(__file__), '--session', sdir, 'start', '--no-wait'], check=True)
+        import phone
+        sys.exit(phone.main(sdir, x.scale))
     if cmd == 'tui':
         import tui
         tui.main(sdir)

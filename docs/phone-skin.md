@@ -1,4 +1,18 @@
-# Phone skin: an emulator window with hardware buttons (plan, 2026-11-06)
+# Phone skin: an emulator window with hardware buttons
+
+**Status 2026-11-06: step 1 done and part of step 2.** `tools/sydb/sydb.py phone [--scale 2]`
+(`tools/sydb/phone.py`, PyQt6) shows the live screen over VNC (`<session>/vnc.sock`, minimal RFB
+3.8 client, raw 32 bpp) and has these controls:
+- buttons for the front keys, the slide-out keypad, and Power/volume on the side; real
+  press/release through the daemon op `keyev`, so long presses work;
+- the host keyboard (autorepeat ignored, keys released on focus loss);
+- Reset, Pause/Resume, Shot (saves to `<session>/shots`) and Snapshot;
+- the slider (closed / keypad / media; media turns the screen to landscape).
+The phone now has Call/End/Power/volume keys (baseport patch 0014, docs/n95-controls.md). Still
+open: camera, Multimedia and media-key scan codes, and the slide and accelerometer stand-ins
+(steps 3–4).
+
+(The plan as written before the work:)
 
 Goal: a window like the Android emulator's. It shows the N95 screen plus a button bar: power,
 reset, volume, camera, media keys, multimedia key, and the slider (closed / keypad open / media
