@@ -1,21 +1,35 @@
 --- a/baseport/syborg/keyboard/syborg_keyboard.h
 +++ b/baseport/syborg/keyboard/syborg_keyboard.h
-@@ -190,12 +190,12 @@
+@@ -174,7 +174,7 @@
+ 	/*52*/ EStdKeyInsert,
+ 	/*53*/ EStdKeyDelete,
+ 	/*54*/ EStdKeyNull,
+-	/*55*/ EStdKeyNull,
++	/*55*/ EStdKeyApplication1A,	// syborg-pg: F16 (QEMU set-1 0x55; camera app captures it: full press?)
+ 	/*56*/ EStdKeyBackSlash,
+ 	/*57*/ EStdKeyIncVolume,	// syborg-pg: F11 = volume up
+ 	/*58*/ EStdKeyDecVolume,	// syborg-pg: F12 = volume down
+@@ -182,9 +182,9 @@
+ 	/*5a*/ EStdKeyNull,
+ 	/*5b*/ EStdKeyNull,
+ 	/*5c*/ EStdKeyNull,
+-	/*5d*/ EStdKeyNull,
+-	/*5e*/ EStdKeyNull,
+-	/*5f*/ EStdKeyNull,
++	/*5d*/ EStdKeyDeviceA,	// syborg-pg: F13 (set-1 0x5d; akncapserver captures EKeyDeviceA)
++	/*5e*/ EStdKeyDeviceB,	// syborg-pg: F14 (set-1 0x5e; akncapserver captures EKeyDeviceB)
++	/*5f*/ EStdKeyApplication19,	// syborg-pg: F15 (set-1 0x5f; camera app captures it: half press?)
+ 
+ 	/*60*/ EStdKeyNull,
  	/*61*/ EStdKeyNull,
- 	/*62*/ EStdKeyNull,
- 	/*63*/ EStdKeyNull,
--	/*64*/ EStdKeyNull,
--	/*65*/ EStdKeyNull,
--	/*66*/ EStdKeyNull,
--	/*67*/ EStdKeyNull,
--	/*68*/ EStdKeyNull,
--	/*69*/ EStdKeyNull,
-+	/*64*/ EStdKeyDeviceA,	// syborg-pg: F13 (akncapserver captures EKeyDeviceA)
-+	/*65*/ EStdKeyDeviceB,	// syborg-pg: F14 (akncapserver captures EKeyDeviceB)
-+	/*66*/ EStdKeyApplication19,	// syborg-pg: F15 (camera app captures it: half press?)
-+	/*67*/ EStdKeyApplication1A,	// syborg-pg: F16 (camera app captures it: full press?)
-+	/*68*/ EStdKeyApplication7,	// syborg-pg: F17 (akncapserver captures its up/downs)
-+	/*69*/ EStdKeyApplication8,	// syborg-pg: F18 (akncapserver captures its up/downs)
- 	/*6a*/ EStdKeyNull,
- 	/*6b*/ EStdKeyNull,
- 	/*6c*/ EStdKeyNull,
+@@ -223,8 +223,8 @@
+ 	/*80*/ EStdKeyNull,
+ 	/*81*/ EStdKeyNull,
+ 	/*82*/ EStdKeyNull,
+-	/*83*/ EStdKeyNull,
+-	/*84*/ EStdKeyNull,
++	/*83*/ EStdKeyApplication7,	// syborg-pg: F17 (set-1 0xe003; akncapserver: P&S 101f876e/4 on key-down)
++	/*84*/ EStdKeyApplication8,	// syborg-pg: F19 (set-1 0xe004; F18 is 0xe077, past this 0xf0-entry table)
+ 	/*85*/ EStdKeyNull,
+ 	/*86*/ EStdKeyNull,
+ 	/*87*/ EStdKeyNull,
