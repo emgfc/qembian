@@ -6,8 +6,8 @@
 # sound; without the DSP bridge MMFAudioServer cannot start, NewL leaves -1, EikSrvs dies and the
 # Avkon chain restarts forever. Replace "blx CMdaAudioToneUtility::NewL" with "movs r0,#0; nop":
 # tone player stays NULL (the play paths check it). Key tones are silent.
-82f0e366  01f0a2eb  0020c046   # eiksrvui.dll+? sound-info ConstructL
-82f0e9c8  01f070e8  0020c046   # eiksrvui.dll re-create on prepare
+82f0e366  01f0a2eb  0020c046   # eiksrvui.dll+? sound-info ConstructL  [H-keysound-nommf]
+82f0e9c8  01f070e8  0020c046   # eiksrvui.dll re-create on prepare  [H-keysound-nommf]
 
 # H-splash-behind: SplashScreen.exe puts its window group at ordinal priority 1001 (above every
 # window) and only drops to -1000 when its 120 s timer expires; Starter then restarts it while the
@@ -19,13 +19,13 @@
 # H-keysound-nommf (continued): the two tone "play" helpers dereference the (NULL) tone player
 # without a check (EikSrvs KeySoundServer KERN-EXEC 3 on the first key/notification tone).
 # Make them return at once.
-82f0ea94  c169  7047   # eiksrvui.dll tone play helper 1: ldr r1,[r0,#28] -> bx lr
-82f0eac8  c169  7047   # eiksrvui.dll tone play helper 2: ldr r1,[r0,#28] -> bx lr
+82f0ea94  c169  7047   # eiksrvui.dll tone play helper 1: ldr r1,[r0,#28] -> bx lr  [H-keysound-nommf]
+82f0eac8  c169  7047   # eiksrvui.dll tone play helper 2: ldr r1,[r0,#28] -> bx lr  [H-keysound-nommf]
 
 # H-startuptone-nommf (docs/n95-startup-animation.md): Startup.exe CStartupTone::ConstructL creates a
 # CMdaAudioPlayerUtility for the startup tone; without the DSP bridge the MMF open blocks the main
 # thread in a synchronous controller call, the view server times out (ViewSrv 11, 10 s) and the
 # welcome animation is never shown. "blx NewFilePlayerL" -> "movs r0,#0; nop": no tone player,
 # Play() returns KErrNotReady, the (silent) key-sound fallback is used and the animation runs.
-833a93c4  01f0aaec  0020c046   # startup.exe CStartupTone::ConstructL
+833a93c4  01f0aaec  0020c046   # startup.exe CStartupTone::ConstructL  [H-startuptone-nommf]
 

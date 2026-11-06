@@ -42,6 +42,16 @@ TMP=()
 if [ -z "$NVMEM" ]; then NVMEM="$RUN/nvmemory-$$.img"; TMP+=("$NVMEM"); rm -f "$NVMEM"; fi
 if [ -z "$NVMEM2" ]; then NVMEM2="$RUN/nvmemory2-$$.img"; TMP+=("$NVMEM2"); rm -f "$NVMEM2"; fi
 [ ${#TMP[@]} -gt 0 ] && trap 'rm -f "${TMP[@]}"' EXIT
+# never two emulators on one drive image: the FAT would be written from two views
+for img in "$NVMEM" "$NVMEM2"; do
+  [ -e "$img" ] || continue
+  real=$(realpath "$img")
+  for pid in $(pgrep -f qemu-system-arm); do		# the files it has open, whatever path it was given
+    if find "/proc/$pid/fd" -lname "$real" 2>/dev/null | grep -q .; then
+      echo "$img is in use by QEMU pid $pid (a sydb session or run-gui): stop it first" >&2; exit 1
+    fi
+  done
+done
 DEV=(); [ -n "$DEVICE" ] && DEV=("$DEVICE")
 DEVPY=(python3 -I "$ROOT/tools/device.py")
 mapfile -t BOARD < <("${DEVPY[@]}" qemu-args "${DEV[@]}" --rom "$ROM")

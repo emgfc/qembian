@@ -20,3 +20,4 @@ UID				0x1000008d 0x100039e8
 VENDORID		0x70000001
 ROMTARGET		lcd.dll
 CAPABILITY		all
+userinclude		../_shared	// src/standins/_shared: nokiastub.h, iscpeer.inl, isireplies.h, stubcert.h

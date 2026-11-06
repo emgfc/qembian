@@ -258,6 +258,7 @@ drivers = ["keypad.dll", "accelerometerldd.ldd", "accelerometerpdd.pdd", "mobile
 # Fake modem (ISI over ISC). Simple replies are a table; stateful ones are code in the stand-in.
 [modem]
 kind = "isi-fake-peer"
+db = "isi-db.txt"                          # names + replies (tools/isi.py); to be split into platform names + device replies
 names = "platform/isi/names.txt"           # resource/message names, shared (today: the res/msg lines of src/n95compat/isi/isi-db.txt)
 replies = "isi-replies.txt"                # device reply table (today: the reply lines of isi-db.txt) -> generated isireplies.h
 stateful = "nokiaiscdriver"                # H-modem-power, H-light, H-em, H-imei, MTC state machine (iscpeer.inl)
@@ -280,6 +281,7 @@ manifest = "hybrid-manifest.txt"
 
 # Named variants of the composed ROM (scripts/compose-exp.sh): same device, different patch set.
 [rom.variants.audio-exp]
+image = "hybrid-exp.img"                   # build/devices/<id>/hybrid-exp.img
 omit_patches = ["H-keysound-nommf", "H-startuptone-nommf"]   # MMF works through the DSP stand-in; startup jingle plays
 notes = "ROM used by sydb --device (hybrid-exp.img). Key tones through the fake DSP are still being verified."
 

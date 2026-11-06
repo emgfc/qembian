@@ -14,3 +14,4 @@ epocallowdlldata
 UID				0x100039cf 0x100000db
 VENDORID		0x70000001
 CAPABILITY		all
+userinclude		../_shared	// src/standins/_shared: nokiastub.h, iscpeer.inl, isireplies.h, stubcert.h

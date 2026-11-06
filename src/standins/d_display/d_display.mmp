@@ -12,3 +12,4 @@ capability		all
 userinclude		../../specific
 epocallowdlldata
 library			PlatformLib
+userinclude		../_shared	// src/standins/_shared: nokiastub.h, iscpeer.inl, isireplies.h, stubcert.h

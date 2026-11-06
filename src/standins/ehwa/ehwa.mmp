@@ -11,3 +11,4 @@ vendorid		0x70000001
 capability		all
 epocallowdlldata
 userinclude		../../specific
+userinclude		../_shared	// src/standins/_shared: nokiastub.h, iscpeer.inl, isireplies.h, stubcert.h
