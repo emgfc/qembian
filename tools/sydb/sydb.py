@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """sydb: adb-like dev/debug bridge for the virtual N95 (see docs/sydb.md).
 
-  sydb start [--seed DIR] [--fresh] [--gui] [--rom ROM]   boot a session (daemon + QEMU), wait for idle
+  sydb start [--seed DIR] [--fresh] [--gui] [--rom ROM] [--audio wav|host|DRIVER]   boot a session, wait for idle
   sydb stop | status | wait idle|agent|REGEX [--timeout S]
   sydb install | uninstall           agent on/off C: incl. its Starter startup-list record (session stopped)
   sydb ls PATH | push LOCAL REMOTE | pull REMOTE LOCAL | rm PATH | mkdir PATH
@@ -178,7 +178,8 @@ def cmd_start(sdir, a):
             cmd_install(sdir, a)
     rom = os.path.abspath(a.rom)
     log = open(os.path.join(sdir, 'daemon.log'), 'w')
-    subprocess.Popen([sys.executable, os.path.abspath(__file__), '--session', sdir, '_daemon', rom, drives]
+    subprocess.Popen([sys.executable, os.path.abspath(__file__), '--session', sdir, '_daemon', rom, drives,
+                      '--audio', getattr(a, 'audio', None) or 'wav']
                      + (['--gui'] if a.gui else []), stdout=log, stderr=log, stdin=subprocess.DEVNULL,
                      start_new_session=True, cwd=ROOT)
     for _ in range(100):
@@ -277,15 +278,18 @@ def main():
         import daemon
         ap = argparse.ArgumentParser(); ap.add_argument('rom'); ap.add_argument('drives')
         ap.add_argument('--gui', action='store_true'); ap.add_argument('--restore')
+        ap.add_argument('--audio', default='wav')
         x = ap.parse_args(rest)
-        daemon.serve(sdir, x.rom, x.drives, x.gui, [], x.restore)
+        daemon.serve(sdir, x.rom, x.drives, x.gui, [], x.restore, x.audio)
         return
     if cmd == 'phone':                 # emulator window: screen + phone keys + machine controls
         ap = argparse.ArgumentParser(prog='sydb phone')
         ap.add_argument('--scale', type=float, default=2.0)
+        ap.add_argument('--audio', default='host', help='sound of a session it starts: host (speakers, default), wav, or a QEMU audiodev driver')
         x = ap.parse_args(rest)
         if not Client(sdir).alive():
-            subprocess.run([sys.executable, os.path.abspath(__file__), '--session', sdir, 'start', '--no-wait'], check=True)
+            subprocess.run([sys.executable, os.path.abspath(__file__), '--session', sdir, 'start', '--no-wait',
+                            '--audio', x.audio], check=True)
         import phone
         sys.exit(phone.main(sdir, x.scale))
     if cmd == 'tui':
@@ -307,6 +311,8 @@ def main():
         ap.add_argument('--seed'); ap.add_argument('--fresh', action='store_true')
         ap.add_argument('--gui', action='store_true'); ap.add_argument('--install', action='store_true')
         ap.add_argument('--no-wait', action='store_true'); ap.add_argument('--timeout', type=float, default=180)
+        ap.add_argument('--audio', default='wav', help='wav (<session>/audio.wav, default), host (speakers: '
+                        '$AUDIO or pipewire, like run-gui) or any QEMU audiodev driver (pa, alsa, sdl, none)')
         ap.add_argument('--rom', default=os.path.join(ROOT, 'build', 'n95', 'hybrid.img'))
         a = ap.parse_args(rest)
         (cmd_start if cmd == 'start' else cmd_install)(sdir, a)

@@ -218,8 +218,9 @@ class AgentLink:
 
 
 class Session:
-    def __init__(self, sdir, rom, drives, gui, extra, restore=None):
+    def __init__(self, sdir, rom, drives, gui, extra, restore=None, audio='wav'):
         self.sdir, self.rom, self.drives, self.gui, self.extra = sdir, rom, drives, gui, extra
+        self.audio = audio
         self.restore = restore         # snapshot dir to resume from (sydb fork / restore)
         self.stopping = False
         self.t0 = time.time()
@@ -243,6 +244,13 @@ class Session:
             del self.events[:-2000]
             self.ev_cv.notify_all()
 
+    def audiodev(self):
+        # wav: sound to <session>/audio.wav (unattended runs); host: the speakers, as run-gui does
+        if self.audio == 'wav':
+            return 'wav,id=snd0,path=' + os.path.join(self.sdir, 'audio.wav')
+        drv = os.environ.get('AUDIO', 'pipewire') if self.audio == 'host' else self.audio
+        return drv + ',id=snd0'
+
     def start(self):
         sd, dd = self.sdir, self.drives
         for f in ('agent.sock', 'qmp.sock', 'vnc.sock'):
@@ -262,7 +270,7 @@ class Session:
         cmd += ['-serial', 'unix:%s,server=on,wait=off' % os.path.join(sd, 'agent.sock'),
                 '-gdb', 'tcp:127.0.0.1:%d' % self.gdb_port,
                 '-vnc', 'unix:' + os.path.join(sd, 'vnc.sock'),     # the screen for sydb phone
-                '-audiodev', 'wav,id=snd0,path=' + os.path.join(sd, 'audio.wav'), '-machine', 'audiodev=snd0',
+                '-audiodev', self.audiodev(), '-machine', 'audiodev=snd0',
                 '-global', 'syborg-rtc.offset-file=' + os.path.join(dd, 'rtc-offset'),
                 # snapshots may be taken while gdb holds the machine ('debug'), a run state an incoming
                 # machine cannot enter: do not carry the run state; restores start paused (-S)
@@ -697,8 +705,8 @@ def handle(sess, req):
     raise AgentError('unknown op %r' % op)
 
 
-def serve(sdir, rom, drives, gui, extra, restore=None):
-    sess = Session(sdir, rom, drives, gui, extra, restore)
+def serve(sdir, rom, drives, gui, extra, restore=None, audio='wav'):
+    sess = Session(sdir, rom, drives, gui, extra, restore, audio)
     sess.start()
     path = os.path.join(sdir, 'ctl.sock')
     try:
