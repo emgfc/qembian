@@ -119,3 +119,14 @@ colour depths, where the vsync wait lives.
 [phone-skin.md](phone-skin.md): a PyQt6 `sydb phone` window (VNC screen, button bar, slider). Side
 keys need only keymap entries. The slider and accelerometer need stand-ins for Nokia's kernel-side
 `keypad.dll` / accelerometer drivers, which are not in our ROM.
+
+**Open: game audio plays too fast (2026-11-06, owner).** Crash Bandicoot Nitro Kart 3D's sounds
+(MediaClientAudioStream, CMdaAudioOutputStream) play sped up on run-gui. Suspects: the stream's
+sample rate not honoured by our audio path (DevSound/DSP stand-in or syborg-audio resampling), or
+buffers consumed faster than real time. Check with `sydb strace` on the audio server and the
+syborg-audio device's rate handling.
+
+**Keys in progress (2026-11-06):** baseport patch 0015 maps F13/F14 = EStdKeyDeviceA/B,
+F15/F16 = EStdKeyApplication19/1A (camera app captures them), F17/F18 = EStdKeyApplication7/8
+(akncapserver captures their up/downs). None of F13/F14/F17/F18 brought Carousel up at the idle
+screen: the Multimedia key is not identified yet. Camera keys untested (camera has no stand-in).

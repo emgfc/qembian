@@ -1,0 +1,21 @@
+--- a/baseport/syborg/keyboard/syborg_keyboard.h
++++ b/baseport/syborg/keyboard/syborg_keyboard.h
+@@ -190,12 +190,12 @@
+ 	/*61*/ EStdKeyNull,
+ 	/*62*/ EStdKeyNull,
+ 	/*63*/ EStdKeyNull,
+-	/*64*/ EStdKeyNull,
+-	/*65*/ EStdKeyNull,
+-	/*66*/ EStdKeyNull,
+-	/*67*/ EStdKeyNull,
+-	/*68*/ EStdKeyNull,
+-	/*69*/ EStdKeyNull,
++	/*64*/ EStdKeyDeviceA,	// syborg-pg: F13 (akncapserver captures EKeyDeviceA)
++	/*65*/ EStdKeyDeviceB,	// syborg-pg: F14 (akncapserver captures EKeyDeviceB)
++	/*66*/ EStdKeyApplication19,	// syborg-pg: F15 (camera app captures it: half press?)
++	/*67*/ EStdKeyApplication1A,	// syborg-pg: F16 (camera app captures it: full press?)
++	/*68*/ EStdKeyApplication7,	// syborg-pg: F17 (akncapserver captures its up/downs)
++	/*69*/ EStdKeyApplication8,	// syborg-pg: F18 (akncapserver captures its up/downs)
+ 	/*6a*/ EStdKeyNull,
+ 	/*6b*/ EStdKeyNull,
+ 	/*6c*/ EStdKeyNull,
