@@ -433,12 +433,13 @@ class Phone(QtWidgets.QWidget):
                 ag = st.get('agent') or {}
                 txt = '%s  %.0fs  agent %s' % (st.get('state'), st.get('uptime', 0), 'up' if ag else 'down')
                 self.gone = 0
+                self.seen = True               # the session was up: from now on, gone = switched off
             except Exception as e:
                 txt = 'session: %s' % e
                 self.gone = getattr(self, 'gone', 0) + 1
             try:
                 QtCore.QMetaObject.invokeMethod(self, '_status', Qt.ConnectionType.QueuedConnection, QtCore.Q_ARG(str, txt))
-                if self.gone >= 2:             # the phone was switched off (or its session stopped)
+                if self.gone >= 2 and getattr(self, 'seen', False):   # switched off (or its session stopped)
                     QtCore.QMetaObject.invokeMethod(self, 'close', Qt.ConnectionType.QueuedConnection)
             except RuntimeError:           # the window closed meanwhile
                 pass
@@ -450,7 +451,14 @@ class Phone(QtWidgets.QWidget):
 
 
 def main(sdir, scale=2.0):
+    import signal
     app = QtWidgets.QApplication(sys.argv[:1])
     w = Phone(sdir, scale)
     w.show()
+    # Ctrl+C in the terminal closes the window like its close button (a KeyboardInterrupt raised
+    # inside a Qt slot aborts the process); the timer lets Python see the signal while Qt runs
+    signal.signal(signal.SIGINT, lambda *a: w.close())
+    tick = QtCore.QTimer()
+    tick.timeout.connect(lambda: None)
+    tick.start(200)
     return app.exec()

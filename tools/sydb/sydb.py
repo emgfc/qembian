@@ -184,7 +184,7 @@ def use_device(drives):
                 die('%s is in use by a running QEMU (run-gui?): close it first' % src)
         dst = os.path.join(drives, link)
         if os.path.islink(dst) or os.path.exists(dst):
-            if os.path.islink(dst) and os.readlink(dst) == src:
+            if os.path.islink(dst) and os.path.realpath(dst) == os.path.realpath(src):	# old links name build/n95/...
                 continue
             die('%s exists and is not a link to the run-gui device: use another --session' % dst)
         os.symlink(src, dst)
