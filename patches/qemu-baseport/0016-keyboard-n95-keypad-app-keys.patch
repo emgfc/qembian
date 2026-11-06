@@ -1,0 +1,60 @@
+--- a/baseport/syborg/keyboard/syborg_keyboard.h
++++ b/baseport/syborg/keyboard/syborg_keyboard.h
+@@ -179,7 +179,7 @@
+ 	/*57*/ EStdKeyIncVolume,	// syborg-pg: F11 = volume up
+ 	/*58*/ EStdKeyDecVolume,	// syborg-pg: F12 = volume down
+ 	/*59*/ EStdKeyNull,
+-	/*5a*/ EStdKeyNull,
++	/*5a*/ EStdKeyApplication6,	// syborg-pg: F20 (N95 keypad.dll code, role being identified)
+ 	/*5b*/ EStdKeyNull,
+ 	/*5c*/ EStdKeyNull,
+ 	/*5d*/ EStdKeyDeviceA,	// syborg-pg: F13 (set-1 0x5d; akncapserver captures EKeyDeviceA)
+@@ -199,15 +199,15 @@
+ 	/*6a*/ EStdKeyNull,
+ 	/*6b*/ EStdKeyNull,
+ 	/*6c*/ EStdKeyNull,
+-	/*6d*/ EStdKeyNull,
++	/*6d*/ EStdKeyApplication1B,	// syborg-pg: F23 (N95 keypad.dll code, role being identified)
+ 	/*6e*/ EStdKeyNull,
+-	/*6f*/ EStdKeyNull,
++	/*6f*/ EStdKeyApplication1C,	// syborg-pg: F24 (N95 keypad.dll code, role being identified)
+ 	
+ 	/*70*/ EStdKeyNull,
+ 	/*71*/ EStdKeyNull,
+ 	/*72*/ EStdKeyNull,
+ 	/*73*/ EStdKeyNull,
+-	/*74*/ EStdKeyNull,
++	/*74*/ EStdKeyApplication1D,	// syborg-pg: F21 (N95 keypad.dll code, role being identified)
+ 	/*75*/ EStdKeyNull,
+ 	/*76*/ EStdKeyNull,
+ 	/*77*/ EStdKeyNull,
+@@ -237,7 +237,7 @@
+ 	/*8e*/ EStdKeyNull,
+ 	/*8f*/ EStdKeyNull,
+ 	
+-	/*90*/ EStdKeyNull,
++	/*90*/ EStdKeyApplication4,	// syborg-pg: host Previous (0xe010) (N95 keypad.dll code, role being identified)
+ 	/*91*/ EStdKeyNull,
+ 	/*92*/ EStdKeyNull,
+ 	/*93*/ EStdKeyNull,
+@@ -246,7 +246,7 @@
+ 	/*96*/ EStdKeyNull,
+ 	/*97*/ EStdKeyNull,
+ 	/*98*/ EStdKeyNull,
+-	/*99*/ EStdKeyNull,
++	/*99*/ EStdKeyApplication5,	// syborg-pg: host Next (0xe019) (N95 keypad.dll code, role being identified)
+ 	/*9a*/ EStdKeyNull,
+ 	/*9b*/ EStdKeyNull,
+ 	/*9c*/ EStdKeyEnter,
+@@ -256,9 +256,9 @@
+ 
+   	/*a0*/ EStdKeyNull,
+ 	/*a1*/ EStdKeyNull,
+-	/*a2*/ EStdKeyNull,
++	/*a2*/ EStdKeyApplication2,	// syborg-pg: host Play/Pause (set-1 0xe022) (N95 keypad.dll code, role being identified)
+ 	/*a3*/ EStdKeyNull,
+-	/*a4*/ EStdKeyNull,
++	/*a4*/ EStdKeyApplication3,	// syborg-pg: host Stop (0xe024) (N95 keypad.dll code, role being identified)
+ 	/*a5*/ EStdKeyNull,
+ 	/*a6*/ EStdKeyNull,
+ 	/*a7*/ EStdKeyNull,

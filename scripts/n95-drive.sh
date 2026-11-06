@@ -19,7 +19,7 @@ case "$drv" in
   *) echo "drive must be c or e" >&2; exit 2 ;;
 esac
 [ -f "$IMG" ] || { echo "no image $IMG: boot once with scripts/run-gui.sh first" >&2; exit 1; }
-if pgrep -f "qemu-system-arm.*$(basename "$IMG")" > /dev/null; then
+if pgrep -f "qemu-system-arm.*$(realpath "$IMG")" > /dev/null; then   # full path: other sessions may run
   echo "$IMG is in use by a running QEMU: close the emulator first" >&2; exit 1
 fi
 export MTOOLS_SKIP_CHECK=1 MTOOLS_NO_VFAT=0

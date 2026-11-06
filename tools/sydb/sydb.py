@@ -159,6 +159,31 @@ def drive_rm(drives, path):
     mt(drives, 'mdel', '::' + path)
 
 
+DEVICE = {'nvmemory.img': 'drive-c.img', 'nvmemory2.img': 'drive-e.img', 'rtc-offset': 'rtc-offset'}
+DEVICE_SESSION = os.path.join(ROOT, 'build', 'sydb-device')
+DEVICE_ROM = os.path.join(ROOT, 'build', 'n95', 'hybrid-exp.img')
+
+
+def use_device(drives):
+    # --device: the session runs on scripts/run-gui.sh's phone in place (build/n95/drive-c.img,
+    # drive-e.img, rtc-offset), as links in <session>/drives
+    os.makedirs(drives, exist_ok=True)
+    for link, f in DEVICE.items():
+        src = os.path.join(ROOT, 'build', 'n95', f)
+        if f.endswith('.img'):
+            if not os.path.exists(src):
+                die('%s missing: boot once with scripts/run-gui.sh' % src)
+            if subprocess.run(['pgrep', '-f', 'qemu-system-arm.*' + os.path.realpath(src)],
+                              stdout=subprocess.DEVNULL).returncode == 0:
+                die('%s is in use by a running QEMU (run-gui?): close it first' % src)
+        dst = os.path.join(drives, link)
+        if os.path.islink(dst) or os.path.exists(dst):
+            if os.path.islink(dst) and os.readlink(dst) == src:
+                continue
+            die('%s exists and is not a link to the run-gui device: use another --session' % dst)
+        os.symlink(src, dst)
+
+
 def cmd_start(sdir, a):
     c = Client(sdir)
     if c.alive():
@@ -166,6 +191,8 @@ def cmd_start(sdir, a):
         return
     drives = os.path.join(sdir, 'drives')
     os.makedirs(sdir, exist_ok=True)
+    if getattr(a, 'device', False):
+        use_device(drives)
     if a.fresh and os.path.isdir(drives):
         shutil.rmtree(drives)
     if a.seed:
@@ -286,10 +313,16 @@ def main():
         ap = argparse.ArgumentParser(prog='sydb phone')
         ap.add_argument('--scale', type=float, default=2.0)
         ap.add_argument('--audio', default='host', help='sound of a session it starts: host (speakers, default), wav, or a QEMU audiodev driver')
+        ap.add_argument('--device', action='store_true', help="your run-gui phone (drives in place, session build/sydb-device)")
+        ap.add_argument('--rom', help='ROM of a session it starts (default hybrid.img, with --device hybrid-exp.img)')
+        ap.add_argument('--install', action='store_true', help='install/update the sydb agent on its C: first')
         x = ap.parse_args(rest)
+        if x.device and sdir == DEFAULT_SESSION:
+            sdir = DEVICE_SESSION
         if not Client(sdir).alive():
             subprocess.run([sys.executable, os.path.abspath(__file__), '--session', sdir, 'start', '--no-wait',
-                            '--audio', x.audio], check=True)
+                            '--audio', x.audio] + (['--device'] if x.device else []) + (['--rom', x.rom] if x.rom else [])
+                           + (['--install'] if x.install else []), check=True)
         import phone
         sys.exit(phone.main(sdir, x.scale))
     if cmd == 'tui':
@@ -311,10 +344,13 @@ def main():
         ap.add_argument('--seed'); ap.add_argument('--fresh', action='store_true')
         ap.add_argument('--gui', action='store_true'); ap.add_argument('--install', action='store_true')
         ap.add_argument('--no-wait', action='store_true'); ap.add_argument('--timeout', type=float, default=180)
+        ap.add_argument('--device', action='store_true', help="run on scripts/run-gui.sh's phone (build/n95/drive-c.img, "
+                        'drive-e.img, rtc-offset) in place; ROM default build/n95/hybrid-exp.img')
         ap.add_argument('--audio', default='wav', help='wav (<session>/audio.wav, default), host (speakers: '
                         '$AUDIO or pipewire, like run-gui) or any QEMU audiodev driver (pa, alsa, sdl, none)')
-        ap.add_argument('--rom', default=os.path.join(ROOT, 'build', 'n95', 'hybrid.img'))
+        ap.add_argument('--rom')
         a = ap.parse_args(rest)
+        a.rom = a.rom or (DEVICE_ROM if a.device else os.path.join(ROOT, 'build', 'n95', 'hybrid.img'))
         (cmd_start if cmd == 'start' else cmd_install)(sdir, a)
         return
 

@@ -513,7 +513,10 @@ KEYMAP = {'lsk': 'f5', 'rsk': 'f7', 'ok': 'f6', 'select': 'f6', 'menu': 'f8', 's
           'call': 'f2', 'end': 'f3', 'power': 'f4', 'volup': 'f11', 'voldown': 'f12',
           'hash': 'f10', 'clear': 'backspace', 'back': 'f7',
           # EKeyDeviceA/B: akncapserver switches the UI layout (the N95's media slide): landscape/portrait
-          'landscape': 'f13', 'portrait': 'f14'}
+          'landscape': 'f13', 'portrait': 'f14',
+          # N95 keypad.dll codes (patch 0016): Multimedia = App6, Gallery = App1D, media keys App2-5
+          'multimedia': 'f20', 'gallery': 'f21', 'play': 'audioplay', 'stop': 'audiostop',
+          'prev': 'audioprev', 'next': 'audionext'}
 
 
 def press(sess, keys, delay=0.3):

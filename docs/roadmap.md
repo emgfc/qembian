@@ -133,7 +133,10 @@ F14 = EKeyDeviceB = **portrait** (sydb key aliases `landscape`/`portrait`; `sydb
 button). F15/F16 = EStdKeyApplication19/1A (camera app captures them; camera untested).
 F17 = EStdKeyApplication7: akncapserver sets P&S 0x101f876e/4 = 1, F19 = App8 sets it to 0 (meaning
 unknown, not the Multimedia key; F18 = 0xe077 would index past the 0xf0-entry table).
-**Open: the Multimedia key** is still unidentified (Carousel launches from it on the device). The
+**Multimedia key found (patch 0016):** the N95 keypad.dll matrix table (0x8014f6d4, three slide
+variants) gives the codes; F20 = EStdKeyApplication6 opens Carousel, F21 = Application1D Gallery,
+host Play = Application2 the music player; App3/4/5 (stop/prev/next), App1B/1C (variant keys) and
+App19/1A (camera) not verified. The
 "sideways Carousel" was the landscape layout left on by an F13 test; Carousel itself uses no fixed
 orientation. Also open: Carousel's boot instance still dies with USER-EXEC 3 on some boots
 (the race at its ConstructL); `sydb fg` on its window group then shows only the backdrop.

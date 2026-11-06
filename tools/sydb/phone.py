@@ -175,12 +175,8 @@ class Phone(QtWidgets.QWidget):
         self.key(g, 'Call', 'f2', 1, 0, name='call'); self.key(g, '^', 'up', 1, 2); self.key(g, 'End', 'f3', 1, 4, name='end')
         self.key(g, '<', 'left', 2, 1); self.key(g, 'OK', 'f6', 2, 2); self.key(g, '>', 'right', 2, 3)
         self.key(g, 'C', 'backspace', 3, 0); self.key(g, 'v', 'down', 3, 2)
-        mm = QtWidgets.QPushButton('Multimedia')
-        mm.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        mm.setToolTip('Multimedia key: opens/closes the Multimedia menu (Carousel). Stand-in: the real key\'s '
-                      'scan code is not known yet, so this brings Carousel\'s window group to the front')
-        mm.clicked.connect(self.multimedia)
-        g.addWidget(mm, 3, 4)
+        mm = self.key(g, 'Multimedia', 'f20', 3, 4)       # EStdKeyApplication6 (N95 keypad.dll table): Carousel
+        mm.setToolTip('Multimedia key (F20 = EStdKeyApplication6): opens the Multimedia menu (Carousel)')
         v.addLayout(g)
         # slide-out keypad
         self.keypad = QtWidgets.QWidget()
@@ -191,14 +187,13 @@ class Phone(QtWidgets.QWidget):
         # media keys (the N95 8GB's upward slide)
         self.media = QtWidgets.QWidget()
         mg = QtWidgets.QHBoxLayout(self.media)
-        for k in ('|<<', '>||', '[]', '>>|'):
-            b = QtWidgets.QPushButton(k)
-            b.setEnabled(False)
-            b.setToolTip('media keys: N95 scan codes not mapped yet')
-            mg.addWidget(b)
+        # N95 keypad.dll codes EStdKeyApplication4/2/3/5 [play verified: opens the music player;
+        # prev/stop/next inferred from the table order]
+        for k, qc in (('|<<', 'audioprev'), ('>||', 'audioplay'), ('[]', 'audiostop'), ('>>|', 'audionext')):
+            self.key(mg, k, qc)
         v.addWidget(self.media)
         # side toolbar (like the Android emulator's): hardware keys, slides, machine
-        for label, qc in (('Power', 'f4'), ('Vol +', 'f11'), ('Vol -', 'f12'), ('Camera', None)):
+        for label, qc in (('Power', 'f4'), ('Vol +', 'f11'), ('Vol -', 'f12'), ('Gallery', 'f21'), ('Camera', None)):
             b = self.key(None, label, qc)
             if qc is None:
                 b.setToolTip('camera key: N95 scan code not mapped yet')
@@ -236,7 +231,7 @@ class Phone(QtWidgets.QWidget):
         self.held = set()
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
-    def key(self, grid, label, qcode, row=0, col=0, name=None):
+    def key(self, grid, label, qcode, row=0, col=0, name=None):     # grid: grid or box layout
         b = QtWidgets.QPushButton(label, objectName=name or '')
         b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         if qcode is None:
@@ -244,8 +239,10 @@ class Phone(QtWidgets.QWidget):
         else:
             b.pressed.connect(lambda q=qcode: self.send(q, True))
             b.released.connect(lambda q=qcode: self.send(q, False))
-        if grid is not None:
+        if isinstance(grid, QtWidgets.QGridLayout):
             grid.addWidget(b, row, col)
+        elif grid is not None:
+            grid.addWidget(b)
         return b
 
     def call(self, req, timeout=10):
@@ -309,26 +306,6 @@ class Phone(QtWidgets.QWidget):
         self.layout().invalidate()
         self.layout().activate()
         self.resize(self.layout().totalMinimumSize())
-
-    def multimedia(self):
-        def go():                          # like the device: Carousel to the front, or back to idle
-            try:
-                items = self.c.call({'op': 'agent', 'cmd': 'wg', 'args': [], 'raw': None, 'timeout': 10})['items']
-                car = [i for i in items if '10282bf6' in str(i.get('name', '')).lower()]
-                idle = [i for i in items if '101fd64c' in str(i.get('name', '')).lower()]
-                if not car:
-                    msg = 'Carousel is not running (it starts ~30 s after boot)'
-                else:
-                    to = idle[0] if car[0].get('focus') and idle else car[0]
-                    self.c.call({'op': 'agent', 'cmd': 'fg', 'args': [str(to['wgid'])], 'raw': None, 'timeout': 10})
-                    msg = ''
-            except Exception as e:
-                msg = 'multimedia: %s' % e
-            try:
-                QtCore.QMetaObject.invokeMethod(self, '_note', Qt.ConnectionType.QueuedConnection, QtCore.Q_ARG(str, msg))
-            except RuntimeError:
-                pass
-        threading.Thread(target=go, daemon=True).start()
 
     @QtCore.pyqtSlot(str)
     def _note(self, txt):

@@ -130,8 +130,11 @@ sydb pause | resume
 switcher, hold Power = switch off), the host keyboard, and a side toolbar: Power, Vol +/-,
 **Landscape (media slide)** (taps F13, the phone switches its layout, the view turns so it stays
 upright; Ctrl+Left/Right toggles it too), **Keypad slide** (shows the number keys; no slide event to
-the phone yet), Shot, Snapshot, Pause, Reset. **Multimedia** toggles Carousel (Multimedia menu)
-to the front and back; a stand-in through the agent (`fg`) until the real key's scan code is known. It starts a session if none is running, with sound
+the phone yet), Shot, Snapshot, Pause, Reset. **Multimedia** (F20), **Gallery** (F21) and the media
+keys send the N95's own key codes. `sydb phone --device` (or `start --device`) runs on your
+run-gui phone in place (build/n95/drive-c.img, drive-e.img, rtc-offset; ROM hybrid-exp.img, which
+plays the startup jingle; session build/sydb-device; `--install` adds the sydb agent to its C:).
+Restoring a snapshot in such a session writes the device images. It starts a session if none is running, with sound
 on the host speakers (`--audio host`: `$AUDIO` or pipewire, like run-gui). `sydb start` keeps sound in
 `<session>/audio.wav` unless given `--audio host` (or a QEMU audiodev driver). Details:
 [phone-skin.md](phone-skin.md).

@@ -18,6 +18,9 @@ you may need Fn with the function keys if they normally adjust volume/brightness
 | End (red) | F3 | `f3` (EStdKeyNo) |
 | Power (short: profiles, long: switch off) | F4 | `f4` (EStdKeyDevice2) |
 | Volume up / down | F11 / F12 | `f11`, `f12` (EStdKeyIncVolume/DecVolume) |
+| Multimedia key (Carousel) | F20 | `multimedia` (EStdKeyApplication6, from the N95's keypad.dll table) |
+| Gallery key | F21 | `gallery` (EStdKeyApplication1D) |
+| Media keys play/pause, stop, previous, next | host media keys | `play` (App2, opens the music player), `stop`/`prev`/`next` (App3/App4/App5, inferred) |
 | Media slide open (landscape) / closed (portrait) | F13 / F14 | `landscape`, `portrait` (EKeyDeviceA/B: akncapserver switches the layout) |
 
 Call/End/Power/volume added 2026-11-06 (`patches/qemu-baseport/0014-keyboard-phone-keys.patch`).
