@@ -35,7 +35,7 @@ CXXFLAGS=("${COMMON[@]}" -std=gnu++98 -nostdinc -fno-rtti -fno-threadsafe-static
   -include "$GEN/gcce_fixed.h" -I"$SDK/include" -I"$SDK/include/variant" -I"$SDK/include/gcce")
 
 OBJS=()
-for c in egl gl raster libc; do
+for c in egl gl light tex raster libc; do
   "$GCC-gcc" "${CFLAGS[@]}" -o "$GEN/$c.o" "$HERE/$c.c"; OBJS+=("$GEN/$c.o")
 done
 "$GCC-gcc" "${CFLAGS[@]}" -o "$GEN/names.o" "$GEN/names.c"; OBJS+=("$GEN/names.o")

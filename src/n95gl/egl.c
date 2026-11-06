@@ -295,18 +295,19 @@ EGLBoolean sy_eglGetConfigAttrib(EGLDisplay d, EGLConfig aConfig, EGLint aAttr, 
 
 static int surface_alloc(SySurface* s, int w, int h)
 	{
-	sy_free(s->color); sy_free(s->depth);
+	sy_big_free(s->color); sy_big_free(s->depth);
 	s->color = 0; s->depth = 0;
 	s->w = w; s->h = h;
 	if (w <= 0 || h <= 0)
 		return 1;
-	s->color = (u32*)sy_allocz(w * h * 4);
+	s->color = (u32*)sy_big_alloc(w * h * 4);
 	if (!s->color)
 		return 0;
+	memset(s->color, 0, (unsigned)(w * h * 4));
 	if (KConfigs[s->config - 1].depth)
 		{
-		s->depth = (u16*)sy_alloc(w * h * 2);
-		if (!s->depth) { sy_free(s->color); s->color = 0; return 0; }
+		s->depth = (u16*)sy_big_alloc(w * h * 2);
+		if (!s->depth) { sy_big_free(s->color); s->color = 0; return 0; }
 		memset(s->depth, 0xff, (unsigned)(w * h * 2));
 		}
 	return 1;
@@ -367,7 +368,7 @@ EGLBoolean sy_eglDestroySurface(EGLDisplay d, EGLSurface aSurface)
 	if (t->read == s) t->read = 0;
 	if (t->ctx) sy_gl_made_current(t->ctx, t->draw);
 	sy_dsa_destroy(s);
-	sy_free(s->color); sy_free(s->depth);
+	sy_big_free(s->color); sy_big_free(s->depth);
 	s->magic = 0;
 	sy_free(s);
 	return EGL_TRUE;

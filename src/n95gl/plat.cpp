@@ -183,6 +183,33 @@ void sy_dsa_destroy(SySurface* aS)
 	delete d;
 	}
 
+// big buffers (surfaces, textures): our own chunk heap per thread, like Nokia's "PVRHeap", so the
+// app's heap limit (often 1 MB, e.g. ZigGT2Car) does not apply
+static const TInt KBigHeapMax = 32 << 20;
+void* sy_big_alloc(int aBytes)
+	{
+	SyThread* t = sy_thread();
+	if (!t)
+		return NULL;
+	if (!t->bigHeap)
+		{
+		t->bigHeap = UserHeap::ChunkHeap(NULL, 0x10000, KBigHeapMax, 0x10000);
+		if (!t->bigHeap)
+			{
+			SYLOG("big heap: ChunkHeap(%d MB) failed", KBigHeapMax >> 20);
+			return NULL;
+			}
+		}
+	return ((RHeap*)t->bigHeap)->Alloc(aBytes);
+	}
+
+void sy_big_free(void* aPtr)
+	{
+	SyThread* t = sy_thread_peek();
+	if (aPtr && t && t->bigHeap)
+		((RHeap*)t->bigHeap)->Free(aPtr);
+	}
+
 void* sy_alloc(int aBytes) { return User::Alloc(aBytes); }
 void* sy_allocz(int aBytes) { return User::AllocZ(aBytes); }
 void sy_free(void* aPtr) { User::Free(aPtr); }

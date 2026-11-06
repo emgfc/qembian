@@ -70,3 +70,45 @@ float sy_sqrtf(float x)
 	y = 0.5f * (y + x / y);
 	return y;
 	}
+
+/* x^e for x > 0: integer exponents by squaring (exact), others through log2/exp2 approximations
+   (relative error ~1e-4, enough for specular and spot falloff) */
+static float sy_log2f(float x)
+	{
+	union { float f; u32 i; } u;
+	u.f = x;
+	float e = (float)(int)((u.i >> 23) & 0xff) - 127.0f;
+	u.i = (u.i & 0x007fffffu) | 0x3f800000u;	/* mantissa in [1, 2) */
+	float m = u.f;
+	float t = (m - 1.0f) / (m + 1.0f), t2 = t * t;	/* ln(m) = 2 atanh(t) */
+	float ln = 2.0f * t * (1.0f + t2 * (1.0f / 3 + t2 * (1.0f / 5 + t2 * (1.0f / 7 + t2 * (1.0f / 9)))));
+	return e + ln * 1.44269504f;
+	}
+
+static float sy_exp2f(float x)
+	{
+	if (x < -126.0f) return 0.0f;
+	if (x > 127.0f) x = 127.0f;
+	int i = (int)x;
+	if ((float)i > x) --i;
+	float f = x - (float)i;						/* [0, 1) */
+	float y = f * 0.69314718f;					/* e^y, y in [0, ln2) */
+	float p = 1.0f + y * (1.0f + y * (0.5f + y * (1.0f / 6 + y * (1.0f / 24 + y * (1.0f / 120)))));
+	union { float f; u32 i; } u;
+	u.i = (u32)(i + 127) << 23;
+	return p * u.f;
+	}
+
+float sy_powf(float x, float e)
+	{
+	if (e == 0.0f) return 1.0f;
+	if (x <= 0.0f) return 0.0f;
+	int ie = (int)e;
+	if ((float)ie == e && ie > 0 && ie <= 256)
+		{
+		float r = 1.0f, b = x;
+		while (ie) { if (ie & 1) r *= b; b *= b; ie >>= 1; }
+		return r;
+		}
+	return sy_exp2f(e * sy_log2f(x));
+	}

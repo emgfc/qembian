@@ -4,8 +4,12 @@
 logs `eglInitialize err=12289` = our EGL_NOT_INITIALIZED, Carousel now shows "Feature not supported"
 instead of "Memory full"). **Phase 1 milestone 1 reached 2026-11-06:** ZigGLTri's Gouraud triangle spins
 at ~29 fps (app-paced to 30) through our EGL/GL/rasterizer (src/n95gl: egl.c, gl.c, raster.c,
-plat.cpp; 30 KB), vsync via d_display req 0x7f01. Presentation is still a direct frame-buffer copy
-(H-gles-fbdirect); DSA next.
+plat.cpp; 30 KB), vsync via d_display req 0x7f01. Presentation by DSA (H-gles-present).
+**Milestone 2 reached 2026-11-06:** ZigGT2Car renders textured and lit at ~20 fps (light.c:
+fixed-function lighting; tex.c: texture objects, all ES 1.1 formats; raster.c: perspective-correct
+texturing every 16 px, 5 env modes, alpha test, blend, scissor; surfaces/textures in a per-thread
+32 MB chunk heap like Nokia's PVRHeap, since apps often have a 1 MB heap). Carousel now gets past
+eglInitialize and stops at eglCreatePbufferSurface ("Feature not supported"): milestone 3.
 
 Static analysis, 2026-11-06. **[V]** = seen in code/binary/listing, **[I]** = inferred.
 Owner's constraints (2026-11-06): no host GPU / host-GL forwarding for now; start with a software

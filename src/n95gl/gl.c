@@ -1,40 +1,14 @@
-/* sygl GL ES 1.1 front end, milestone 1: state, matrix stacks, client vertex/colour arrays,
-   transform, frustum clipping, culling, primitive assembly; triangles go to raster.c.
+/* sygl GL ES 1.1 front end: state, matrix stacks, client arrays, the vertex stage (transform,
+   lighting via light.c, texture coordinates), frustum clipping, culling and primitive assembly;
+   triangles go to raster.c with the fragment state built here. Textures: tex.c.
    Every entry point is sy_<glName> (the libgles_cm ordinal table branches here, gen/entry.S).
-   Not yet (milestone 2+): lighting, textures, blending, alpha test, fog, scissor, lines/points
-   beyond the basics, buffer objects. Unimplemented entries stay logged stubs. */
-#include "sygl_int.h"
+   Not yet: points/lines, fog, combine texture env, multitexture, buffer objects, mipmaps. */
+#include "gl_int.h"
 
-typedef float GLfloat;
-typedef float GLclampf;
-typedef int GLfixed;
-typedef int GLint;
-typedef int GLsizei;
-typedef unsigned GLenum;
-typedef unsigned GLbitfield;
-typedef unsigned char GLubyte;
-typedef unsigned char GLboolean;
-
-#define GL_NO_ERROR 0
-#define GL_INVALID_ENUM 0x0500
-#define GL_INVALID_VALUE 0x0501
-#define GL_INVALID_OPERATION 0x0502
-#define GL_STACK_OVERFLOW 0x0503
-#define GL_STACK_UNDERFLOW 0x0504
-#define GL_OUT_OF_MEMORY 0x0505
 #define GL_POINTS 0
-#define GL_LINES 1
-#define GL_LINE_LOOP 2
-#define GL_LINE_STRIP 3
 #define GL_TRIANGLES 4
 #define GL_TRIANGLE_STRIP 5
 #define GL_TRIANGLE_FAN 6
-#define GL_BYTE 0x1400
-#define GL_UNSIGNED_BYTE 0x1401
-#define GL_SHORT 0x1402
-#define GL_UNSIGNED_SHORT 0x1403
-#define GL_FLOAT 0x1406
-#define GL_FIXED 0x140C
 #define GL_MODELVIEW 0x1700
 #define GL_PROJECTION 0x1701
 #define GL_TEXTURE 0x1702
@@ -50,12 +24,10 @@ typedef unsigned char GLboolean;
 #define GL_POINT_SIZE_ARRAY_OES 0x8B9C
 #define GL_DEPTH_TEST 0x0B71
 #define GL_CULL_FACE 0x0B44
-#define GL_FRONT 0x0404
-#define GL_BACK 0x0405
-#define GL_FRONT_AND_BACK 0x0408
 #define GL_CW 0x0900
 #define GL_CCW 0x0901
 #define GL_LESS 0x0201
+#define GL_ALWAYS 0x0207
 #define GL_VENDOR 0x1F00
 #define GL_RENDERER 0x1F01
 #define GL_VERSION 0x1F02
@@ -74,53 +46,42 @@ typedef unsigned char GLboolean;
 #define GL_ALPHA_BITS 0x0D55
 #define GL_DEPTH_BITS 0x0D56
 #define GL_STENCIL_BITS 0x0D57
+#define GL_TEXTURE_BINDING_2D 0x8069
+#define GL_MATRIX_MODE 0x0BA0
+#define GL_MODELVIEW_MATRIX 0x0BA6
+#define GL_PROJECTION_MATRIX 0x0BA7
+#define GL_TEXTURE_MATRIX 0x0BA8
+#define GL_SCISSOR_BOX 0x0C10
+#define GL_FOG 0x0B60
+#define GL_DITHER 0x0BD0
 
-#define MV_DEPTH 16
-#define PROJ_DEPTH 4
-#define TEX_DEPTH 4
-
-typedef struct { int size; GLenum type; int stride; const void* ptr; int enabled; } SyArray;
-typedef struct { float x, y, z, w, r, g, b, a; } SyCV;		/* clip-space vertex + colour 0..1 */
-
-typedef struct SyContext
-	{
-	u32 magic;
-	int error;
-	GLenum matrixMode;
-	float mv[MV_DEPTH][16]; int mvTop;
-	float proj[PROJ_DEPTH][16]; int projTop;
-	float tex[TEX_DEPTH][16]; int texTop;
-	int vpX, vpY, vpW, vpH, viewportSet;
-	float depthNear, depthFar;
-	float clear[4]; float clearDepth;
-	GLenum shadeModel;
-	int depthTest, depthWrite; GLenum depthFunc;
-	int cullFace; GLenum cullMode, frontFace;
-	float color[4];
-	SyArray va, ca, na, ta;
-	SySurface* draw;
-	SyCV* vbuf; int vcap;		/* transformed vertices of the current draw call */
-	} SyContext;
+typedef struct SyCV { float x, y, z, w, r, g, b, a, s, t; } SyCV;		/* clip-space vertex */
+#define CV_FLOATS 10
 
 /* ---------------------------------------------------------------- helpers */
 
-static SyContext* cur(void)
+SyContext* sy_cur(void)
 	{
 	SyThread* t = sy_thread_peek();
 	return t ? t->ctx : 0;
 	}
 
-static void seterr(SyContext* c, int e)
+void sy_seterr(SyContext* c, int e)
 	{
 	if (c && c->error == GL_NO_ERROR)
 		c->error = e;
 	}
 
-static float fx(GLfixed v) { return (float)v * (1.0f / 65536.0f); }
-
 static void mat_identity(float* m)
 	{
 	for (int i = 0; i < 16; ++i) m[i] = (i % 5) ? 0.0f : 1.0f;
+	}
+
+static int mat_is_identity(const float* m)
+	{
+	for (int i = 0; i < 16; ++i)
+		if (m[i] != ((i % 5) ? 0.0f : 1.0f)) return 0;
+	return 1;
 	}
 
 /* r = a * b (column-major) */
@@ -132,6 +93,19 @@ static void mat_mul(float* r, const float* a, const float* b)
 			t[c * 4 + rr] = a[0 * 4 + rr] * b[c * 4 + 0] + a[1 * 4 + rr] * b[c * 4 + 1] +
 							a[2 * 4 + rr] * b[c * 4 + 2] + a[3 * 4 + rr] * b[c * 4 + 3];
 	memcpy(r, t, sizeof(t));
+	}
+
+/* inverse transpose of the upper-left 3x3 of a column-major 4x4: the normal matrix (row-major 3x3) */
+static void normal_matrix(const float* m, float* n)
+	{
+	float a = m[0], b = m[4], c = m[8], d = m[1], e = m[5], f = m[9], g = m[2], h = m[6], i = m[10];
+	float A = e * i - f * h, B = -(d * i - f * g), C = d * h - e * g;
+	float det = a * A + b * B + c * C;
+	float id = det != 0.0f ? 1.0f / det : 0.0f;
+	/* inverse = adj / det; transpose(inverse) rows = cofactor rows */
+	n[0] = A * id; n[1] = B * id; n[2] = C * id;
+	n[3] = -(b * i - c * h) * id; n[4] = (a * i - c * g) * id; n[5] = -(a * h - b * g) * id;
+	n[6] = (b * f - c * e) * id; n[7] = -(a * f - c * d) * id; n[8] = (a * e - b * d) * id;
 	}
 
 static float* cur_matrix(SyContext* c)
@@ -166,16 +140,23 @@ struct SyContext* sy_gl_create(void)
 	c->depthWrite = 1; c->depthFunc = GL_LESS;
 	c->cullMode = GL_BACK; c->frontFace = GL_CCW;
 	c->color[0] = c->color[1] = c->color[2] = c->color[3] = 1.0f;
+	c->texcoord[3] = 1.0f;
 	c->va.size = 4; c->va.type = GL_FLOAT;
 	c->ca.size = 4; c->ca.type = GL_FLOAT;
 	c->ta.size = 4; c->ta.type = GL_FLOAT;
 	c->na.size = 3; c->na.type = GL_FLOAT;
+	c->blendSrc = GL_ONE; c->blendDst = GL_ZERO;
+	c->alphaFunc = GL_ALWAYS;
+	c->colorMask = 15;
+	sy_light_init(c);
+	sy_tex_init(c);
 	return c;
 	}
 
 void sy_gl_destroy(struct SyContext* c)
 	{
 	if (!c) return;
+	sy_tex_free_all(c);
 	sy_free(c->vbuf);
 	c->magic = 0;
 	sy_free(c);
@@ -187,6 +168,7 @@ void sy_gl_made_current(struct SyContext* c, SySurface* aDraw)
 	if (!c->viewportSet && aDraw)
 		{
 		c->vpX = 0; c->vpY = 0; c->vpW = aDraw->w; c->vpH = aDraw->h;
+		c->scX = 0; c->scY = 0; c->scW = aDraw->w; c->scH = aDraw->h;
 		c->viewportSet = 1;
 		}
 	}
@@ -195,7 +177,7 @@ void sy_gl_made_current(struct SyContext* c, SySurface* aDraw)
 
 GLenum sy_glGetError(void)
 	{
-	SyContext* c = cur();
+	SyContext* c = sy_cur();
 	if (!c) return GL_NO_ERROR;
 	int e = c->error;
 	c->error = GL_NO_ERROR;
@@ -204,46 +186,53 @@ GLenum sy_glGetError(void)
 
 void sy_glViewport(GLint x, GLint y, GLsizei w, GLsizei h)
 	{
-	SyContext* c = cur(); if (!c) return;
-	if (w < 0 || h < 0) { seterr(c, GL_INVALID_VALUE); return; }
+	SyContext* c = sy_cur(); if (!c) return;
+	if (w < 0 || h < 0) { sy_seterr(c, GL_INVALID_VALUE); return; }
 	c->vpX = x; c->vpY = y; c->vpW = w; c->vpH = h; c->viewportSet = 1;
+	}
+
+void sy_glScissor(GLint x, GLint y, GLsizei w, GLsizei h)
+	{
+	SyContext* c = sy_cur(); if (!c) return;
+	if (w < 0 || h < 0) { sy_seterr(c, GL_INVALID_VALUE); return; }
+	c->scX = x; c->scY = y; c->scW = w; c->scH = h;
 	}
 
 void sy_glDepthRangef(GLclampf n, GLclampf f)
 	{
-	SyContext* c = cur(); if (!c) return;
+	SyContext* c = sy_cur(); if (!c) return;
 	c->depthNear = n < 0 ? 0 : (n > 1 ? 1 : n);
 	c->depthFar = f < 0 ? 0 : (f > 1 ? 1 : f);
 	}
-void sy_glDepthRangex(GLfixed n, GLfixed f) { sy_glDepthRangef(fx(n), fx(f)); }
+void sy_glDepthRangex(GLfixed n, GLfixed f) { sy_glDepthRangef(sy_fx(n), sy_fx(f)); }
 
 void sy_glMatrixMode(GLenum m)
 	{
-	SyContext* c = cur(); if (!c) return;
-	if (m != GL_MODELVIEW && m != GL_PROJECTION && m != GL_TEXTURE) { seterr(c, GL_INVALID_ENUM); return; }
+	SyContext* c = sy_cur(); if (!c) return;
+	if (m != GL_MODELVIEW && m != GL_PROJECTION && m != GL_TEXTURE) { sy_seterr(c, GL_INVALID_ENUM); return; }
 	c->matrixMode = m;
 	}
 
-void sy_glLoadIdentity(void) { SyContext* c = cur(); if (c) mat_identity(cur_matrix(c)); }
-void sy_glLoadMatrixf(const GLfloat* m) { SyContext* c = cur(); if (c && m) memcpy(cur_matrix(c), m, 64); }
+void sy_glLoadIdentity(void) { SyContext* c = sy_cur(); if (c) mat_identity(cur_matrix(c)); }
+void sy_glLoadMatrixf(const GLfloat* m) { SyContext* c = sy_cur(); if (c && m) memcpy(cur_matrix(c), m, 64); }
 void sy_glLoadMatrixx(const GLfixed* m)
 	{
-	SyContext* c = cur(); if (!c || !m) return;
+	SyContext* c = sy_cur(); if (!c || !m) return;
 	float* t = cur_matrix(c);
-	for (int i = 0; i < 16; ++i) t[i] = fx(m[i]);
+	for (int i = 0; i < 16; ++i) t[i] = sy_fx(m[i]);
 	}
-void sy_glMultMatrixf(const GLfloat* m) { SyContext* c = cur(); if (c && m) mult_cur(c, m); }
+void sy_glMultMatrixf(const GLfloat* m) { SyContext* c = sy_cur(); if (c && m) mult_cur(c, m); }
 void sy_glMultMatrixx(const GLfixed* m)
 	{
-	SyContext* c = cur(); if (!c || !m) return;
+	SyContext* c = sy_cur(); if (!c || !m) return;
 	float t[16];
-	for (int i = 0; i < 16; ++i) t[i] = fx(m[i]);
+	for (int i = 0; i < 16; ++i) t[i] = sy_fx(m[i]);
 	mult_cur(c, t);
 	}
 
 void sy_glPushMatrix(void)
 	{
-	SyContext* c = cur(); if (!c) return;
+	SyContext* c = sy_cur(); if (!c) return;
 	int* top; int max; float (*st)[16];
 	switch (c->matrixMode)
 		{
@@ -251,40 +240,40 @@ void sy_glPushMatrix(void)
 	case GL_TEXTURE: top = &c->texTop; max = TEX_DEPTH; st = c->tex; break;
 	default: top = &c->mvTop; max = MV_DEPTH; st = c->mv; break;
 		}
-	if (*top + 1 >= max) { seterr(c, GL_STACK_OVERFLOW); return; }
+	if (*top + 1 >= max) { sy_seterr(c, GL_STACK_OVERFLOW); return; }
 	memcpy(st[*top + 1], st[*top], 64);
 	++*top;
 	}
 
 void sy_glPopMatrix(void)
 	{
-	SyContext* c = cur(); if (!c) return;
+	SyContext* c = sy_cur(); if (!c) return;
 	int* top = c->matrixMode == GL_PROJECTION ? &c->projTop : c->matrixMode == GL_TEXTURE ? &c->texTop : &c->mvTop;
-	if (*top == 0) { seterr(c, GL_STACK_UNDERFLOW); return; }
+	if (*top == 0) { sy_seterr(c, GL_STACK_UNDERFLOW); return; }
 	--*top;
 	}
 
 void sy_glTranslatef(GLfloat x, GLfloat y, GLfloat z)
 	{
-	SyContext* c = cur(); if (!c) return;
+	SyContext* c = sy_cur(); if (!c) return;
 	float m[16]; mat_identity(m);
 	m[12] = x; m[13] = y; m[14] = z;
 	mult_cur(c, m);
 	}
-void sy_glTranslatex(GLfixed x, GLfixed y, GLfixed z) { sy_glTranslatef(fx(x), fx(y), fx(z)); }
+void sy_glTranslatex(GLfixed x, GLfixed y, GLfixed z) { sy_glTranslatef(sy_fx(x), sy_fx(y), sy_fx(z)); }
 
 void sy_glScalef(GLfloat x, GLfloat y, GLfloat z)
 	{
-	SyContext* c = cur(); if (!c) return;
+	SyContext* c = sy_cur(); if (!c) return;
 	float m[16]; mat_identity(m);
 	m[0] = x; m[5] = y; m[10] = z;
 	mult_cur(c, m);
 	}
-void sy_glScalex(GLfixed x, GLfixed y, GLfixed z) { sy_glScalef(fx(x), fx(y), fx(z)); }
+void sy_glScalex(GLfixed x, GLfixed y, GLfixed z) { sy_glScalef(sy_fx(x), sy_fx(y), sy_fx(z)); }
 
 void sy_glRotatef(GLfloat angle, GLfloat x, GLfloat y, GLfloat z)
 	{
-	SyContext* c = cur(); if (!c) return;
+	SyContext* c = sy_cur(); if (!c) return;
 	float len = sy_sqrtf(x * x + y * y + z * z);
 	if (len == 0.0f) return;
 	x /= len; y /= len; z /= len;
@@ -297,12 +286,12 @@ void sy_glRotatef(GLfloat angle, GLfloat x, GLfloat y, GLfloat z)
 	m[3] = 0; m[7] = 0; m[11] = 0; m[15] = 1;
 	mult_cur(c, m);
 	}
-void sy_glRotatex(GLfixed a, GLfixed x, GLfixed y, GLfixed z) { sy_glRotatef(fx(a), fx(x), fx(y), fx(z)); }
+void sy_glRotatex(GLfixed a, GLfixed x, GLfixed y, GLfixed z) { sy_glRotatef(sy_fx(a), sy_fx(x), sy_fx(y), sy_fx(z)); }
 
 void sy_glFrustumf(GLfloat l, GLfloat r, GLfloat b, GLfloat t, GLfloat n, GLfloat f)
 	{
-	SyContext* c = cur(); if (!c) return;
-	if (n <= 0 || f <= 0 || l == r || b == t || n == f) { seterr(c, GL_INVALID_VALUE); return; }
+	SyContext* c = sy_cur(); if (!c) return;
+	if (n <= 0 || f <= 0 || l == r || b == t || n == f) { sy_seterr(c, GL_INVALID_VALUE); return; }
 	float m[16];
 	for (int i = 0; i < 16; ++i) m[i] = 0;
 	m[0] = 2 * n / (r - l);
@@ -315,35 +304,35 @@ void sy_glFrustumf(GLfloat l, GLfloat r, GLfloat b, GLfloat t, GLfloat n, GLfloa
 	mult_cur(c, m);
 	}
 void sy_glFrustumx(GLfixed l, GLfixed r, GLfixed b, GLfixed t, GLfixed n, GLfixed f)
-	{ sy_glFrustumf(fx(l), fx(r), fx(b), fx(t), fx(n), fx(f)); }
+	{ sy_glFrustumf(sy_fx(l), sy_fx(r), sy_fx(b), sy_fx(t), sy_fx(n), sy_fx(f)); }
 
 void sy_glOrthof(GLfloat l, GLfloat r, GLfloat b, GLfloat t, GLfloat n, GLfloat f)
 	{
-	SyContext* c = cur(); if (!c) return;
-	if (l == r || b == t || n == f) { seterr(c, GL_INVALID_VALUE); return; }
+	SyContext* c = sy_cur(); if (!c) return;
+	if (l == r || b == t || n == f) { sy_seterr(c, GL_INVALID_VALUE); return; }
 	float m[16]; mat_identity(m);
 	m[0] = 2 / (r - l); m[5] = 2 / (t - b); m[10] = -2 / (f - n);
 	m[12] = -(r + l) / (r - l); m[13] = -(t + b) / (t - b); m[14] = -(f + n) / (f - n);
 	mult_cur(c, m);
 	}
 void sy_glOrthox(GLfixed l, GLfixed r, GLfixed b, GLfixed t, GLfixed n, GLfixed f)
-	{ sy_glOrthof(fx(l), fx(r), fx(b), fx(t), fx(n), fx(f)); }
+	{ sy_glOrthof(sy_fx(l), sy_fx(r), sy_fx(b), sy_fx(t), sy_fx(n), sy_fx(f)); }
 
 void sy_glShadeModel(GLenum m)
 	{
-	SyContext* c = cur(); if (!c) return;
-	if (m != GL_FLAT && m != GL_SMOOTH) { seterr(c, GL_INVALID_ENUM); return; }
+	SyContext* c = sy_cur(); if (!c) return;
+	if (m != GL_FLAT && m != GL_SMOOTH) { sy_seterr(c, GL_INVALID_ENUM); return; }
 	c->shadeModel = m;
 	}
 
 void sy_glClearColor(GLclampf r, GLclampf g, GLclampf b, GLclampf a)
 	{
-	SyContext* c = cur(); if (!c) return;
+	SyContext* c = sy_cur(); if (!c) return;
 	c->clear[0] = r; c->clear[1] = g; c->clear[2] = b; c->clear[3] = a;
 	}
-void sy_glClearColorx(GLfixed r, GLfixed g, GLfixed b, GLfixed a) { sy_glClearColor(fx(r), fx(g), fx(b), fx(a)); }
-void sy_glClearDepthf(GLclampf d) { SyContext* c = cur(); if (c) c->clearDepth = d < 0 ? 0 : (d > 1 ? 1 : d); }
-void sy_glClearDepthx(GLfixed d) { sy_glClearDepthf(fx(d)); }
+void sy_glClearColorx(GLfixed r, GLfixed g, GLfixed b, GLfixed a) { sy_glClearColor(sy_fx(r), sy_fx(g), sy_fx(b), sy_fx(a)); }
+void sy_glClearDepthf(GLclampf d) { SyContext* c = sy_cur(); if (c) c->clearDepth = d < 0 ? 0 : (d > 1 ? 1 : d); }
+void sy_glClearDepthx(GLfixed d) { sy_glClearDepthf(sy_fx(d)); }
 void sy_glClearStencil(GLint s) { (void)s; }
 
 static u32 pack_rgb(const float* c)
@@ -355,42 +344,104 @@ static u32 pack_rgb(const float* c)
 
 void sy_glClear(GLbitfield mask)
 	{
-	SyContext* c = cur(); if (!c || !c->draw) return;
-	if (mask & ~(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT)) { seterr(c, GL_INVALID_VALUE); return; }
+	SyContext* c = sy_cur(); if (!c || !c->draw) return;
+	if (mask & ~(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT)) { sy_seterr(c, GL_INVALID_VALUE); return; }
 	float d = c->clearDepth * 65535.0f + 0.5f;
-	sy_raster_clear(c->draw, (mask & GL_COLOR_BUFFER_BIT) != 0, pack_rgb(c->clear),
-					(mask & GL_DEPTH_BUFFER_BIT) && c->depthWrite, (u16)(int)d, 0, 0, c->draw->w, c->draw->h);
+	int x = 0, y = 0, w = c->draw->w, h = c->draw->h;
+	if (c->scissor)
+		{
+		x = c->scX; w = c->scW; h = c->scH;
+		y = c->draw->h - (c->scY + c->scH);		/* GL y up -> surface rows */
+		}
+	sy_raster_clear(c->draw, (mask & GL_COLOR_BUFFER_BIT) && c->colorMask, pack_rgb(c->clear),
+					(mask & GL_DEPTH_BUFFER_BIT) && c->depthWrite, (u16)(int)d, x, y, w, h);
 	}
 
 static void set_cap(GLenum cap, int on)
 	{
-	SyContext* c = cur(); if (!c) return;
+	SyContext* c = sy_cur(); if (!c) return;
+	if (sy_light_cap(c, cap, on) || sy_tex_cap(c, cap, on))
+		return;
 	switch (cap)
 		{
 	case GL_DEPTH_TEST: c->depthTest = on; break;
 	case GL_CULL_FACE: c->cullFace = on; break;
-	default: break;		/* accepted, not implemented yet (milestone 2: lighting, textures, blend ...) */
+	case GL_BLEND: c->blend = on; break;
+	case GL_ALPHA_TEST: c->alphaTest = on; break;
+	case GL_SCISSOR_TEST: c->scissor = on; break;
+	default: break;		/* fog, dither, multisample, polygon offset ...: accepted, not implemented yet */
 		}
 	}
 void sy_glEnable(GLenum cap) { set_cap(cap, 1); }
 void sy_glDisable(GLenum cap) { set_cap(cap, 0); }
 
-void sy_glDepthFunc(GLenum f) { SyContext* c = cur(); if (c) c->depthFunc = f; }
-void sy_glDepthMask(GLboolean m) { SyContext* c = cur(); if (c) c->depthWrite = m != 0; }
-void sy_glCullFace(GLenum m) { SyContext* c = cur(); if (c) c->cullMode = m; }
-void sy_glFrontFace(GLenum m) { SyContext* c = cur(); if (c) c->frontFace = m; }
+GLboolean sy_glIsEnabled(GLenum cap)
+	{
+	SyContext* c = sy_cur(); if (!c) return 0;
+	if (cap >= GL_LIGHT0 && cap < GL_LIGHT0 + SY_MAX_LIGHTS) return (GLboolean)c->light[cap - GL_LIGHT0].enabled;
+	switch (cap)
+		{
+	case GL_DEPTH_TEST: return (GLboolean)c->depthTest;
+	case GL_CULL_FACE: return (GLboolean)c->cullFace;
+	case GL_BLEND: return (GLboolean)c->blend;
+	case GL_ALPHA_TEST: return (GLboolean)c->alphaTest;
+	case GL_SCISSOR_TEST: return (GLboolean)c->scissor;
+	case GL_LIGHTING: return (GLboolean)c->lighting;
+	case GL_COLOR_MATERIAL: return (GLboolean)c->colorMaterial;
+	case GL_NORMALIZE: return (GLboolean)c->normalize;
+	case GL_RESCALE_NORMAL: return (GLboolean)c->rescaleNormal;
+	case GL_TEXTURE_2D: return (GLboolean)c->texture2D;
+	case GL_VERTEX_ARRAY: return (GLboolean)c->va.enabled;
+	case GL_COLOR_ARRAY: return (GLboolean)c->ca.enabled;
+	case GL_NORMAL_ARRAY: return (GLboolean)c->na.enabled;
+	case GL_TEXTURE_COORD_ARRAY: return (GLboolean)c->ta.enabled;
+	case GL_DITHER: return 1;
+	default: return 0;
+		}
+	}
+
+void sy_glDepthFunc(GLenum f) { SyContext* c = sy_cur(); if (c) c->depthFunc = f; }
+void sy_glDepthMask(GLboolean m) { SyContext* c = sy_cur(); if (c) c->depthWrite = m != 0; }
+void sy_glColorMask(GLboolean r, GLboolean g, GLboolean b, GLboolean a)
+	{
+	SyContext* c = sy_cur(); if (!c) return;
+	c->colorMask = (r ? 1 : 0) | (g ? 2 : 0) | (b ? 4 : 0) | (a ? 8 : 0);
+	}
+void sy_glCullFace(GLenum m) { SyContext* c = sy_cur(); if (c) c->cullMode = m; }
+void sy_glFrontFace(GLenum m) { SyContext* c = sy_cur(); if (c) c->frontFace = m; }
+void sy_glBlendFunc(GLenum s, GLenum d) { SyContext* c = sy_cur(); if (c) { c->blendSrc = s; c->blendDst = d; } }
+void sy_glAlphaFunc(GLenum f, GLclampf ref)
+	{
+	SyContext* c = sy_cur(); if (!c) return;
+	c->alphaFunc = f; c->alphaRef = ref < 0 ? 0 : (ref > 1 ? 1 : ref);
+	}
+void sy_glAlphaFuncx(GLenum f, GLfixed ref) { sy_glAlphaFunc(f, sy_fx(ref)); }
 void sy_glFlush(void) {}
 void sy_glFinish(void) {}
 void sy_glHint(GLenum t, GLenum m) { (void)t; (void)m; }
 
 void sy_glColor4f(GLfloat r, GLfloat g, GLfloat b, GLfloat a)
 	{
-	SyContext* c = cur(); if (!c) return;
+	SyContext* c = sy_cur(); if (!c) return;
 	c->color[0] = r; c->color[1] = g; c->color[2] = b; c->color[3] = a;
+	if (c->colorMaterial)
+		{
+		memcpy(c->mat.ambient, c->color, 16);
+		memcpy(c->mat.diffuse, c->color, 16);
+		}
 	}
-void sy_glColor4x(GLfixed r, GLfixed g, GLfixed b, GLfixed a) { sy_glColor4f(fx(r), fx(g), fx(b), fx(a)); }
+void sy_glColor4x(GLfixed r, GLfixed g, GLfixed b, GLfixed a) { sy_glColor4f(sy_fx(r), sy_fx(g), sy_fx(b), sy_fx(a)); }
 void sy_glColor4ub(GLubyte r, GLubyte g, GLubyte b, GLubyte a)
 	{ sy_glColor4f(r / 255.0f, g / 255.0f, b / 255.0f, a / 255.0f); }
+
+void sy_glMultiTexCoord4f(GLenum unit, GLfloat s, GLfloat t, GLfloat r, GLfloat q)
+	{
+	SyContext* c = sy_cur(); if (!c) return;
+	(void)unit;
+	c->texcoord[0] = s; c->texcoord[1] = t; c->texcoord[2] = r; c->texcoord[3] = q;
+	}
+void sy_glMultiTexCoord4x(GLenum unit, GLfixed s, GLfixed t, GLfixed r, GLfixed q)
+	{ sy_glMultiTexCoord4f(unit, sy_fx(s), sy_fx(t), sy_fx(r), sy_fx(q)); }
 
 static SyArray* array_of(SyContext* c, GLenum a)
 	{
@@ -405,15 +456,15 @@ static SyArray* array_of(SyContext* c, GLenum a)
 	}
 void sy_glEnableClientState(GLenum a)
 	{
-	SyContext* c = cur(); if (!c) return;
+	SyContext* c = sy_cur(); if (!c) return;
 	SyArray* p = array_of(c, a);
-	if (p) p->enabled = 1; else if (a != GL_POINT_SIZE_ARRAY_OES) seterr(c, GL_INVALID_ENUM);
+	if (p) p->enabled = 1; else if (a != GL_POINT_SIZE_ARRAY_OES) sy_seterr(c, GL_INVALID_ENUM);
 	}
 void sy_glDisableClientState(GLenum a)
 	{
-	SyContext* c = cur(); if (!c) return;
+	SyContext* c = sy_cur(); if (!c) return;
 	SyArray* p = array_of(c, a);
-	if (p) p->enabled = 0; else if (a != GL_POINT_SIZE_ARRAY_OES) seterr(c, GL_INVALID_ENUM);
+	if (p) p->enabled = 0; else if (a != GL_POINT_SIZE_ARRAY_OES) sy_seterr(c, GL_INVALID_ENUM);
 	}
 
 static void set_array(SyArray* a, GLint size, GLenum type, GLsizei stride, const void* ptr)
@@ -422,26 +473,30 @@ static void set_array(SyArray* a, GLint size, GLenum type, GLsizei stride, const
 	}
 void sy_glVertexPointer(GLint size, GLenum type, GLsizei stride, const void* ptr)
 	{
-	SyContext* c = cur(); if (!c) return;
-	if (size < 2 || size > 4 || stride < 0) { seterr(c, GL_INVALID_VALUE); return; }
-	if (type != GL_BYTE && type != GL_SHORT && type != GL_FIXED && type != GL_FLOAT) { seterr(c, GL_INVALID_ENUM); return; }
+	SyContext* c = sy_cur(); if (!c) return;
+	if (size < 2 || size > 4 || stride < 0) { sy_seterr(c, GL_INVALID_VALUE); return; }
+	if (type != GL_BYTE && type != GL_SHORT && type != GL_FIXED && type != GL_FLOAT) { sy_seterr(c, GL_INVALID_ENUM); return; }
 	set_array(&c->va, size, type, stride, ptr);
 	}
 void sy_glColorPointer(GLint size, GLenum type, GLsizei stride, const void* ptr)
 	{
-	SyContext* c = cur(); if (!c) return;
-	if (size != 4 || stride < 0) { seterr(c, GL_INVALID_VALUE); return; }
-	if (type != GL_UNSIGNED_BYTE && type != GL_FIXED && type != GL_FLOAT) { seterr(c, GL_INVALID_ENUM); return; }
+	SyContext* c = sy_cur(); if (!c) return;
+	if (size != 4 || stride < 0) { sy_seterr(c, GL_INVALID_VALUE); return; }
+	if (type != GL_UNSIGNED_BYTE && type != GL_FIXED && type != GL_FLOAT) { sy_seterr(c, GL_INVALID_ENUM); return; }
 	set_array(&c->ca, size, type, stride, ptr);
 	}
 void sy_glNormalPointer(GLenum type, GLsizei stride, const void* ptr)
 	{
-	SyContext* c = cur(); if (!c) return;
+	SyContext* c = sy_cur(); if (!c) return;
+	if (stride < 0) { sy_seterr(c, GL_INVALID_VALUE); return; }
+	if (type != GL_BYTE && type != GL_SHORT && type != GL_FIXED && type != GL_FLOAT) { sy_seterr(c, GL_INVALID_ENUM); return; }
 	set_array(&c->na, 3, type, stride, ptr);
 	}
 void sy_glTexCoordPointer(GLint size, GLenum type, GLsizei stride, const void* ptr)
 	{
-	SyContext* c = cur(); if (!c) return;
+	SyContext* c = sy_cur(); if (!c) return;
+	if (size < 2 || size > 4 || stride < 0) { sy_seterr(c, GL_INVALID_VALUE); return; }
+	if (type != GL_BYTE && type != GL_SHORT && type != GL_FIXED && type != GL_FLOAT) { sy_seterr(c, GL_INVALID_ENUM); return; }
 	set_array(&c->ta, size, type, stride, ptr);
 	}
 
@@ -455,31 +510,54 @@ const GLubyte* sy_glGetString(GLenum name)
 	case GL_RENDERER: return (const GLubyte*)"sygl software rasterizer";
 	case GL_VERSION: return (const GLubyte*)"OpenGL ES-CM 1.1";
 	case GL_EXTENSIONS: return (const GLubyte*)"";
-	default: seterr(cur(), GL_INVALID_ENUM); return 0;
+	default: sy_seterr(sy_cur(), GL_INVALID_ENUM); return 0;
 		}
 	}
 
 void sy_glGetIntegerv(GLenum name, GLint* v)
 	{
-	SyContext* c = cur(); if (!c || !v) return;
+	SyContext* c = sy_cur(); if (!c || !v) return;
 	switch (name)
 		{
 	case GL_VIEWPORT: v[0] = c->vpX; v[1] = c->vpY; v[2] = c->vpW; v[3] = c->vpH; break;
+	case GL_SCISSOR_BOX: v[0] = c->scX; v[1] = c->scY; v[2] = c->scW; v[3] = c->scH; break;
 	case GL_MAX_VIEWPORT_DIMS: v[0] = 1024; v[1] = 1024; break;
-	case GL_MAX_TEXTURE_SIZE: *v = 512; break;
+	case GL_MAX_TEXTURE_SIZE: *v = 1024; break;
 	case GL_MAX_MODELVIEW_STACK_DEPTH: *v = MV_DEPTH; break;
 	case GL_MAX_PROJECTION_STACK_DEPTH: *v = PROJ_DEPTH; break;
 	case GL_MAX_TEXTURE_STACK_DEPTH: *v = TEX_DEPTH; break;
-	case GL_MAX_LIGHTS: *v = 8; break;
-	case GL_MAX_TEXTURE_UNITS: *v = 2; break;
+	case GL_MAX_LIGHTS: *v = SY_MAX_LIGHTS; break;
+	case GL_MAX_TEXTURE_UNITS: *v = 1; break;
 	case GL_RED_BITS: case GL_GREEN_BITS: case GL_BLUE_BITS: *v = 8; break;
 	case GL_ALPHA_BITS: case GL_STENCIL_BITS: *v = 0; break;
 	case GL_DEPTH_BITS: *v = 16; break;
-	default: seterr(c, GL_INVALID_ENUM); break;
+	case GL_TEXTURE_BINDING_2D: *v = (GLint)c->bound->name; break;
+	case GL_MATRIX_MODE: *v = (GLint)c->matrixMode; break;
+	default: sy_seterr(c, GL_INVALID_ENUM); break;
 		}
 	}
 
-/* ---------------------------------------------------------------- vertex pipeline */
+void sy_glGetFloatv(GLenum name, GLfloat* v)
+	{
+	SyContext* c = sy_cur(); if (!c || !v) return;
+	switch (name)
+		{
+	case GL_MODELVIEW_MATRIX: memcpy(v, c->mv[c->mvTop], 64); break;
+	case GL_PROJECTION_MATRIX: memcpy(v, c->proj[c->projTop], 64); break;
+	case GL_TEXTURE_MATRIX: memcpy(v, c->tex[c->texTop], 64); break;
+	default:
+		{
+		GLint iv[4] = {0, 0, 0, 0};
+		int e = c->error;
+		sy_glGetIntegerv(name, iv);
+		if (c->error != e) return;
+		for (int i = 0; i < 4; ++i) v[i] = (GLfloat)iv[i];
+		break;
+		}
+		}
+	}
+
+/* ---------------------------------------------------------------- vertex stage */
 
 static const u8* elem(const SyArray* a, int i, int bytesPer)
 	{
@@ -492,38 +570,105 @@ static int type_bytes(GLenum t)
 	switch (t) { case GL_BYTE: case GL_UNSIGNED_BYTE: return 1; case GL_SHORT: case GL_UNSIGNED_SHORT: return 2; default: return 4; }
 	}
 
-static float comp(GLenum type, const u8* p, int k, int normalized)
+/* aNorm: 1 = unsigned byte colour 0..1, 2 = signed normal [-1, 1] */
+static float comp(GLenum type, const u8* p, int k, int aNorm)
 	{
 	switch (type)
 		{
 	case GL_FLOAT: return ((const float*)p)[k];
-	case GL_FIXED: return fx(((const int*)p)[k]);
-	case GL_SHORT: return (float)((const short*)p)[k];
-	case GL_BYTE: return (float)((const signed char*)p)[k];
-	case GL_UNSIGNED_BYTE: return normalized ? ((const u8*)p)[k] / 255.0f : (float)((const u8*)p)[k];
+	case GL_FIXED: return sy_fx(((const int*)p)[k]);
+	case GL_SHORT:
+		{ float v = (float)((const short*)p)[k]; return aNorm == 2 ? (2.0f * v + 1.0f) / 65535.0f : v; }
+	case GL_BYTE:
+		{ float v = (float)((const signed char*)p)[k]; return aNorm == 2 ? (2.0f * v + 1.0f) / 255.0f : v; }
+	case GL_UNSIGNED_BYTE: return aNorm == 1 ? ((const u8*)p)[k] / 255.0f : (float)((const u8*)p)[k];
 	default: return 0.0f;
 		}
 	}
 
-static void transform(SyContext* c, const float* mvp, int idx, SyCV* o)
+typedef struct
+	{
+	float mvp[16];
+	const float* mv;
+	float nm[9];		/* normal matrix (row-major) */
+	int lit, textured, texIdentity;
+	const float* texm;
+	} SyFrame;
+
+static void transform(SyContext* c, const SyFrame* f, int idx, SyCV* o)
 	{
 	float v[4] = {0.0f, 0.0f, 0.0f, 1.0f};
 	const u8* p = elem(&c->va, idx, type_bytes(c->va.type));
 	for (int k = 0; k < c->va.size; ++k)
 		v[k] = comp(c->va.type, p, k, 0);
-	o->x = mvp[0] * v[0] + mvp[4] * v[1] + mvp[8] * v[2] + mvp[12] * v[3];
-	o->y = mvp[1] * v[0] + mvp[5] * v[1] + mvp[9] * v[2] + mvp[13] * v[3];
-	o->z = mvp[2] * v[0] + mvp[6] * v[1] + mvp[10] * v[2] + mvp[14] * v[3];
-	o->w = mvp[3] * v[0] + mvp[7] * v[1] + mvp[11] * v[2] + mvp[15] * v[3];
+	const float* m = f->mvp;
+	o->x = m[0] * v[0] + m[4] * v[1] + m[8] * v[2] + m[12] * v[3];
+	o->y = m[1] * v[0] + m[5] * v[1] + m[9] * v[2] + m[13] * v[3];
+	o->z = m[2] * v[0] + m[6] * v[1] + m[10] * v[2] + m[14] * v[3];
+	o->w = m[3] * v[0] + m[7] * v[1] + m[11] * v[2] + m[15] * v[3];
+	float col[4];
 	if (c->ca.enabled && c->ca.ptr)
 		{
 		const u8* q = elem(&c->ca, idx, type_bytes(c->ca.type));
-		o->r = comp(c->ca.type, q, 0, 1); o->g = comp(c->ca.type, q, 1, 1);
-		o->b = comp(c->ca.type, q, 2, 1); o->a = comp(c->ca.type, q, 3, 1);
+		col[0] = comp(c->ca.type, q, 0, 1); col[1] = comp(c->ca.type, q, 1, 1);
+		col[2] = comp(c->ca.type, q, 2, 1); col[3] = comp(c->ca.type, q, 3, 1);
+		}
+	else
+		memcpy(col, c->color, 16);
+	if (f->lit)
+		{
+		const float* w = f->mv;
+		float eye[3] = { w[0] * v[0] + w[4] * v[1] + w[8] * v[2] + w[12] * v[3],
+						 w[1] * v[0] + w[5] * v[1] + w[9] * v[2] + w[13] * v[3],
+						 w[2] * v[0] + w[6] * v[1] + w[10] * v[2] + w[14] * v[3] };
+		float n[3];
+		if (c->na.enabled && c->na.ptr)
+			{
+			const u8* q = elem(&c->na, idx, type_bytes(c->na.type));
+			n[0] = comp(c->na.type, q, 0, 2); n[1] = comp(c->na.type, q, 1, 2); n[2] = comp(c->na.type, q, 2, 2);
+			}
+		else
+			memcpy(n, c->normal, 12);
+		const float* nm = f->nm;
+		float en[3] = { nm[0] * n[0] + nm[1] * n[1] + nm[2] * n[2],
+						nm[3] * n[0] + nm[4] * n[1] + nm[5] * n[2],
+						nm[6] * n[0] + nm[7] * n[1] + nm[8] * n[2] };
+		if (c->normalize || c->rescaleNormal)
+			{
+			float l = sy_sqrtf(en[0] * en[0] + en[1] * en[1] + en[2] * en[2]);
+			if (l > 0) { en[0] /= l; en[1] /= l; en[2] /= l; }
+			}
+		float lit[4];
+		sy_light_vertex(c, eye, en, col, lit);
+		o->r = lit[0]; o->g = lit[1]; o->b = lit[2]; o->a = lit[3];
 		}
 	else
 		{
-		o->r = c->color[0]; o->g = c->color[1]; o->b = c->color[2]; o->a = c->color[3];
+		o->r = col[0]; o->g = col[1]; o->b = col[2]; o->a = col[3];
+		}
+	if (f->textured)
+		{
+		float tc[4] = { c->texcoord[0], c->texcoord[1], c->texcoord[2], c->texcoord[3] };
+		if (c->ta.enabled && c->ta.ptr)
+			{
+			const u8* q = elem(&c->ta, idx, type_bytes(c->ta.type));
+			tc[2] = 0.0f; tc[3] = 1.0f;
+			for (int k = 0; k < c->ta.size; ++k) tc[k] = comp(c->ta.type, q, k, 0);
+			}
+		if (!f->texIdentity)
+			{
+			const float* t = f->texm;
+			float s = t[0] * tc[0] + t[4] * tc[1] + t[8] * tc[2] + t[12] * tc[3];
+			float tt = t[1] * tc[0] + t[5] * tc[1] + t[9] * tc[2] + t[13] * tc[3];
+			float q = t[3] * tc[0] + t[7] * tc[1] + t[11] * tc[2] + t[15] * tc[3];
+			tc[0] = s; tc[1] = tt; tc[3] = q;
+			}
+		if (tc[3] != 1.0f && tc[3] != 0.0f) { tc[0] /= tc[3]; tc[1] /= tc[3]; }
+		o->s = tc[0]; o->t = tc[1];
+		}
+	else
+		{
+		o->s = 0; o->t = 0;
 		}
 	}
 
@@ -552,7 +697,7 @@ static int outcode(const SyCV* v)
 static void lerp(SyCV* o, const SyCV* a, const SyCV* b, float t)
 	{
 	const float* pa = (const float*)a; const float* pb = (const float*)b; float* po = (float*)o;
-	for (int i = 0; i < 8; ++i) po[i] = pa[i] + (pb[i] - pa[i]) * t;
+	for (int i = 0; i < CV_FLOATS; ++i) po[i] = pa[i] + (pb[i] - pa[i]) * t;
 	}
 
 #define MAXPOLY 12
@@ -567,9 +712,10 @@ static void project(SyContext* c, const SyCV* in, SyRVtx* o)
 	o->y = (float)c->draw->h - wy;		/* GL window y is bottom-up; surfaces are top-down */
 	o->z = c->depthNear + (nz + 1.0f) * 0.5f * (c->depthFar - c->depthNear);
 	o->r = in->r * 255.0f; o->g = in->g * 255.0f; o->b = in->b * 255.0f; o->a = in->a * 255.0f;
+	o->iw = iw; o->sw = in->s * iw; o->tw = in->t * iw;
 	}
 
-static void draw_triangle(SyContext* c, const SyCV* a, const SyCV* b, const SyCV* cc, const SyCV* provoking)
+static void draw_triangle(SyContext* c, const SyRState* st, const SyCV* a, const SyCV* b, const SyCV* cc, const SyCV* provoking)
 	{
 	SyCV poly[2][MAXPOLY];
 	int n = 3, src = 0;
@@ -604,8 +750,8 @@ static void draw_triangle(SyContext* c, const SyCV* a, const SyCV* b, const SyCV
 		project(c, &poly[src][i], &w[i]);
 	if (c->shadeModel == GL_FLAT)
 		{
-		SyRVtx pv; project(c, provoking, &pv);
-		for (int i = 0; i < n; ++i) { w[i].r = pv.r; w[i].g = pv.g; w[i].b = pv.b; w[i].a = pv.a; }
+		float r = provoking->r * 255.0f, g = provoking->g * 255.0f, b2 = provoking->b * 255.0f, al = provoking->a * 255.0f;
+		for (int i = 0; i < n; ++i) { w[i].r = r; w[i].g = g; w[i].b = b2; w[i].a = al; }
 		}
 	if (c->cullFace)
 		{
@@ -616,69 +762,110 @@ static void draw_triangle(SyContext* c, const SyCV* a, const SyCV* b, const SyCV
 		if (c->cullMode == GL_FRONT_AND_BACK || (c->cullMode == GL_FRONT && front) || (c->cullMode == GL_BACK && !front))
 			return;
 		}
-	SyRState st = { c->depthTest, c->depthWrite, (int)c->depthFunc };
 	for (int i = 1; i + 1 < n; ++i)
-		sy_raster_triangle(c->draw, &st, &w[0], &w[i], &w[i + 1]);
+		sy_raster_triangle(c->draw, st, &w[0], &w[i], &w[i + 1]);
 	}
 
-static int prepare(SyContext* c, int count, float* mvp)
+static int prepare(SyContext* c, int count, SyFrame* f, SyRState* st, SyRTex* rt)
 	{
 	if (!c->draw || !c->va.enabled || !c->va.ptr)
 		return 0;
 	if (count > c->vcap)
 		{
 		SyCV* nb = (SyCV*)sy_alloc(count * (int)sizeof(SyCV));
-		if (!nb) { seterr(c, GL_OUT_OF_MEMORY); return 0; }
+		if (!nb) { sy_seterr(c, GL_OUT_OF_MEMORY); return 0; }
 		sy_free(c->vbuf);
 		c->vbuf = nb; c->vcap = count;
 		}
-	mat_mul(mvp, c->proj[c->projTop], c->mv[c->mvTop]);
+	mat_mul(f->mvp, c->proj[c->projTop], c->mv[c->mvTop]);
+	f->mv = c->mv[c->mvTop];
+	f->lit = c->lighting;
+	if (f->lit)
+		normal_matrix(f->mv, f->nm);
+	const SyTex* t = c->bound;
+	f->textured = c->texture2D && t && t->data && t->w && t->h;
+	f->texm = c->tex[c->texTop];
+	f->texIdentity = mat_is_identity(f->texm);
+
+	memset(st, 0, sizeof(*st));
+	st->depthTest = c->depthTest; st->depthWrite = c->depthWrite; st->depthFunc = (int)c->depthFunc;
+	st->writeColor = c->colorMask != 0;
+	if (f->textured)
+		{
+		rt->data = t->data; rt->w = t->w; rt->h = t->h;
+		GLenum minF = t->minF;
+		rt->linear = !(t->magF == GL_NEAREST && (minF == GL_NEAREST || minF == GL_NEAREST_MIPMAP_NEAREST || minF == GL_NEAREST_MIPMAP_LINEAR));
+		rt->clampS = t->wrapS == GL_CLAMP_TO_EDGE; rt->clampT = t->wrapT == GL_CLAMP_TO_EDGE;
+		rt->hasRGB = t->base != GL_ALPHA;
+		rt->hasA = t->base == GL_RGBA || t->base == GL_ALPHA || t->base == GL_LUMINANCE_ALPHA;
+		st->tex = rt;
+		st->envMode = (int)c->envMode;
+		st->envR = (int)(c->envColor[0] * 255.0f); st->envG = (int)(c->envColor[1] * 255.0f);
+		st->envB = (int)(c->envColor[2] * 255.0f); st->envA = (int)(c->envColor[3] * 255.0f);
+		}
+	if (c->alphaTest)
+		{
+		st->alphaTest = 1; st->alphaFunc = (int)c->alphaFunc; st->alphaRef = (int)(c->alphaRef * 255.0f + 0.5f);
+		}
+	if (c->blend && !(c->blendSrc == GL_ONE && c->blendDst == GL_ZERO))
+		{
+		st->blend = 1; st->blendSrc = (int)c->blendSrc; st->blendDst = (int)c->blendDst;
+		}
+	if (c->scissor)
+		{
+		st->scX0 = c->scX; st->scX1 = c->scX + c->scW;
+		st->scY0 = c->draw->h - (c->scY + c->scH); st->scY1 = c->draw->h - c->scY;
+		}
+	else
+		{
+		st->scX0 = 0; st->scY0 = 0; st->scX1 = c->draw->w; st->scY1 = c->draw->h;
+		}
 	return 1;
 	}
 
-static void assemble(SyContext* c, GLenum mode, const SyCV* v, int n)
+static void assemble(SyContext* c, const SyRState* st, GLenum mode, const SyCV* v, int n)
 	{
 	switch (mode)
 		{
 	case GL_TRIANGLES:
-		for (int i = 0; i + 2 < n; i += 3) draw_triangle(c, &v[i], &v[i + 1], &v[i + 2], &v[i + 2]);
+		for (int i = 0; i + 2 < n; i += 3) draw_triangle(c, st, &v[i], &v[i + 1], &v[i + 2], &v[i + 2]);
 		break;
 	case GL_TRIANGLE_STRIP:
 		for (int i = 0; i + 2 < n; ++i)
-			if (i & 1) draw_triangle(c, &v[i + 1], &v[i], &v[i + 2], &v[i + 2]);
-			else draw_triangle(c, &v[i], &v[i + 1], &v[i + 2], &v[i + 2]);
+			if (i & 1) draw_triangle(c, st, &v[i + 1], &v[i], &v[i + 2], &v[i + 2]);
+			else draw_triangle(c, st, &v[i], &v[i + 1], &v[i + 2], &v[i + 2]);
 		break;
 	case GL_TRIANGLE_FAN:
-		for (int i = 1; i + 1 < n; ++i) draw_triangle(c, &v[0], &v[i], &v[i + 1], &v[i + 1]);
+		for (int i = 1; i + 1 < n; ++i) draw_triangle(c, st, &v[0], &v[i], &v[i + 1], &v[i + 1]);
 		break;
 	default:
-		break;	/* points and lines: milestone 2 */
+		break;	/* points and lines: later */
 		}
 	}
 
 void sy_glDrawArrays(GLenum mode, GLint first, GLsizei count)
 	{
-	SyContext* c = cur(); if (!c) return;
-	if (count < 0 || first < 0) { seterr(c, GL_INVALID_VALUE); return; }
-	if (mode > GL_TRIANGLE_FAN) { seterr(c, GL_INVALID_ENUM); return; }
-	float mvp[16];
-	if (count == 0 || !prepare(c, count, mvp)) return;
+	SyContext* c = sy_cur(); if (!c) return;
+	if (count < 0 || first < 0) { sy_seterr(c, GL_INVALID_VALUE); return; }
+	if (mode > GL_TRIANGLE_FAN) { sy_seterr(c, GL_INVALID_ENUM); return; }
+	SyFrame f; SyRState st; SyRTex rt;
+	if (count == 0 || !prepare(c, count, &f, &st, &rt)) return;
 	for (int i = 0; i < count; ++i)
-		transform(c, mvp, first + i, &c->vbuf[i]);
-	assemble(c, mode, c->vbuf, count);
+		transform(c, &f, first + i, &c->vbuf[i]);
+	assemble(c, &st, mode, c->vbuf, count);
 	}
 
 void sy_glDrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices)
 	{
-	SyContext* c = cur(); if (!c) return;
-	if (count < 0) { seterr(c, GL_INVALID_VALUE); return; }
-	if (mode > GL_TRIANGLE_FAN || (type != GL_UNSIGNED_BYTE && type != GL_UNSIGNED_SHORT)) { seterr(c, GL_INVALID_ENUM); return; }
-	float mvp[16];
-	if (count == 0 || !indices || !prepare(c, count, mvp)) return;
+	SyContext* c = sy_cur(); if (!c) return;
+	if (count < 0) { sy_seterr(c, GL_INVALID_VALUE); return; }
+	if (mode > GL_TRIANGLE_FAN || (type != GL_UNSIGNED_BYTE && type != GL_UNSIGNED_SHORT)) { sy_seterr(c, GL_INVALID_ENUM); return; }
+	SyFrame f; SyRState st; SyRTex rt;
+	if (count == 0 || !indices || !prepare(c, count, &f, &st, &rt)) return;
 	for (int i = 0; i < count; ++i)
 		{
 		int idx = type == GL_UNSIGNED_BYTE ? ((const u8*)indices)[i] : ((const u16*)indices)[i];
-		transform(c, mvp, idx, &c->vbuf[i]);
+		transform(c, &f, idx, &c->vbuf[i]);
 		}
-	assemble(c, mode, c->vbuf, count);
+	assemble(c, &st, mode, c->vbuf, count);
 	}

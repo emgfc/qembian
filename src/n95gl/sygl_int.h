@@ -49,6 +49,7 @@ typedef struct SyThread
 	int fbPitch;		/* bytes per line */
 	unsigned fpsTick;	/* NTickCount at the last fps report */
 	int fpsFrames;
+	void* bigHeap;		/* RHeap* (plat.cpp) */
 	} SyThread;
 
 /* ---- platform (plat.cpp) ---- */
@@ -75,6 +76,7 @@ void* memset(void* aDst, int aVal, unsigned aLen);
 float sy_sinf(float aRad);
 float sy_cosf(float aRad);
 float sy_sqrtf(float aX);
+float sy_powf(float aX, float aE);
 
 /* ---- GL (gl.c) ---- */
 struct SyContext* sy_gl_create(void);
@@ -82,10 +84,34 @@ void sy_gl_destroy(struct SyContext* aCtx);
 void sy_gl_made_current(struct SyContext* aCtx, SySurface* aDraw);
 
 /* ---- rasterizer (raster.c) ---- */
-typedef struct SyRVtx { float x, y, z; float r, g, b, a; } SyRVtx;	/* window coords, y down, z 0..1, colour 0..255 */
-typedef struct SyRState { int depthTest, depthWrite, depthFunc; } SyRState;
+/* window coords (y down), z 0..1, colour 0..255, iw = 1/w_clip, sw/tw = s/w, t/w (perspective) */
+typedef struct SyRVtx { float x, y, z; float r, g, b, a; float iw, sw, tw; } SyRVtx;
+typedef struct SyRTex
+	{
+	const u32* data;		/* 0xAARRGGBB */
+	int w, h;
+	int linear;				/* bilinear (else nearest) */
+	int clampS, clampT;		/* clamp to edge (else repeat) */
+	int hasRGB, hasA;		/* base format has colour / alpha components */
+	} SyRTex;
+typedef struct SyRState
+	{
+	int depthTest, depthWrite, depthFunc;
+	const SyRTex* tex;		/* NULL: untextured */
+	int envMode;			/* GL_MODULATE, GL_REPLACE, GL_DECAL, GL_BLEND, GL_ADD */
+	int envR, envG, envB, envA;
+	int alphaTest, alphaFunc, alphaRef;		/* ref 0..255 */
+	int blend, blendSrc, blendDst;
+	int scX0, scY0, scX1, scY1;			/* drawable rect in surface coords (x1/y1 exclusive) */
+	int writeColor;
+	} SyRState;
 void sy_raster_triangle(SySurface* aS, const SyRState* aSt, const SyRVtx* aV0, const SyRVtx* aV1, const SyRVtx* aV2);
 void sy_raster_clear(SySurface* aS, int aColor, u32 aRgb, int aDepth, u16 aZ, int aX, int aY, int aW, int aH);
+
+/* big buffers (surfaces, textures): our own chunk heap per thread (plat.cpp), like Nokia's PVRHeap,
+   so the app's heap limit (often 1 MB) does not apply */
+void* sy_big_alloc(int aBytes);
+void sy_big_free(void* aPtr);
 
 /* ---- EGL (egl.c) ---- */
 void sy_present(SyThread* aT, SySurface* aS);
