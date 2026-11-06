@@ -26,7 +26,12 @@ buttons from keymap.toml (one button per key, found by its host qcodes).
   unpaging, core.json, kernel-drivers.txt, ABI reports, identify); re-extraction of the RM-320 set is
   byte-identical (core-flat, core.json, rofs1/2). The helper tools stay in tools/ for now (imported
   by others); the firmware-inventory doc did not move.
-Next: step 7 (key translation in QEMU), then the rest.
+- Step 7 (done): syborg-keyboard.keymap=FILE (device.py gen qemu-keymap, passed by qemu-args when
+  board.input.translation = "qemu"): mapped keys arrive as Symbian scan codes (bit 30), the guest
+  EKEYB passes them through (patch qemu-baseport 0014, which also bounds-checks the set-1 table);
+  unmapped keys keep the set-1 table. Verified: a host key mapped only in keymap.toml (F22, whose
+  set-1 code is past the guest table) opened Carousel without a guest rebuild.
+Next: step 8 (board tells the guest RAM/display/device id), then the rest.
 
 ## Proposed section for CLAUDE.md (paste as is)
 

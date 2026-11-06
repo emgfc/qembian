@@ -1,0 +1,26 @@
+--- a/baseport/syborg/keyboard/syborg_keyboard.cpp
++++ b/baseport/syborg/keyboard/syborg_keyboard.cpp
+@@ -204,13 +204,21 @@
+ 	__DEBUG_PRINT("DKeyboardPs2Soc::RxDfc %d %d", keycode, dwn);
+   
+ 	keycode &= ~(0x80000000);	
++	// syborg-pg: bit 30 = QEMU already translated the key with the device keymap (tools/device.py
++	// gen qemu-keymap): bits 0..7 are the Symbian scan code. Otherwise a set-1 code for the table,
++	// which ends at 0xef (codes past it used to read beyond the table).
++	TInt code;
++	if (keycode & 0x40000000)
++	  code = keycode & 0xff;
++	else
++	  code = keycode < (TInt)sizeof(KConvertCode) ? KConvertCode[keycode] : EStdKeyNull;
+ 	if (dwn) {
+ 	  __DEBUG_PRINT("kbd EKeyDown:%d",keycode);
+-	  e.Set(TRawEvent::EKeyDown,KConvertCode[keycode],0);
++	  e.Set(TRawEvent::EKeyDown,code,0);
+ 	}
+ 	else {
+ 	  __DEBUG_PRINT("kbd EKeyUp:%d",keycode);
+-	  e.Set(TRawEvent::EKeyUp,KConvertCode[keycode],0);
++	  e.Set(TRawEvent::EKeyUp,code,0);
+ 	}
+ 	Kern::AddEvent(e);
+   }

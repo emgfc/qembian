@@ -135,7 +135,7 @@ flags = "FS_COMPOSITE"
 
 [board.input]
 keymap = "keymap.toml"                     # physical keys -> EStdKey scan codes -> host keys (patches qemu-baseport 0005/0012/0014/0015/0016)
-translation = "guest"                      # today: EKEYB compiled table (set-1 -> EStdKey); target: "qemu" (docs/devices.md §3.4)
+translation = "qemu"                       # QEMU translates mapped keys (keymap.qemu, generated); unmapped keys use the guest set-1 table
 
 # ---------------------------------------------------------------------------------------------
 # Hardware the phone has (presence drives the skin, the stand-in list and the "done" levels).

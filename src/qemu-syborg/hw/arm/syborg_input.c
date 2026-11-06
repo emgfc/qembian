@@ -4,6 +4,10 @@
  * Keyboard registers (word index): 0 ID, 1 DATA (pop or 0xffffffff), 2 FIFO_COUNT,
  * 3 INT_ENABLE, 4 FIFO_SIZE. Each FIFO word is a PC set-1 scancode; an 0xE0-prefixed key
  * has bit 7 set, a key release has bit 31 set.
+ * With -global syborg-keyboard.keymap=FILE (lines "qcode-name value", generated from the device
+ * profile by tools/device.py gen qemu-keymap) a mapped host key is delivered already translated:
+ * bit 30 set and the value (a Symbian scan code) in bits 0..7; the guest EKEYB passes it through.
+ * Unmapped keys keep the set-1 path.
  *
  * Pointer registers: 0 ID (absolute: 0xc51d0006), 1 LATCH (write pops the next event into
  * X/Y/Z/BUTTONS), 2 FIFO_COUNT, 3 X, 4 Y, 5 Z, 6 BUTTONS, 7 INT_ENABLE, 8 FIFO_SIZE.
@@ -22,6 +26,9 @@
 #include "hw/core/qdev-properties.h"
 #include "migration/vmstate.h"
 #include "ui/input.h"
+#include "qapi/util.h"
+#include "qapi/qapi-types-ui.h"
+#include "qemu/error-report.h"
 #include "qom/object.h"
 #include "syborg.h"
 
@@ -41,7 +48,40 @@ struct SyborgKeyboardState {
     uint32_t fifo[INPUT_FIFO_MAX];
     QemuInputHandlerState *hs;
     uint32_t held[8];         /* keys currently down (by 8-bit code): a keypad has no autorepeat */
+    uint32_t held_x[8];       /* the same for translated keys */
+    char *keymap;             /* device keymap file (qcode -> Symbian scan code), or NULL */
+    uint16_t xlat[1024];      /* by linux keycode: 0x8000 | scan code */
 };
+
+#define KBD_TRANSLATED 0x40000000u
+
+static void kbd_load_keymap(SyborgKeyboardState *s, Error **errp)
+{
+    g_autofree char *text = NULL;
+    if (!g_file_get_contents(s->keymap, &text, NULL, NULL)) {
+        error_setg(errp, "syborg-keyboard: cannot read keymap %s", s->keymap);
+        return;
+    }
+    int n = 0;
+    for (char *line = strtok(text, "\n"); line; line = strtok(NULL, "\n")) {
+        char name[64];
+        unsigned value;
+        if (line[0] == '#' || sscanf(line, "%63s %i", name, (int *)&value) != 2) {
+            continue;
+        }
+        int q = qapi_enum_parse(&QKeyCode_lookup, name, -1, NULL);
+        if (q < 0 || q >= qemu_input_map_qcode_to_linux_len) {
+            warn_report("syborg-keyboard: keymap: unknown qcode %s", name);
+            continue;
+        }
+        unsigned lin = qemu_input_map_qcode_to_linux[q];
+        if (lin && lin < ARRAY_SIZE(s->xlat)) {
+            s->xlat[lin] = 0x8000 | (value & 0xff);
+            n++;
+        }
+    }
+    info_report("syborg-keyboard: %d keys translated from %s", n, s->keymap);
+}
 
 static void kbd_update(SyborgKeyboardState *s)
 {
@@ -62,6 +102,22 @@ static void kbd_event(DeviceState *dev, QemuConsole *src, QemuInputEvent *evt)
     SyborgKeyboardState *s = SYBORG_KEYBOARD(dev);
     unsigned kc = 0;
     uint32_t v;
+
+    if (evt->key.key < ARRAY_SIZE(s->xlat) && (s->xlat[evt->key.key] & 0x8000)) {
+        /* the device keymap: a Symbian scan code, one down and one up per press (as below) */
+        v = s->xlat[evt->key.key] & 0xff;
+        if (evt->key.down) {
+            if (s->held_x[v >> 5] & (1u << (v & 31))) {
+                return;
+            }
+            s->held_x[v >> 5] |= 1u << (v & 31);
+            kbd_push(s, v | KBD_TRANSLATED);
+        } else {
+            s->held_x[v >> 5] &= ~(1u << (v & 31));
+            kbd_push(s, v | KBD_TRANSLATED | 0x80000000);
+        }
+        return;
+    }
 
     if (evt->key.key < qemu_input_map_linux_to_atset1_len) {
         kc = qemu_input_map_linux_to_atset1[evt->key.key];
@@ -145,6 +201,14 @@ static void kbd_realize(DeviceState *dev, Error **errp)
     memory_region_init_io(&s->iomem, OBJECT(s), &kbd_ops, s, "syborg-keyboard", 0x1000);
     sysbus_init_mmio(SYS_BUS_DEVICE(s), &s->iomem);
     sysbus_init_irq(SYS_BUS_DEVICE(s), &s->irq);
+    if (s->keymap && s->keymap[0]) {
+        Error *err = NULL;
+        kbd_load_keymap(s, &err);
+        if (err) {
+            error_propagate(errp, err);
+            return;
+        }
+    }
     s->hs = qemu_input_handler_register(dev, &kbd_handler);
 }
 
@@ -163,6 +227,7 @@ static const VMStateDescription vmstate_kbd = {
 
 static const Property kbd_properties[] = {
     DEFINE_PROP_UINT32("fifo-size", SyborgKeyboardState, fifo_size, 16),
+    DEFINE_PROP_STRING("keymap", SyborgKeyboardState, keymap),
 };
 
 static void kbd_class_init(ObjectClass *oc, const void *data)
