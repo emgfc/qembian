@@ -90,6 +90,16 @@ sydb dbg step | next | stepi | finish | interrupt | delete [N] | detach | cmd 'i
 - 128 apps listed; `launch Calculator` starts it in the foreground.
 
 ## Notes
+- **Loader code-segment reuse:** the loader (`E32Image::CheckAlreadyLoaded`) reuses an existing
+  code segment when root name, UIDs, module version and security info match, and does not look
+  at the file. Code segments of exited processes can linger for a long time here (seen: a dead
+  `dafs.exe` segment reused 40 s later), so an updated EXE with the same name can run the old
+  code. `rerun`, `update-agent` and MCP `app_rerun` therefore stamp a new module version (minor
+  = time-based) into the E32 header and fix the header CRC (CRC-32 from 0 over `iCodeOffset`
+  bytes, with the CRC field set to 0xc90fdaa2 first). Plain `push` doesn't stamp.
+- Thread suspend/resume is not possible from the agent: `RThread::Suspend` on another
+  process's thread is a PlatSec process-isolation violation (KERN-EXEC 46 panics the caller,
+  even with ALL caps). Use `dbg interrupt` for now, or the phase-2 driver later.
 - Requests to the agent are serialized. While gdb has the CPU stopped, agent requests time out.
 - Events come from the agent (`agent.hello`, `agent.exit` for processes started with run/launch)
   and from serial0 (`thread.panic`, `thread.killed` for any thread, `phone.idle`).

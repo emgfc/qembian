@@ -60,7 +60,16 @@ static TInt Main()
 				User::WaitForRequest(st);
 			old.Close();
 			}
-		User::After(200000);
+		// sydb stamps a new module version into every deployed EXE: the loader would otherwise
+		// reuse the dead agent's code segment (it matches name/UIDs/version, not the file)
+		for (TInt i = 0; i < 50; i++)
+			{
+			RProcess gone;
+			if (gone.Open(TProcessId(pid)) != KErrNone)
+				break;
+			gone.Close();
+			User::After(100000);
+			}
 		_LIT(KAgent, "c:\\sys\\bin\\devagent.exe");
 		fs.Delete(KAgent);
 		r = fs.Rename(a2, KAgent);

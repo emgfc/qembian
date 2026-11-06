@@ -25,7 +25,7 @@
 
 #define P(fmt, ...) RDebug::Printf("DEVAGENT: " fmt, ##__VA_ARGS__)
 
-static const char KVersion[] = "1";
+static const char KVersion[] = "4";
 static const TInt KUnit = 1;
 static const TInt KMaxWatch = 32;
 static const TInt KChunk = 4096;

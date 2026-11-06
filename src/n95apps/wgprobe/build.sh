@@ -20,7 +20,7 @@ CXXFLAGS=(
   -c -march=armv5t -marm -mthumb-interwork -mfloat-abi=soft -O2 -std=gnu++98
   -nostdinc -fno-exceptions -fno-rtti -fno-threadsafe-statics -fshort-wchar
   -fno-strict-aliasing -fno-builtin -Wno-attributes -Wno-narrowing -Wno-return-local-addr
-  -D__SYMBIAN32__ -D__EPOC32__ -D__MARM__ -D__MARM_ARMV5__ -D__EABI__ -D__GCCE__
+  -D__SYMBIAN32__ -DWGP_BUILD=\"${WGP_BUILD:-dev}\" -D__EPOC32__ -D__MARM__ -D__MARM_ARMV5__ -D__EABI__ -D__GCCE__
   -D__EXE__ -D_UNICODE -D__SUPPORT_CPP_EXCEPTIONS__ -DNDEBUG -D_UREL
   -D__PRODUCT_INCLUDE__="\"$SDK/include/variant/symbian_os_v9.2.hrh\""
   -include "$OBJ/gcce_fixed.h"

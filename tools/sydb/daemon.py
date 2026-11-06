@@ -51,6 +51,21 @@ def esc(s):
     return ''.join(c if ' ' < c < '\x7f' and c not in '%=' else '%%%02X' % (ord(c) & 0xff) for c in s)
 
 
+def stamp_version(data):
+    """New module version (minor = time-based counter) + header CRC for an E32 image, so the
+    loader does not reuse a lingering code segment of an older build with the same name."""
+    import struct
+    if len(data) < 0x9c or data[0x10:0x14] != b'EPOC':
+        return data
+    d = bytearray(data)
+    n = struct.unpack_from('<I', d, 0x64)[0]               # iCodeOffset = header size
+    ver = struct.unpack_from('<I', d, 0x18)[0]
+    struct.pack_into('<I', d, 0x18, (ver & 0xffff0000) | (int(time.time() * 10) & 0xffff))
+    struct.pack_into('<I', d, 0x14, 0xc90fdaa2)
+    struct.pack_into('<I', d, 0x14, ~zlib.crc32(bytes(d[:n]), 0xffffffff) & 0xffffffff)
+    return bytes(d)
+
+
 def parse_fields(parts):
     d = {}
     for p in parts:
@@ -405,6 +420,8 @@ def handle(sess, req):
         return {'items': items, **final}
     if op == 'put':
         data = open(req['local'], 'rb').read() if 'local' in req else base64.b64decode(req['b64'])
+        if req.get('stamp'):
+            data = stamp_version(data)
         t = time.time()
         _, final = a.request('put', [req['remote'], len(data), '%08x' % (zlib.crc32(data) & 0xffffffff)],
                              timeout=60 + len(data) / 20000, payload=data)

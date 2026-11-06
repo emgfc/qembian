@@ -164,7 +164,7 @@ class Server:
                 if it.get('exit') == 'pending':
                     self.agent('kill', [it['pid']])
             remote = 'C:\\sys\\bin\\' + exe
-            put = self.call({'op': 'put', 'local': os.path.abspath(a['local']), 'remote': remote})
+            put = self.call({'op': 'put', 'local': os.path.abspath(a['local']), 'remote': remote, 'stamp': True})
             r = self.run(remote, a.get('args'), a.get('wait', 0))
             r['pushed'] = put.get('size')
             return r

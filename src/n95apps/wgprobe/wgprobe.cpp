@@ -5,6 +5,9 @@
 #include <e32base.h>
 #include <e32debug.h>
 #include <w32std.h>
+#ifndef WGP_BUILD
+#define WGP_BUILD "dev"
+#endif
 
 static void Name(RWsSession& aWs, TInt aId, TDes& aOut)
 	{
@@ -53,7 +56,7 @@ static void Run(RWsSession& aWs)
 
 GLDEF_C TInt E32Main()
 	{
-	RDebug::Printf("WGPROBE: start");
+	RDebug::Printf("WGPROBE: start build " WGP_BUILD);
 	CTrapCleanup* cleanup = CTrapCleanup::New();
 	RWsSession ws;
 	while (ws.Connect() != KErrNone)

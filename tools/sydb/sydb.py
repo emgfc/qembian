@@ -228,7 +228,7 @@ def main():
                 if it.get('exit') == 'pending':
                     agent('kill', [it['pid']])
             ev0 = c.call({'op': 'events', 'since': 0})['last']
-            need(c.call({'op': 'put', 'local': os.path.abspath(path), 'remote': remote}))
+            need(c.call({'op': 'put', 'local': os.path.abspath(path), 'remote': remote, 'stamp': True}))
             path = remote
         ev0 = c.call({'op': 'events', 'since': 0})['last']
         r = need(agent('run', [path], raw=' '.join(x.args) or None))
@@ -299,8 +299,8 @@ def main():
     elif cmd == 'hmp':
         out(c.call({'op': 'hmp', 'cmd': ' '.join(rest)}), lambda r: print(r['out'], end=''))
     elif cmd == 'update-agent':    # deploy a rebuilt agent without stopping the session
-        need(c.call({'op': 'put', 'local': AGENT_EXE, 'remote': 'C:\\data\\sydb\\devagent.new'}))
-        need(c.call({'op': 'put', 'local': DAFS_EXE, 'remote': 'C:\\sys\\bin\\dafs.exe'}))
+        need(c.call({'op': 'put', 'local': AGENT_EXE, 'remote': 'C:\\data\\sydb\\devagent.new', 'stamp': True}))
+        need(c.call({'op': 'put', 'local': DAFS_EXE, 'remote': 'C:\\sys\\bin\\dafs.exe', 'stamp': True}))
         need(agent('upgrade', ['C:\\data\\sydb\\devagent.new']))
         time.sleep(1.5)
         out(c.call({'op': 'wait', 'what': 'agent', 'timeout': 30}),
