@@ -586,9 +586,9 @@ const GLubyte* sy_glGetString(GLenum name)
 	   Crash Bandicoot Nitro Kart 3D uses GL only on "POWERVR", else its built-in software renderer.
 	   Extensions: only what sygl implements (the device also lists PVRTC, draw_texture, ...).
 	   Hack H-gles-identity (docs/hacks.md). */
-	case GL_VENDOR: return (const GLubyte*)"Nokia";
-	case GL_RENDERER: return (const GLubyte*)"1.2.19.1 HW PowerVR MBX with VGP";
-	case GL_VERSION: return (const GLubyte*)"OpenGL ES-CM 1.1";
+	case GL_VENDOR: return (const GLubyte*)SYGL_GL_VENDOR;		/* [gl.identity] (identity.h) */
+	case GL_RENDERER: return (const GLubyte*)SYGL_GL_RENDERER;
+	case GL_VERSION: return (const GLubyte*)SYGL_GL_VERSION;
 	case GL_EXTENSIONS: return (const GLubyte*)"GL_OES_byte_coordinates GL_OES_fixed_point GL_OES_single_precision GL_OES_read_format ";
 	default: sy_seterr(sy_cur(), GL_INVALID_ENUM); return 0;
 		}

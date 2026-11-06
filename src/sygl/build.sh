@@ -1,29 +1,43 @@
 #!/usr/bin/env bash
 # Build the sygl blob (our GLES 1.1 + EGL behind libgles_cm.dll's entry points; docs/gpu-roadmap.md)
 # and the libgles_cm patches that point at it.
-#   src/n95gl/build.sh [--debug] [--trace]
-# Output: build/n95gl/sygl.bin (raw, linked at SYGL_BASE), sygl.elf (symbols for gdb), sygl.map,
-#         rom/hybrid/gles-patches.txt (regenerated; depends only on SYGL_BASE).
-# scripts/hybrid-boot.sh puts the blob into the composed ROM when sygl.bin exists.
+#   src/sygl/build.sh [--device ID] [--debug] [--trace]        (device: $SYBORG_DEVICE / devices/default)
+# Inputs from the device profile ([gl], devices/<id>/gl/): blob address, libgles_cm ordinals, the ROM
+# exports the blob calls, the driver identity strings. Output: build/devices/<id>/sygl/sygl.bin (raw,
+# linked at the blob address), sygl.elf (symbols for gdb), sygl.map; devices/<id>/gl/gles-patches.txt
+# (regenerated). tools/device.py build puts the blob into the composed ROM when sygl.bin exists.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 GCC="${GCC14:-$HOME/gcc-builds/gcc-14.2.0}/bin/arm-none-symbianelf"
 SDK="${S60SDK:-$HOME/work/S60_3rd_FP1/Epoc32}"
-SYGL_BASE=0x80320000          # free gap in our ROM window (dead user-side files), see romcompose --blob
-OUT="$ROOT/build/n95gl"; GEN="$OUT/gen"
-mkdir -p "$GEN"
-OPT=(-O2)
-for arg in "$@"; do
-  case "$arg" in
+OPT=(-O2); DEV="${SYBORG_DEVICE:-}"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --device) DEV="$2"; shift ;;
     --debug) OPT=(-O0 -g) ;;
     --trace) TRACE=1 ;;		# SYGL: trace lines (first 700 EGL/GL calls per thread, draw boxes)
-  esac
+  esac; shift
 done
+DPY=(python3 -I "$ROOT/tools/device.py")
+export SYBORG_DEVICE="$DEV"
+DEVDIR="$("${DPY[@]}" paths dir)"; DEVSRC="$ROOT/devices/$("${DPY[@]}" get device.id)"
+SYGL_BASE=$(printf '0x%x' "$("${DPY[@]}" get gl.blob_addr)")   # free gap in the ROM window, see romcompose --blob
+OUT="$DEVDIR/sygl"; GEN="$OUT/gen"
+mkdir -p "$GEN"
+# the device's driver identity (apps choose their GL path by these strings: H-gles-identity)
+"${DPY[@]}" get gl.identity | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+for k, m in (('vendor', 'GL_VENDOR'), ('renderer', 'GL_RENDERER'), ('version', 'GL_VERSION'),
+             ('egl_vendor', 'EGL_VENDOR'), ('egl_version', 'EGL_VERSION')):
+    print('#define SYGL_%s %s' % (m, json.dumps(d[k])))" > "$GEN/identity.h"
 [ -n "${TRACE:-}" ] && OPT+=(-DSY_TRACE_MAX=700)
 
 python3 -I "$ROOT/tools/gen-gles-glue.py" --blob-addr $SYGL_BASE \
-  --patches "$ROOT/rom/hybrid/gles-patches.txt" --asm "$GEN/entry.S" --names "$GEN/names.c" \
+  --ordinals "$DEVSRC/gl/libgles_cm.ordinals" --imports-list "$DEVSRC/gl/n95imports.txt" \
+  --img "$DEVDIR/core-flat.img" --symindex "$DEVDIR/symindex.json" \
+  --patches "$DEVSRC/gl/gles-patches.txt" --asm "$GEN/entry.S" --names "$GEN/names.c" \
   --imports "$GEN/n95imports.h" --imports-asm "$GEN/imports.S"
 
 # portable core: C; floats in core registers (Symbian ARMV5 ABI, softfp), arithmetic on the ARM1136 VFP

@@ -16,7 +16,7 @@ flow for a new phone is in [adding-a-device.md](adding-a-device.md).
 | Kernel `patches/kernelhwsrv/` (9 patches) | `scripts/build-kernel.sh` | 9.2 exec personality (0001/0005, tables from `personalities/sym92/exec.map`), 9.2 driver ABI (0008/0009), N95 critical-thread policy (0003/0006), debug traces (0002/0004/0007) [V] |
 | Stand-ins `src/n95compat/` | `scripts/build-n95compat.sh` copies the tree into the baseport and writes an oby fragment | 15 drivers listed in `bld.inf`; `isi/isi-db.txt` (names + canned replies) → generated `isireplies.h`; stateful modem in `stubs/iscpeer.inl`; `lcd/lcd_n95.mmp` macros [V] |
 | ROM composition `tools/romcompose.py`, `rom/hybrid/` | `scripts/hybrid-boot.sh` / `compose-exp.sh` | `code-patches.txt` (addresses in the RM-320 v35 ROM), `ESTARTCOMP.TXT`, blob address `0x80320000`, `--exec92`, trace mask [V] |
-| GL `src/n95gl/` | `build.sh` → `sygl.bin` + `rom/hybrid/gles-patches.txt` via `tools/gen-gles-glue.py` | ordinals of this ROM's `libgles_cm.dll`, `n95imports.txt`, identity strings in `gl.c`/`egl.c`, `SYGL_BASE` [V] |
+| GL `src/sygl/` | `build.sh` → `sygl.bin` + `rom/hybrid/gles-patches.txt` via `tools/gen-gles-glue.py` | ordinals of this ROM's `libgles_cm.dll`, `n95imports.txt`, identity strings in `gl.c`/`egl.c`, `SYGL_BASE` [V] |
 | Firmware pipeline `scripts/n95-inventory.sh`, `tools/fiasco.py`, `rom_unpage.py`, `romimg.py`, `swi_map.py`, `xip_imports.py` | outputs to `build/n95/` | `N95_FW_DIR`, `RM-320_*.C0R` globs, SDK paths [V] |
 | sydb `tools/sydb/` | daemon, CLI, MCP, phone window | `IDLE_RE`, key aliases, `HOST_KEYS`, phone-window buttons, ROM defaults (`hybrid.img`, `hybrid-exp.img`), `build/n95` drives [V] |
 | Docs | `docs/n95-*.md`, `hacks.md` | all N95 |
@@ -293,7 +293,7 @@ patches/kernelhwsrv/platform/ , policy/  (personality patches live in personalit
 src/qemu-syborg/              the board (one binary)
 src/standins/<name>/          kernel-side stand-ins, one per driver; README with family + evidence
                               (today src/n95compat/stubs/*, medrofs, mednvmem2, lcd)
-src/sygl/                     GLES/EGL implementation (today src/n95gl); device inputs in devices/<id>/gl
+src/sygl/                     GLES/EGL implementation (today src/sygl); device inputs in devices/<id>/gl
 src/apps/                     guest test apps and the sydb agent (today src/n95apps)
 tools/device.py               profile loader/validator; subcommands: check, show, qemu-args, build, gen, new
 tools/fw/                     firmware pipeline: fiasco.py, rom_unpage.py, romimg.py, inventory.py (per device)

@@ -1,4 +1,4 @@
-/* host test of src/n95gl/raster.c (portable C): textured full-screen quad, MODULATE, no blend.
+/* host test of src/sygl/raster.c (portable C): textured full-screen quad, MODULATE, no blend.
    Build: tests/sygl/run.sh */
 #include <stdio.h>
 #include <stdlib.h>

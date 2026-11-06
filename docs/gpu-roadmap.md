@@ -1,9 +1,9 @@
 # GPU (OpenGL ES 1.x + EGL) roadmap for the virtual N95
 
-**Status 2026-11-06: phase 0 done** (src/n95gl: blob at 0x80320000, 175 entry patches; ZigGLTri
+**Status 2026-11-06: phase 0 done** (src/sygl: blob at 0x80320000, 175 entry patches; ZigGLTri
 logs `eglInitialize err=12289` = our EGL_NOT_INITIALIZED, Carousel now shows "Feature not supported"
 instead of "Memory full"). **Phase 1 milestone 1 reached 2026-11-06:** ZigGLTri's Gouraud triangle spins
-at ~29 fps (app-paced to 30) through our EGL/GL/rasterizer (src/n95gl: egl.c, gl.c, raster.c,
+at ~29 fps (app-paced to 30) through our EGL/GL/rasterizer (src/sygl: egl.c, gl.c, raster.c,
 plat.cpp; 30 KB), vsync via d_display req 0x7f01. Presentation by DSA (H-gles-present).
 **Milestone 2 reached 2026-11-06:** ZigGT2Car renders textured and lit at ~20 fps (light.c:
 fixed-function lighting; tex.c: texture objects, all ES 1.1 formats; raster.c: perspective-correct
@@ -31,7 +31,7 @@ Video centre (icon ring renders), Gallery and Maps (Avkon UI, no GL problems). C
 Next for speed: span-based rasterization (skip pixels outside the triangle), integer vertex path
 for fixed-point apps, then phase 5 (executor in QEMU). Note: apparc renames app processes to their
 caption (`sydb kill Crash`, not cbnk3d).
-Debug aids: `src/n95gl/build.sh --trace` (SYGL: trace of the first EGL/GL calls, draw boxes),
+Debug aids: `src/sygl/build.sh --trace` (SYGL: trace of the first EGL/GL calls, draw boxes),
 host tests of the portable rasterizer: `tests/sygl/run.sh`.
 
 Static analysis, 2026-11-06. **[V]** = seen in code/binary/listing, **[I]** = inferred.
@@ -160,7 +160,7 @@ command-stream executor), C2 later with the same front end.
 
 | Phase | Work | Check through sydb |
 |---|---|---|
-| 0 Tooling | `tools/gen-gles-patches.py` (ordinal→address table above → 175 patches), `romcompose.py --blob`, a `src/n95apps/syglesw/` (or `src/n95gl/`) build.sh producing the fixed-address blob, linker script generator from `syb_sym`. First blob = every entry returns `EGL_FALSE`/sets `EGL_NOT_INITIALIZED` | `sydb push ZigGLTri.exe` + reg.rsc, `sydb launch 0xA0000047`; `sydb log --grep gl_init` shows our error code, not `EGL_BAD_ALLOC` (0x3003); Carousel still fails but with our error |
+| 0 Tooling | `tools/gen-gles-patches.py` (ordinal→address table above → 175 patches), `romcompose.py --blob`, a `src/n95apps/syglesw/` (or `src/sygl/`) build.sh producing the fixed-address blob, linker script generator from `syb_sym`. First blob = every entry returns `EGL_FALSE`/sets `EGL_NOT_INITIALIZED` | `sydb push ZigGLTri.exe` + reg.rsc, `sydb launch 0xA0000047`; `sydb log --grep gl_init` shows our error code, not `EGL_BAD_ALLOC` (0x3003); Carousel still fails but with our error |
 | 1 M1 | EGL objects, TLS state, config list, window surface = DSA + back buffer, vsync request in `d_display`; rasterizer core (clear, Gouraud triangles); the 15 GL entries of M1 | `sydb launch 0xA0000047; sydb screenshot` shows the triangle; `--changed` across 1 s shows rotation; serial `SYGL:` fps line ~60 (vsync) |
 | 2 M2 | depth, lighting, textures, blending, matrix stack; `glGet*` basics | ZigGT2Car screenshot vs. owner's device/EKA2L1 shot; fps logged |
 | 3 M3a Carousel | pixmap/pbuffer surfaces, CopyBuffers, DrawElements, scissor, fog, multitexture, compressed textures, extension string; stub `eglWaitGL/Native` | `sydb launch 0x10282bf6` renders the Carousel instead of "Memory full"; `sydb strace`/`dbg` on hitchcock's leave code if not |
@@ -237,7 +237,7 @@ included), so switching the backend changes speed, not behaviour.
 - Protocol: `src/qemu-syborg/hw/arm/syborg_gl_proto.h` (SURF, SURF_FREE, TEX in row bands,
   TEX_FREE, CLEAR, DRAW (state + triangle list, batched while state and surface stay the same),
   READ in row bands, OWNER, OWNER_FREE).
-- Guest: `src/n95gl/hw.c` (hooks in raster.c; read-backs before every CPU read of a surface:
+- Guest: `src/sygl/hw.c` (hooks in raster.c; read-backs before every CPU read of a surface:
   present, glReadPixels, CopyTex*, eglBindTexImage). Texture generation `SyTex.gen` (0 = changed).
 - Kernel: DisplayDriver ctl 0x7f10 {ready, thread id}, 0x7f11 {cmd, len, out, outLen}.
 - Host: `syborg_gl.c`, libepoxy, EGL_MESA_platform_surfaceless, GLES 2 shader with the ES 1.1

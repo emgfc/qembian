@@ -370,9 +370,9 @@ def build(prof, variant=None, kernel=False, standins=True, out=None, trace=None,
             cmd += ['--rofs', r]
     for pf in pfiles:
         cmd += ['--patches', pf]
-    blob = os.path.join(ROOT, 'build', 'n95gl', 'sygl.bin')
+    blob = os.path.join(ps['dir'], 'sygl', 'sygl.bin')			# src/sygl/build.sh --device ID
     if get(prof, 'gl.impl') == 'sygl' and os.path.exists(blob) and os.environ.get('SYGL', '1') == '1':
-        addr = open(os.path.join(ROOT, 'build', 'n95gl', 'sygl.addr')).read().strip()
+        addr = open(os.path.join(ps['dir'], 'sygl', 'sygl.addr')).read().strip()
         cmd += ['--patches', device_file(prof, get(prof, 'gl.entry_patches', 'gl/gles-patches.txt')),
                 '--blob', '%s=%s' % (addr, blob)]
     _run(cmd, os.path.join(logs, 'device-compose.txt'))

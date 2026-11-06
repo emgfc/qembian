@@ -42,7 +42,11 @@ buttons from keymap.toml (one button per key, found by its host qcodes).
   src/standins/_shared/boardconfig.h. iscpeer: imei and power_off_ms. Verified with a profile override
   (IMEI in the INFO reply, switch-off after 1 s) without a rebuild. Canned ISI replies (battery bars...)
   stay in the device's isi-db.txt (generated header, per device).
-Next: steps 9, 10, 12.
+- Step 10 (done): src/n95gl -> src/sygl; libgles_cm.ordinals, n95imports.txt and the generated
+  gles-patches.txt in devices/<id>/gl/; identity strings from [gl.identity] (generated identity.h);
+  src/sygl/build.sh --device ID builds into build/devices/<id>/sygl/. Blob identical except the
+  __DATE__/__TIME__ stamp; smoke green with host and soft GL.
+Next: steps 9 and 12.
 
 ## Proposed section for CLAUDE.md (paste as is)
 
@@ -234,7 +238,7 @@ Test: `--exec-personality native` boots our own text shell ROM, `sym92` the N95;
 
 ## Step 10 [L] — GL per device
 
-Files: `src/n95gl/` → `src/sygl/`; `libgles_cm.ordinals`, `n95imports.txt`, identity strings →
+Files: `src/sygl/` → `src/sygl/`; `libgles_cm.ordinals`, `n95imports.txt`, identity strings →
 `devices/ID/gl/` and `[gl.identity]` (generated `identity.h`); `build.sh` takes `--device ID`
 (blob address, output dir); `gen-gles-glue.py` reads the device symindex.
 Test: `sygl.bin` and `gles-patches.txt` identical to pre-step outputs for the N95; `tests/sygl/run.sh`
