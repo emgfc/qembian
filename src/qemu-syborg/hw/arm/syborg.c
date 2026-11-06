@@ -7,7 +7,9 @@
  *   0xc0003000 keyboard (2)   0xc0004000 pointer (3)   0xc0005000 framebuffer (4)
  *   0xc0006000..0xc0009000 serial 0..3 (5..8)   0xc000d000 NVMemory 2 = E: (14)
  *   0xc000e000 audio (13)   0xc000f000 GL (host GLES 2 backend, syborg_gl.c)   0xc0010000 NVMemory (12)
- *   0xc0011000 platform (ID, tree offset, POWER (write 1 off, 2 reset), the device tree blob at
+ *   0xc0011000 platform (ID, tree offset, POWER (write 1 off, 2 reset), RAM_MB (read: the machine's
+ *              RAM; the bootstrap sizes its RAM bank by it), DEVICE_ID (NUL-terminated string at +0x800,
+ *              -global syborg-platform.device-id=ID, the device profile's id), the device tree blob at
  *              +0x1000, 16 MB window)
  *   0x60000000 flash: 128 MB read-only window, the N95's ROFS partition (stands for its NAND);
  *              filled with -device loader,file=ROFS,addr=0x60000000,force-raw=on (scripts/run-modern.sh
@@ -51,12 +53,15 @@
 OBJECT_DECLARE_SIMPLE_TYPE(SyborgPlatformState, SYBORG_PLATFORM)
 
 #define PLATFORM_TREE_OFFSET 0x1000
+#define PLATFORM_DEVICE_ID   0x800      /* .. 0xfff: the device id string */
 
 struct SyborgPlatformState {
     SysBusDevice parent_obj;
     MemoryRegion iomem;
     uint8_t *dtb;
     uint32_t dtb_size;
+    uint32_t ram_mb;            /* set by the board from -m */
+    char *device_id;            /* device profile id (tools/device.py qemu-args) */
 };
 
 static uint64_t syborg_platform_read(void *opaque, hwaddr offset, unsigned size)
@@ -73,9 +78,21 @@ static uint64_t syborg_platform_read(void *opaque, hwaddr offset, unsigned size)
         }
         return v;
     }
+    if (offset >= PLATFORM_DEVICE_ID) {
+        uint64_t v = 0;
+        size_t n = s->device_id ? strlen(s->device_id) : 0;
+        for (unsigned i = 0; i < size; i++) {
+            size_t k = offset - PLATFORM_DEVICE_ID + i;
+            if (k < n) {
+                v |= (uint64_t)(uint8_t)s->device_id[k] << (8 * i);
+            }
+        }
+        return v;
+    }
     switch (offset >> 2) {
     case 0: return SYBORG_ID_PLATFORM;
     case 1: return PLATFORM_TREE_OFFSET;
+    case 3: return s->ram_mb;
     default:
         qemu_log_mask(LOG_GUEST_ERROR, "syborg-platform: bad read 0x%x\n", (int)offset);
         return 0;
@@ -115,9 +132,14 @@ static void syborg_platform_realize(DeviceState *dev, Error **errp)
     sysbus_init_mmio(SYS_BUS_DEVICE(s), &s->iomem);
 }
 
+static const Property syborg_platform_properties[] = {
+    DEFINE_PROP_STRING("device-id", SyborgPlatformState, device_id),
+};
+
 static void syborg_platform_class_init(ObjectClass *oc, const void *data)
 {
     DEVICE_CLASS(oc)->realize = syborg_platform_realize;
+    device_class_set_props(DEVICE_CLASS(oc), syborg_platform_properties);
 }
 
 static const TypeInfo syborg_platform_info = {
@@ -216,6 +238,7 @@ static void syborg_init(MachineState *machine)
 
     dev = qdev_new(TYPE_SYBORG_PLATFORM);
     plat = SYBORG_PLATFORM(dev);
+    plat->ram_mb = machine->ram_size / MiB;
     if (machine->dtb) {
         gsize len = 0;
         g_autoptr(GError) err = NULL;

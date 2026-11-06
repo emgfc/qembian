@@ -133,7 +133,7 @@ def paths(prof):
         'rofs': [os.path.join(bdir, 'rofs1.img'), os.path.join(bdir, 'rofs2.img')],
         'rom': os.path.join(bdir, 'hybrid.img'),
         'manifest': os.path.join(bdir, get(prof, 'rom.manifest', 'hybrid-manifest.txt')),
-        'dtb': os.path.join(bdir, 'syborg-n95.dtb' if prof['_id'] == 'nokia-n95-8gb-rm320' else 'syborg-device.dtb'),
+        'dtb': os.path.join(bdir, 'syborg-device.dtb'),
         'symindex': os.path.join(bdir, 'symindex.json'),
         'firmware': os.path.join(ROOT, 'firmware', prof['_id']),
     }
@@ -411,6 +411,7 @@ def qemu_args(prof, rom=None):
          '-m', '%dM' % b.get('ram_mb', 168),
          '-global', 'syborg-fb.width=%d' % disp.get('width', 240),
          '-global', 'syborg-fb.height=%d' % disp.get('height', 320)]
+    a += ['-global', 'syborg-platform.device-id=%s' % prof['_id']]
     if 'refresh_hz' in disp:
         a += ['-global', 'syborg-fb.refresh-rate=%d' % disp['refresh_hz']]
     if 'blank_dim_percent' in disp:

@@ -1,0 +1,30 @@
+--- a/baseport/syborg/bootstrap/syborg.s
++++ b/baseport/syborg/bootstrap/syborg.s
+@@ -76,7 +76,13 @@
+ DoInitialiseHardware	ROUT
+ 		
+ ; Hardware memory size is 128MB - 32MB reserved for bootloader
+-		mov		r4, #KHwRamSizeMb
++; syborg-pg: the board's RAM size (syborg-platform RAM_MB, word 3; MMU off: physical address),
++; KHwRamSizeMb when it reads 0 (an older board), so a device's RAM needs no bootstrap rebuild
++		mov		r1, #0xc0000000
++		orr		r1, r1, #0x11000
++		ldr		r4, [r1, #12]
++		cmp		r4, #0
++		moveq	r4, #KHwRamSizeMb
+ 
+ 		bl		InitDebugPort
+ 
+@@ -262,7 +268,11 @@
+ 	EXPORT	GetRamBanks
+ GetRamBanks	ROUT
+ 	    push    {r1-r3,lr}
+-		mov		r0, #KHwRamSizeMb
++		mov		r1, #0xc0000000			; syborg-pg: RAM_MB of the board, as in DoInitialiseHardware
++		orr		r1, r1, #0x11000
++		ldr		r0, [r1, #12]
++		cmp		r0, #0
++		moveq	r0, #KHwRamSizeMb
+ 		lsl		r2, r0, #20			    ; R2 = RAM size in bytes
+ 		mov		r1, #KHwRamBaseAddr		; R1 = base address of usable RAM area
+ 		sub		r2, r1				    ; R2 = size of usable RAM area

@@ -31,7 +31,13 @@ buttons from keymap.toml (one button per key, found by its host qcodes).
   EKEYB passes them through (patch qemu-baseport 0014, which also bounds-checks the set-1 table);
   unmapped keys keep the set-1 table. Verified: a host key mapped only in keymap.toml (F22, whose
   set-1 code is past the guest table) opened Carousel without a guest rebuild.
-Next: step 8 (board tells the guest RAM/display/device id), then the rest.
+- Step 8 (partly done): syborg-platform RAM_MB (word 3, from -m) and DEVICE_ID (string at +0x800,
+  -global syborg-platform.device-id, set by qemu-args); the bootstrap sizes RAM from RAM_MB
+  (patch qemu-baseport 0016, falls back to 168 when it reads 0). Verified: a profile with
+  ram_mb = 200 gives the guest 32 MB more RAM without a rebuild. One DTB name for every device
+  (syborg-device.dtb). Not done: the LCD HAL from fb registers (lcd_n95 stays a profile-chosen
+  build of the shared fb driver); the guest does not print the device id yet.
+Next: steps 9-12 (later).
 
 ## Proposed section for CLAUDE.md (paste as is)
 

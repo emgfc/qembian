@@ -19,9 +19,9 @@ done
 mkdir -p build/logs
 [ $COMPOSE = 1 ] && scripts/hybrid-boot.sh --compose-only --trace 0x80000000 > build/logs/measure-compose.txt 2>&1
 if [ "$QEMU_KIND" = modern ]; then
-  run=(scripts/run-modern.sh --timeout "$TIMEOUT" --dtb build/n95/syborg-n95.dtb build/n95/hybrid.img)
+  run=(scripts/run-modern.sh --timeout "$TIMEOUT" --dtb "$(python3 -I tools/device.py paths dtb)" build/n95/hybrid.img)
 else
-  run=(env SYBORG_DTB=/work/build/n95/syborg-n95.dtb scripts/run.sh --timeout "$TIMEOUT" build/n95/hybrid.img)
+  run=(env SYBORG_DTB=/work/"$(python3 -I tools/device.py paths dtb)" scripts/run.sh --timeout "$TIMEOUT" build/n95/hybrid.img)
 fi
 "${run[@]}" 2>/dev/null \
   | python3 -u tools/boot_milestones.py --label "$LABEL" --log build/logs/measure-serial.log \
