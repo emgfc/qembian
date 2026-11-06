@@ -1,0 +1,26 @@
+--- a/baseport/syborg/keyboard/syborg_keyboard.h
++++ b/baseport/syborg/keyboard/syborg_keyboard.h
+@@ -143,9 +143,9 @@
+ 	/*39*/ EStdKeySpace,
+ 	/*3a*/ EStdKeyCapsLock,
+ 	/*3b*/ EStdKeyMenu,    // EStdKeyF1,
+-	/*3c*/ EStdKeyF2,
+-	/*3d*/ EStdKeyF3,
+-	/*3e*/ EStdKeyF4,
++	/*3c*/ EStdKeyYes,	// syborg-pg: F2 = Call (green)
++	/*3d*/ EStdKeyNo,	// syborg-pg: F3 = End (red)
++	/*3e*/ EStdKeyDevice2,	// syborg-pg: F4 = Power key (S60: EStdKeyDevice2)
+ 
+ 	/*3f*/ EStdKeyDevice0,	//EStdKeyF5,	SF: Left soft-key [EStdKeyApplication0]
+ 
+@@ -176,8 +176,8 @@
+ 	/*54*/ EStdKeyNull,
+ 	/*55*/ EStdKeyNull,
+ 	/*56*/ EStdKeyBackSlash,
+-	/*57*/ EStdKeyF11,
+-	/*58*/ EStdKeyF12,
++	/*57*/ EStdKeyIncVolume,	// syborg-pg: F11 = volume up
++	/*58*/ EStdKeyDecVolume,	// syborg-pg: F12 = volume down
+ 	/*59*/ EStdKeyNull,
+ 	/*5a*/ EStdKeyNull,
+ 	/*5b*/ EStdKeyNull,

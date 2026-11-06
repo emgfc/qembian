@@ -14,6 +14,13 @@ you may need Fn with the function keys if they normally adjust volume/brightness
 | `*` key | F9 or numeric-keypad `*` | `f9`, `kp_multiply` |
 | `#` key | F10 (or `\`) | `f10` |
 | Text/numbers in edit fields | Letter/digit keys | corresponding QMP keys |
+| Call (green) | F2 | `f2` (EStdKeyYes) |
+| End (red) | F3 | `f3` (EStdKeyNo) |
+| Power (short: profiles, long: switch off) | F4 | `f4` (EStdKeyDevice2) |
+| Volume up / down | F11 / F12 | `f11`, `f12` (EStdKeyIncVolume/DecVolume) |
+
+Call/End/Power/volume added 2026-11-06 (`patches/qemu-baseport/0014-keyboard-phone-keys.patch`).
+Power checked (profile list). The camera and Multimedia keys still need their N95 scan codes.
 
 **Long press** (e.g. hold F8 for the task switcher): hold the PC key. The Syborg keyboard device
 reports one key-down and one key-up per press like the phone's keypad and drops the host's
