@@ -92,3 +92,15 @@ a reply the fake modem does not give; keys pressed meanwhile seem lost. Needs th
 layout (NOKIATSY parser not located yet). Screensaver band clipping fixed 2026-11-06 (WSERV
 rotation index 0 = landscape picture, now 1280-byte lines and rotated by the fb; H-lcd-native-landscape);
 orientation confirmed by the owner.
+
+**Open: no 3D/GPU (PowerVR MBX) — "Carousel: Memory full" (found 2026-11-06 with sydb).** Carousel
+(`carousel.exe` UID 0x10282bf6, the N95 8GB multimedia menu) renders through `hitchcock.dll`
+(Nokia's Hitchcock UI toolkit) on OpenGL ES 1.x: `libgles_cm.dll` → `libimgegl.dll` →
+`services_um.dll`, which does `User::LoadLogicalDevice("services")`. Nokia's kernel half of the
+PowerVR stack (`services.ldd`, `pvrsrv.dll`, `pvromaplcd.dll`, `omaplcd.ldd`) is not in our kernel
+ROM, so that returns −1 [verified, gdb], `eglInitialize` fails with `EGL_BAD_ALLOC` 0x3003
+[verified], and Hitchcock (hitchcock.dll+0x3942c) maps that to `User::Leave(-4)`. Eikon shows that
+as "Memory full. Close some applications and try again". It is not a real memory shortage. It
+happens when Carousel builds its UI (it is in the foreground, e.g. `sydb launch 0x10282bf6`), not
+while it idles in the background. Other GLES/M3G users will fail the same way. Fix = a GPU model
+(PowerVR services driver or a GLES stand-in), not planned yet.

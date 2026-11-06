@@ -56,3 +56,11 @@ a rough cost.
 The "frozen idle" hunt spent many runs on screensaver/keyguard timing before looking at unanswered
 modem requests. Idea: `syb_run` report section "unanswered ISI requests" (resource, msg id, first
 time, count, sending channel owner) so a missing fake-modem reply shows up on the first run.
+
+## Log app error notes (2026-11-06)
+"Carousel: Memory full" needed a manual hunt: a conditional breakpoint `User::Leave` with
+`$r0 == -4`, then breakpoints on Hitchcock's EGL error paths. Idea: `sydb errnotes`, which logs every
+Eikon error note as an event (app, error code, leave site). Breakpoints on `CEikonEnv::HandleError`
+/ `CTextResolver::ResolveError`, or `User::Leave` with an error filter, plus the caller from LR. A
+cheaper first step is `sydb dbg leaves CODE --thread T` (conditional Leave breakpoint and
+backtrace as one command).
