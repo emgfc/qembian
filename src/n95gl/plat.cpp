@@ -145,11 +145,6 @@ int sy_dsa_region(SyThread* aT, SySurface* aS, int* aRects, int aMax)
 		aS->dsa = d;
 		}
 	d->Poll();
-	// safety net while DSA aborts do not reach polling apps (see Poll): draw only while the
-	// window's group has focus. On the device the app is minimised when another app comes up.
-	RWsSession& ws = env->WsSession();
-	if (ws.GetFocusWindowGroup() != ((RWindowTreeNode*)aS->window)->WindowGroupId())
-		return 0;
 	if (!d->Running())
 		{
 		TInt r = d->Start(*(RWindowBase*)aS->window);
@@ -159,7 +154,7 @@ int sy_dsa_region(SyThread* aT, SySurface* aS, int* aRects, int aMax)
 				SYLOG("DSA request failed %d", r);
 			return 0;
 			}
-		if (d->iAborts && d->iAborts < 50)
+		if (d->iAborts && d->iAborts <= 20)
 			SYLOG("DSA restarted (%d aborts), %d rects", d->iAborts, d->Region() ? d->Region()->Count() : -1);
 		}
 	RRegion* reg = d->Region();

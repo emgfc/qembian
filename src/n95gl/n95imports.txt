@@ -56,6 +56,4 @@ Dsa_Cancel        Ws32.dll     _ZN19RDirectScreenAccess6CancelEv
 Dsa_Close         Ws32.dll     _ZN19RDirectScreenAccess5CloseEv
 Sched_RunIfReady  EUser.dll    _ZN16CActiveScheduler10RunIfReadyERii
 User_WaitAny      EUser.dll    _ZN4User17WaitForAnyRequestEv
-Ws_FocusWg        Ws32.dll     _ZN10RWsSession19GetFocusWindowGroupEv
-Win_WgId          Ws32.dll     _ZN15RWindowTreeNode13WindowGroupIdEv
 ChunkHeap         EUser.dll    _ZN8UserHeap9ChunkHeapEPK7TDesC16iiiii
