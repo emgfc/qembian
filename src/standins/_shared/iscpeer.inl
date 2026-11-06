@@ -21,6 +21,7 @@
 
 #include <kernel/kernel.h>
 #include "syborg.h"
+#include "boardconfig.h"
 
 #ifndef ISC_CHANNEL_BASE
 #define ISC_CHANNEL_BASE 0
@@ -339,7 +340,7 @@ static void ModemPowerLater(TInt aWhat)	// the timer is never freed: the machine
 	{
 	NTimer* t = new NTimer(ModemPowerFn, (TAny*)aWhat);
 	if (t)
-		t->OneShot(NKern::TimerTicks(3000));
+		t->OneShot(NKern::TimerTicks(BoardConfigInt("power_off_ms", 3000)));	// [modem].power_off_delay_s
 	else
 		ModemPowerFn((TAny*)aWhat);
 	}
@@ -421,8 +422,12 @@ void DIscPeerChannel::HandleSend(const TUint8* m, TInt aLen)
 	if (res == 0x1B && id == 0x00)			// INFO_SERIAL_NUMBER_READ (IMEI) -- hack H-imei, docs/hacks.md
 		{
 		// [status INFO_OK][nsb 1][sb 0x41 IMEI_PLAIN, len 20][0][15 chars]["490154203237518"][NUL]
-		static const TUint8 d[22] = { 0x00, 0x01, 0x41, 0x14, 0x00, 0x0F,
+		// the IMEI: [modem].imei of the device profile (board config), else the documentation example
+		TUint8 d[22] = { 0x00, 0x01, 0x41, 0x14, 0x00, 0x0F,
 			'4','9','0','1','5','4','2','0','3','2','3','7','5','1','8', 0x00 };
+		char imei[16];
+		if (BoardConfig("imei", imei, sizeof(imei)) == 15)
+			memcpy(d + 6, imei, 15);
 		Reply(res, tid, 0x01, d, sizeof(d));
 		return;
 		}

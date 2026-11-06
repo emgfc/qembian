@@ -412,6 +412,9 @@ def qemu_args(prof, rom=None):
          '-global', 'syborg-fb.width=%d' % disp.get('width', 240),
          '-global', 'syborg-fb.height=%d' % disp.get('height', 320)]
     a += ['-global', 'syborg-platform.device-id=%s' % prof['_id']]
+    cfg = board_config(prof)
+    if cfg:
+        a += ['-global', 'syborg-platform.config=%s' % cfg]
     if 'refresh_hz' in disp:
         a += ['-global', 'syborg-fb.refresh-rate=%d' % disp['refresh_hz']]
     if 'blank_dim_percent' in disp:
@@ -427,6 +430,17 @@ def qemu_args(prof, rom=None):
     if rom and fl and os.path.exists(rom + '.rofs'):
         a += ['-device', 'loader,file=%s.rofs,addr=0x%x,force-raw=on' % (rom, fl['base'])]
     return a
+
+
+def board_config(prof):
+    """stand-in settings the guest reads from the platform device (src/standins/_shared/boardconfig.h)"""
+    m = prof.get('modem', {})
+    kv = []
+    if m.get('imei'):
+        kv.append('imei=%s' % m['imei'])
+    if 'power_off_delay_s' in m:
+        kv.append('power_off_ms=%d' % int(m['power_off_delay_s'] * 1000))
+    return ';'.join(kv)
 
 
 def drive_sizes(prof):

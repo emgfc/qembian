@@ -8,7 +8,8 @@
  *   0xc0006000..0xc0009000 serial 0..3 (5..8)   0xc000d000 NVMemory 2 = E: (14)
  *   0xc000e000 audio (13)   0xc000f000 GL (host GLES 2 backend, syborg_gl.c)   0xc0010000 NVMemory (12)
  *   0xc0011000 platform (ID, tree offset, POWER (write 1 off, 2 reset), RAM_MB (read: the machine's
- *              RAM; the bootstrap sizes its RAM bank by it), DEVICE_ID (NUL-terminated string at +0x800,
+ *              RAM; the bootstrap sizes its RAM bank by it), CONFIG ("key=value;..." at +0x400: stand-in
+ *              settings, -global syborg-platform.config=...), DEVICE_ID (NUL-terminated string at +0x800,
  *              -global syborg-platform.device-id=ID, the device profile's id), the device tree blob at
  *              +0x1000, 16 MB window)
  *   0x60000000 flash: 128 MB read-only window, the N95's ROFS partition (stands for its NAND);
@@ -53,6 +54,7 @@
 OBJECT_DECLARE_SIMPLE_TYPE(SyborgPlatformState, SYBORG_PLATFORM)
 
 #define PLATFORM_TREE_OFFSET 0x1000
+#define PLATFORM_CONFIG      0x400      /* .. 0x7ff: "key=value;..." from the device profile */
 #define PLATFORM_DEVICE_ID   0x800      /* .. 0xfff: the device id string */
 
 struct SyborgPlatformState {
@@ -62,6 +64,7 @@ struct SyborgPlatformState {
     uint32_t dtb_size;
     uint32_t ram_mb;            /* set by the board from -m */
     char *device_id;            /* device profile id (tools/device.py qemu-args) */
+    char *config;               /* stand-in settings: "key=value;..." (tools/device.py qemu-args) */
 };
 
 static uint64_t syborg_platform_read(void *opaque, hwaddr offset, unsigned size)
@@ -78,13 +81,15 @@ static uint64_t syborg_platform_read(void *opaque, hwaddr offset, unsigned size)
         }
         return v;
     }
-    if (offset >= PLATFORM_DEVICE_ID) {
+    if (offset >= PLATFORM_CONFIG) {
+        const char *str = offset >= PLATFORM_DEVICE_ID ? s->device_id : s->config;
+        hwaddr base = offset >= PLATFORM_DEVICE_ID ? PLATFORM_DEVICE_ID : PLATFORM_CONFIG;
         uint64_t v = 0;
-        size_t n = s->device_id ? strlen(s->device_id) : 0;
+        size_t n = str ? strlen(str) : 0;
         for (unsigned i = 0; i < size; i++) {
-            size_t k = offset - PLATFORM_DEVICE_ID + i;
+            size_t k = offset - base + i;
             if (k < n) {
-                v |= (uint64_t)(uint8_t)s->device_id[k] << (8 * i);
+                v |= (uint64_t)(uint8_t)str[k] << (8 * i);
             }
         }
         return v;
@@ -134,6 +139,7 @@ static void syborg_platform_realize(DeviceState *dev, Error **errp)
 
 static const Property syborg_platform_properties[] = {
     DEFINE_PROP_STRING("device-id", SyborgPlatformState, device_id),
+    DEFINE_PROP_STRING("config", SyborgPlatformState, config),
 };
 
 static void syborg_platform_class_init(ObjectClass *oc, const void *data)

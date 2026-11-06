@@ -37,7 +37,12 @@ buttons from keymap.toml (one button per key, found by its host qcodes).
   ram_mb = 200 gives the guest 32 MB more RAM without a rebuild. One DTB name for every device
   (syborg-device.dtb). Not done: the LCD HAL from fb registers (lcd_n95 stays a profile-chosen
   build of the shared fb driver); the guest does not print the device id yet.
-Next: steps 9-12 (later).
+- Step 11 (done for the code constants): syborg-platform CONFIG window ("key=value;..." at +0x400,
+  -global syborg-platform.config, built by device.py qemu-args from [modem]); stand-ins read it with
+  src/standins/_shared/boardconfig.h. iscpeer: imei and power_off_ms. Verified with a profile override
+  (IMEI in the INFO reply, switch-off after 1 s) without a rebuild. Canned ISI replies (battery bars...)
+  stay in the device's isi-db.txt (generated header, per device).
+Next: steps 9, 10, 12.
 
 ## Proposed section for CLAUDE.md (paste as is)
 
