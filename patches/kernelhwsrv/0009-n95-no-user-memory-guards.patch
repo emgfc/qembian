@@ -1,0 +1,14 @@
+--- a/kernel/eka/include/nkern/nk_cpu.h
++++ b/kernel/eka/include/nkern/nk_cpu.h
+@@ -788,7 +788,10 @@
+ 
+ 
+ #undef	__USER_MEMORY_GUARDS_ENABLED__
+-#if	defined(_DEBUG) && !defined(__KERNEL_APIS_DISABLE_USER_MEMORY_GUARDS__)
++// N95 hybrid (kernel ABI 9.2): no user memory guards, as in the N95's release kernel. Drivers built
++// for it (RomPatcher+'s patcherShadow.ldd) read their client's memory directly in supervisor mode
++// and took a domain fault on this debug kernel.
++#if	defined(_DEBUG) && !defined(__KERNEL_APIS_DISABLE_USER_MEMORY_GUARDS__) && 0
+ #if defined(__MEMMODEL_MULTIPLE__) || defined(__MEMMODEL_FLEXIBLE__)
+ #if defined(__CPU_ARM)
+ #define __USER_MEMORY_GUARDS_ENABLED__

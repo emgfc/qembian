@@ -1,0 +1,71 @@
+--- a/kernel/eka/include/kernel/kernel.h
++++ b/kernel/eka/include/kernel/kernel.h
+@@ -1373,9 +1373,12 @@
+ 	IMPORT_C void CheckedOpen();
+ 	IMPORT_C virtual TInt Close(TAny* aPtr);
+ 	IMPORT_C virtual TInt RequestUserHandle(DThread* aThread, TOwnerType aType);
+-	IMPORT_C virtual TInt RequestUserHandle(DThread* aThread, TOwnerType aType, TUint aAttr);
++	// N95 hybrid (kernel ABI 9.2, tools/kabi92.py): not virtual, so DObject keeps the N95 kernel's
++	// six vtable slots and drivers built for it line up (only the flexible/win32 memory models'
++	// shared buffers overrode these; we build the multiple model)
++	IMPORT_C TInt RequestUserHandle(DThread* aThread, TOwnerType aType, TUint aAttr);
+ 	IMPORT_C virtual TInt AddToProcess(DProcess* aProcess);
+-	IMPORT_C virtual TInt AddToProcess(DProcess* aProcess, TUint aAttr);
++	IMPORT_C TInt AddToProcess(DProcess* aProcess, TUint aAttr);	// not virtual: see above
+ 	IMPORT_C TInt AsyncClose();
+ 	IMPORT_C virtual void DoAppendName(TDes& aName);
+ 	IMPORT_C void DoAppendFullName(TDes& aFullName);
+@@ -1991,7 +1994,6 @@
+ 	IMPORT_C virtual ~DLogicalChannel();
+ 	IMPORT_C virtual TInt Close(TAny*);
+ 	IMPORT_C virtual TInt Request(TInt aReqNo, TAny* a1, TAny* a2);
+- 	IMPORT_C virtual TInt SendMsg(TMessageBase* aMsg);
+ 
+ 	/**
+ 	Processes a message for this logical channel.
+@@ -2005,6 +2007,9 @@
+ 	                iValue<0, a 'DoRequest' message with function number equal to ~iValue
+ 	*/
+ 	IMPORT_C virtual void HandleMsg(TMessageBase* aMsg)=0;
++	// N95 hybrid: SendMsg after HandleMsg, so the first nine slots are the N95 kernel's (it has no
++	// SendMsg); DLogicalChannel::Request calls it non-virtually for drivers built for that kernel
++ 	IMPORT_C virtual TInt SendMsg(TMessageBase* aMsg);
+ 	IMPORT_C void SetDfcQ(TDfcQue* aDfcQ);
+ public:
+ 	static void MsgQFunc(TAny* aPtr);
+--- a/kernel/eka/kernel/device.cpp
++++ b/kernel/eka/kernel/device.cpp
+@@ -92,6 +92,14 @@
+ 	return r;
+ 	}
+ 
++// N95 hybrid (kernel ABI 9.2): drivers loaded from C:/E: are third-party ones built for the N95's
++// kernel; ours are all in ROM (tools/kabi92.py compares the two kernels' driver-facing vtables)
++static TBool Is92Driver(DCodeSeg* aSeg)
++	{
++	const TRomHeader& rh = Epoc::RomHeader();
++	return aSeg && (aSeg->iRunAddress < rh.iRomBase || aSeg->iRunAddress >= rh.iRomBase + rh.iRomSize);
++	}
++
+ TInt DoLogicalDeviceLoad(DCodeSeg* aSeg)
+ 	{
+ 	TLogicalDeviceNew f=(TLogicalDeviceNew)aSeg->Lookup(1);
+@@ -214,6 +222,8 @@
+ 	TUint32 uid2=aDeviceType ? KPhysicalDeviceDriverUidValue : KLogicalDeviceDriverUidValue;
+ 	if (TUint32(pS->iUids.iUid[1].iUid)!=uid2)
+ 		return KErrNotSupported;
++	if (Is92Driver(pS))
++		Kern::Printf("N95COMPAT: loading %S, a driver built for the N95 kernel (9.2 ABI)", pS->iFileName);
+ 
+ 	NKern::ThreadEnterCS();
+ 	TInt r;
+@@ -883,6 +893,9 @@
+ 		}
+ 	else
+ 		m.iArg[1]=a2;
++	// a driver built for the N95 kernel has no SendMsg slot (its slot 9 is past its vtable)
++	if (iDevice && Is92Driver(iDevice->iCodeSeg))
++		return DLogicalChannel::SendMsg(&m);
+ 	return SendMsg(&m);
+ 	}
+ 
