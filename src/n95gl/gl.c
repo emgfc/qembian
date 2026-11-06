@@ -934,6 +934,8 @@ static int prepare(SyContext* c, int count, SyFrame* f, SyRState* st, SyRTex* rt
 		rt->clampS = t->wrapS == GL_CLAMP_TO_EDGE; rt->clampT = t->wrapT == GL_CLAMP_TO_EDGE;
 		rt->hasRGB = t->base != GL_ALPHA;
 		rt->hasA = t->base == GL_RGBA || t->base == GL_ALPHA || t->base == GL_LUMINANCE_ALPHA;
+		rt->wmask = (t->w & (t->w - 1)) == 0 ? t->w - 1 : -1;
+		rt->hmask = (t->h & (t->h - 1)) == 0 ? t->h - 1 : -1;
 		st->tex = rt;
 		st->envMode = (int)c->envMode;
 		st->envR = (int)(c->envColor[0] * 255.0f); st->envG = (int)(c->envColor[1] * 255.0f);

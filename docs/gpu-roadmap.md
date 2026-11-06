@@ -21,12 +21,16 @@ ConstructL calls CHuiEnv::Release (start in background) and the first view activ
 uploads textures before the foreground event's RestoreL. Bringing the boot-time instance to the
 front, as the Multimedia key does, works. Found with `sydb catch` (docs/sydb.md).
 **Crash Bandicoot Nitro Kart 3D (N-Gage port, owner's copy) races in 3D (2026-11-06)**: menus
-~19 fps, races ~4 fps (software, TCG). It picks GL only when GL_RENDERER says PowerVR
+~19 fps, races ~4 fps at first, **~11 fps** after power-of-two texel wrapping (no division per
+texel) and inline VFP (`-mfloat-abi=softfp -mfpu=vfp`: same ABI, no DFPAEABI call per float op);
+GT2Car 20 -> 29 fps. It picks GL only when GL_RENDERER says PowerVR
 (H-gles-identity), and polls key state per frame (sydb: hold keys, `key ok:0.6`). Install: exe +
 resources + data on C: (an EXE on E: needs a C:\sys\hash entry from the installer). Also checked:
 Video centre (icon ring renders), Gallery and Maps (Avkon UI, no GL problems). Camera crashes
 (KERN-EXEC 3) because CamServerCore has no camera behind it: a camera stand-in, not GL.
-Next for speed: VFP instead of DFPAEABI soft-float calls, inlined texel fetch, phase 5.
+Next for speed: span-based rasterization (skip pixels outside the triangle), integer vertex path
+for fixed-point apps, then phase 5 (executor in QEMU). Note: apparc renames app processes to their
+caption (`sydb kill Crash`, not cbnk3d).
 Debug aids: `src/n95gl/build.sh --trace` (SYGL: trace of the first EGL/GL calls, draw boxes),
 host tests of the portable rasterizer: `tests/sygl/run.sh`.
 

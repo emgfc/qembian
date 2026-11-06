@@ -109,6 +109,7 @@ typedef struct SyRTex
 	int linear;				/* bilinear (else nearest) */
 	int clampS, clampT;		/* clamp to edge (else repeat) */
 	int hasRGB, hasA;		/* base format has colour / alpha components */
+	int wmask, hmask;		/* w-1 / h-1 for power-of-two sizes (all ES 1.1 textures), else -1 */
 	} SyRTex;
 typedef struct SyRState
 	{

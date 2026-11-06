@@ -85,23 +85,32 @@ static void setup_plane_f(SyPlaneF* aP, float a0, float a1, float a2,
 static int clamp255(int v) { return v < 0 ? 0 : (v > (255 << 16) ? 255 : v >> 16); }
 
 /* texel fetch: aU/aV in 16.16 texel units */
-static u32 texel(const SyRTex* t, int aU, int aV)
+/* repeat wrap: a mask for power-of-two sizes (no division per texel), else modulo */
+static inline int wrap(int v, int n, int mask)
+	{
+	if (mask >= 0) return v & mask;
+	v %= n;
+	return v < 0 ? v + n : v;
+	}
+static inline int clampi(int v, int n) { return v < 0 ? 0 : (v >= n ? n - 1 : v); }
+
+static inline u32 texel(const SyRTex* t, int aU, int aV)
 	{
 	int w = t->w, h = t->h;
 	if (!t->linear)
 		{
 		int x = aU >> 16, y = aV >> 16;
-		if (t->clampS) x = x < 0 ? 0 : (x >= w ? w - 1 : x); else { x %= w; if (x < 0) x += w; }
-		if (t->clampT) y = y < 0 ? 0 : (y >= h ? h - 1 : y); else { y %= h; if (y < 0) y += h; }
+		x = t->clampS ? clampi(x, w) : wrap(x, w, t->wmask);
+		y = t->clampT ? clampi(y, h) : wrap(y, h, t->hmask);
 		return t->data[y * w + x];
 		}
 	int u = aU - 32768, v = aV - 32768;		/* texel centres */
 	int x0 = u >> 16, y0 = v >> 16, fu = (u >> 8) & 0xff, fv = (v >> 8) & 0xff;
 	int x1 = x0 + 1, y1 = y0 + 1;
-	if (t->clampS) { x0 = x0 < 0 ? 0 : (x0 >= w ? w - 1 : x0); x1 = x1 < 0 ? 0 : (x1 >= w ? w - 1 : x1); }
-	else { x0 %= w; if (x0 < 0) x0 += w; x1 %= w; if (x1 < 0) x1 += w; }
-	if (t->clampT) { y0 = y0 < 0 ? 0 : (y0 >= h ? h - 1 : y0); y1 = y1 < 0 ? 0 : (y1 >= h ? h - 1 : y1); }
-	else { y0 %= h; if (y0 < 0) y0 += h; y1 %= h; if (y1 < 0) y1 += h; }
+	if (t->clampS) { x0 = clampi(x0, w); x1 = clampi(x1, w); }
+	else { x0 = wrap(x0, w, t->wmask); x1 = wrap(x1, w, t->wmask); }
+	if (t->clampT) { y0 = clampi(y0, h); y1 = clampi(y1, h); }
+	else { y0 = wrap(y0, h, t->hmask); y1 = wrap(y1, h, t->hmask); }
 	u32 a = t->data[y0 * w + x0], b = t->data[y0 * w + x1], c = t->data[y1 * w + x0], d = t->data[y1 * w + x1];
 	u32 out = 0;
 	for (int sh = 0; sh < 32; sh += 8)
@@ -135,7 +144,7 @@ static int blend_factor(int aF, int sc, int sa, int dc, int da, int aIsAlpha)
 static int m255(int a, int b) { int x = a * b + 128; return (x + (x >> 8)) >> 8; }
 
 /* the general fragment path: returns the 0x00RRGGBB to write, or -1 to discard (alpha test) */
-static int shade(const SyRState* st, int r, int g, int b, int a, int u, int v, u32 aDst, int aFog)
+static inline int shade(const SyRState* st, int r, int g, int b, int a, int u, int v, u32 aDst, int aFog)
 	{
 	if (st->tex)
 		{

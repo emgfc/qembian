@@ -26,8 +26,8 @@ python3 -I "$ROOT/tools/gen-gles-glue.py" --blob-addr $SYGL_BASE \
   --patches "$ROOT/rom/hybrid/gles-patches.txt" --asm "$GEN/entry.S" --names "$GEN/names.c" \
   --imports "$GEN/n95imports.h" --imports-asm "$GEN/imports.S"
 
-# portable core: C, soft-float (the Symbian ARMV5 ABI passes floats in core registers)
-COMMON=(-c -march=armv5t -marm -mfloat-abi=soft "${OPT[@]}" -ffreestanding -fno-builtin -fno-common
+# portable core: C; floats in core registers (Symbian ARMV5 ABI, softfp), arithmetic on the ARM1136 VFP
+COMMON=(-c -march=armv5t -marm -mfloat-abi=softfp -mfpu=vfp "${OPT[@]}" -ffreestanding -fno-builtin -fno-common
         -fno-unwind-tables -fno-asynchronous-unwind-tables -fno-exceptions -fsingle-precision-constant
         -ffunction-sections -fdata-sections -Wall -Wextra -Wno-unused-parameter -I"$GEN" -I"$HERE")
 CFLAGS=("${COMMON[@]}" -std=gnu99 -Wno-int-to-pointer-cast -Wno-pointer-to-int-cast)
