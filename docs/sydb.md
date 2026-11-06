@@ -28,7 +28,7 @@ tools/sydb/sydb.py start --seed build/runs/mtc-drives    # first time: copy a ph
 tools/sydb/sydb.py start                                 # later: reuse build/sydb/drives
 ```
 `start` (re)installs the agent when seeding (`sydb install` does it alone, session stopped). It
-then waits for the idle screen (about 20 s) and the agent (up at about 4 s).
+then waits for the idle screen and the agent (Starter starts it at about 21 s).
 
 ```
 sydb ps [PREFIX] | threads [PREFIX] | kill PID|NAME

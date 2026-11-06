@@ -199,7 +199,7 @@ def main():
     sdir = DEFAULT_SESSION
     if '--session' in argv:
         i = argv.index('--session'); sdir = os.path.abspath(argv[i + 1]); del argv[i:i + 2]
-    if not argv:
+    if not argv or argv[0] in ('-h', '--help', 'help'):
         print(__doc__); return
     cmd, rest = argv[0], argv[1:]
 
