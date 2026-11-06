@@ -231,34 +231,35 @@ class Phone(QtWidgets.QWidget):
         v.addWidget(self.screen, alignment=Qt.AlignmentFlag.AlignHCenter)
         self.status = QtWidgets.QLabel('connecting...', objectName='status')
         v.addWidget(self.status)
-        # front keys
-        g = QtWidgets.QGridLayout()
-        self.key(g, 'LSK', 'f5', 0, 0); self.key(g, 'Menu', 'f8', 0, 2); self.key(g, 'RSK', 'f7', 0, 4)
-        self.key(g, 'Call', 'f2', 1, 0, name='call'); self.key(g, '^', 'up', 1, 2); self.key(g, 'End', 'f3', 1, 4, name='end')
-        self.key(g, '<', 'left', 2, 1); self.key(g, 'OK', 'f6', 2, 2); self.key(g, '>', 'right', 2, 3)
-        self.key(g, 'C', 'backspace', 3, 0); self.key(g, 'v', 'down', 3, 2)
-        mm = self.key(g, 'Multimedia', 'f20', 3, 4)       # EStdKeyApplication6 (N95 keypad.dll table): Carousel
-        mm.setToolTip('Multimedia key (F20 = EStdKeyApplication6): opens the Multimedia menu (Carousel)')
-        v.addLayout(g)
-        # slide-out keypad
+        # the phone's keys, from the device keymap (devices/<id>/keymap.toml via tools/device.py):
+        # groups front / nav (grids by row, col), keypad (the keypad slide), media (the media slide),
+        # side (the side column); keys without a host key or in "hidden" get no button
+        km = self.device_keymap()
+        groups = {}
+        for k in km.get('keys', []):
+            if k.get('host') and k.get('group') not in (None, 'hidden'):
+                groups.setdefault(k['group'], []).append(k)
+        def grid(keys, cols=3):
+            g = QtWidgets.QGridLayout()
+            for i, k in enumerate(keys):
+                r, c = (k['row'], k['col']) if 'row' in k and 'col' in k else divmod(i, cols)
+                b = self.key(g, k.get('label', k['key']), k['host'][0], r, c, name=k.get('style'))
+                b.setToolTip('%s: %s, host key %s' % (k['key'], k['scancode'], ' / '.join(k['host'])))
+            return g
+        v.addLayout(grid(groups.get('front', [])))
+        nav = QtWidgets.QHBoxLayout()
+        nav.addStretch(1); nav.addLayout(grid(groups.get('nav', []))); nav.addStretch(1)
+        v.addLayout(nav)
         self.keypad = QtWidgets.QWidget()
-        kg = QtWidgets.QGridLayout(self.keypad)
-        for i, k in enumerate('123456789*0#'):
-            self.key(kg, k, {'*': 'kp_multiply', '#': 'f10'}.get(k, k), i // 3, i % 3)
+        self.keypad.setLayout(grid(groups.get('keypad', [])))
         v.addWidget(self.keypad)
-        # media keys (the N95 8GB's upward slide)
         self.media = QtWidgets.QWidget()
-        mg = QtWidgets.QHBoxLayout(self.media)
-        # N95 keypad.dll codes EStdKeyApplication4/2/3/5 [play verified: opens the music player;
-        # prev/stop/next inferred from the table order]
-        for k, qc in (('|<<', 'audioprev'), ('>||', 'audioplay'), ('[]', 'audiostop'), ('>>|', 'audionext')):
-            self.key(mg, k, qc)
+        self.media.setLayout(grid(groups.get('media', []), cols=8))
         v.addWidget(self.media)
         # side toolbar (like the Android emulator's): hardware keys, slides, machine
-        for label, qc in (('Power', 'f4'), ('Vol +', 'f11'), ('Vol -', 'f12'), ('Gallery', 'f21'), ('Camera', None)):
-            b = self.key(None, label, qc)
-            if qc is None:
-                b.setToolTip('camera key: N95 scan code not mapped yet')
+        for k in groups.get('side', []):
+            b = self.key(None, k.get('label', k['key']), k['host'][0])
+            b.setToolTip('%s: %s, host key %s' % (k['key'], k['scancode'], ' / '.join(k['host'])))
             side.addWidget(b)
         side.addSpacing(10)
         self.slide_state = 0
@@ -300,6 +301,16 @@ class Phone(QtWidgets.QWidget):
         self.timer.start(1500)
         self.held = set()
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+    def device_keymap(self):
+        sys.path.insert(0, os.path.join(os.path.dirname(HERE), ''))
+        import device as devmodel          # tools/device.py
+        dev = None
+        try:
+            dev = self.c.call({'op': 'status'}, 5).get('device')
+        except Exception:
+            pass
+        return devmodel.keymap(devmodel.load(dev))
 
     def key(self, grid, label, qcode, row=0, col=0, name=None):     # grid: grid or box layout
         b = QtWidgets.QPushButton(label, objectName=name or '')

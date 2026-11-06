@@ -16,7 +16,7 @@ back = "rsk"
 
 [[keys]]
 key = "lsk"
-label = "Left softkey"
+label = "LSK"
 scancode = "EStdKeyDevice0"
 host = ["f5"]
 set1 = 0x3f
@@ -26,7 +26,7 @@ col = 0
 
 [[keys]]
 key = "ok"
-label = "Select"
+label = "OK"
 scancode = "EStdKeyDevice3"
 host = ["f6", "ret"]
 set1 = 0x40
@@ -36,7 +36,7 @@ col = 1
 
 [[keys]]
 key = "rsk"
-label = "Right softkey"
+label = "RSK"
 scancode = "EStdKeyDevice1"
 host = ["f7"]
 set1 = 0x41
@@ -56,6 +56,7 @@ col = 0
 
 [[keys]]
 key = "up"
+label = "^"
 scancode = "EStdKeyUpArrow"
 host = ["up"]
 set1 = 0xc8
@@ -64,6 +65,7 @@ row = 0
 col = 1
 [[keys]]
 key = "down"
+label = "v"
 scancode = "EStdKeyDownArrow"
 host = ["down"]
 set1 = 0xd0
@@ -72,6 +74,7 @@ row = 2
 col = 1
 [[keys]]
 key = "left"
+label = "<"
 scancode = "EStdKeyLeftArrow"
 host = ["left"]
 set1 = 0xcb
@@ -80,6 +83,7 @@ row = 1
 col = 0
 [[keys]]
 key = "right"
+label = ">"
 scancode = "EStdKeyRightArrow"
 host = ["right"]
 set1 = 0xcd
@@ -89,7 +93,8 @@ col = 2
 
 [[keys]]
 key = "call"
-label = "Call (green)"
+style = "call"
+label = "Call"
 scancode = "EStdKeyYes"
 host = ["f2"]
 set1 = 0x3c
@@ -98,7 +103,8 @@ row = 2
 col = 0   # patch 0014
 [[keys]]
 key = "end"
-label = "End (red)"
+style = "end"
+label = "End"
 scancode = "EStdKeyNo"
 host = ["f3"]
 set1 = 0x3d
@@ -124,7 +130,110 @@ evidence = "I"   # not mapped yet
 
 # keypad slide (digits, * and #)
 [[keys]]
+key = "1"
+col = 0
+row = 0
+label = "1"
+scancode = "'1'"
+host = ["1"]
+set1 = 0x02
+group = "keypad"
+
+[[keys]]
+key = "2"
+col = 1
+row = 0
+label = "2"
+scancode = "'2'"
+host = ["2"]
+set1 = 0x03
+group = "keypad"
+
+[[keys]]
+key = "3"
+col = 2
+row = 0
+label = "3"
+scancode = "'3'"
+host = ["3"]
+set1 = 0x04
+group = "keypad"
+
+[[keys]]
+key = "4"
+col = 0
+row = 1
+label = "4"
+scancode = "'4'"
+host = ["4"]
+set1 = 0x05
+group = "keypad"
+
+[[keys]]
+key = "5"
+col = 1
+row = 1
+label = "5"
+scancode = "'5'"
+host = ["5"]
+set1 = 0x06
+group = "keypad"
+
+[[keys]]
+key = "6"
+col = 2
+row = 1
+label = "6"
+scancode = "'6'"
+host = ["6"]
+set1 = 0x07
+group = "keypad"
+
+[[keys]]
+key = "7"
+col = 0
+row = 2
+label = "7"
+scancode = "'7'"
+host = ["7"]
+set1 = 0x08
+group = "keypad"
+
+[[keys]]
+key = "8"
+col = 1
+row = 2
+label = "8"
+scancode = "'8'"
+host = ["8"]
+set1 = 0x09
+group = "keypad"
+
+[[keys]]
+key = "9"
+col = 2
+row = 2
+label = "9"
+scancode = "'9'"
+host = ["9"]
+set1 = 0x0a
+group = "keypad"
+
+[[keys]]
+key = "0"
+col = 1
+row = 3
+label = "0"
+scancode = "'0'"
+host = ["0"]
+set1 = 0x0b
+group = "keypad"
+
+[[keys]]
 key = "star"
+col = 0
+row = 3
+label = "*"
 scancode = "'*'"
 host = ["f9"]
 set1 = 0x43
@@ -137,6 +246,9 @@ set1 = 0x37
 group = "hidden"   # patch 0012: numpad * = phone *
 [[keys]]
 key = "hash"
+col = 2
+row = 3
+label = "#"
 scancode = "EStdKeyHash"
 host = ["f10", "backslash"]
 set1 = 0x44
@@ -154,19 +266,21 @@ group = "side"
 long_press = "switch off"   # patch 0014
 [[keys]]
 key = "volup"
+label = "Vol +"
 scancode = "EStdKeyIncVolume"
 host = ["f11"]
 set1 = 0x57
 group = "side"   # patch 0014
 [[keys]]
 key = "voldown"
+label = "Vol -"
 scancode = "EStdKeyDecVolume"
 host = ["f12"]
 set1 = 0x58
 group = "side"   # patch 0014
 [[keys]]
 key = "camera-half"
-label = "Camera (focus)"
+label = "Cam ½"
 scancode = "EStdKeyApplication19"
 host = ["f15"]
 set1 = 0x5f
@@ -174,7 +288,7 @@ group = "side"
 evidence = "I"   # patch 0015, camera untested
 [[keys]]
 key = "camera"
-label = "Camera (capture)"
+label = "Camera"
 scancode = "EStdKeyApplication1A"
 host = ["f16"]
 set1 = 0x55
@@ -184,21 +298,27 @@ evidence = "I"
 # media slide keys (N95 keypad.dll matrix table 0x8014f6d4, docs/roadmap.md "Keys")
 [[keys]]
 key = "multimedia"
+col = 2
+row = 1
 label = "Multimedia"
 scancode = "EStdKeyApplication6"
 host = ["f20"]
 set1 = 0x5a
-group = "media"
+group = "front"
 evidence = "V"   # opens Carousel
 [[keys]]
 key = "gallery"
+label = "Gallery"
 scancode = "EStdKeyApplication1D"
 host = ["f21"]
 set1 = 0x74
-group = "media"
+group = "side"
 evidence = "V"
 [[keys]]
 key = "play"
+col = 1
+row = 0
+label = ">||"
 scancode = "EStdKeyApplication2"
 host = ["audioplay"]
 set1 = 0xa2
@@ -206,6 +326,9 @@ group = "media"
 evidence = "V"   # music player
 [[keys]]
 key = "stop"
+col = 2
+row = 0
+label = "[]"
 scancode = "EStdKeyApplication3"
 host = ["audiostop"]
 set1 = 0xa4
@@ -213,6 +336,9 @@ group = "media"
 evidence = "I"
 [[keys]]
 key = "prev"
+col = 0
+row = 0
+label = "|<<"
 scancode = "EStdKeyApplication4"
 host = ["audioprev"]
 set1 = 0x90
@@ -220,6 +346,9 @@ group = "media"
 evidence = "I"
 [[keys]]
 key = "next"
+col = 3
+row = 0
+label = ">>|"
 scancode = "EStdKeyApplication5"
 host = ["audionext"]
 set1 = 0x99
@@ -230,14 +359,14 @@ key = "variant-b"
 scancode = "EStdKeyApplication1B"
 host = ["f23"]
 set1 = 0x6d
-group = "media"
+group = "hidden"
 evidence = "I"
 [[keys]]
 key = "variant-c"
 scancode = "EStdKeyApplication1C"
 host = ["f24"]
 set1 = 0x6f
-group = "media"
+group = "hidden"
 evidence = "I"
 
 [[keys]]

@@ -560,7 +560,8 @@ def handle(sess, req):
         return {'state': sess.state, 'uptime': sess.now(), 'agent': bool(a.connected()) and a.hello,
                 'qemu_pid': sess.qemu.pid if sess.qemu else None, 'session': sess.sdir,
                 'gdb_port': sess.gdb_port, 'log_lines': sess.log_lines, 'events': sess.ev_seq,
-                'ram': sess.ram_path(), 'rom': os.path.abspath(sess.rom), 'rom_mtime': sess.rom_mtime}
+                'ram': sess.ram_path(), 'rom': os.path.abspath(sess.rom), 'rom_mtime': sess.rom_mtime,
+                'device': DEVICE['_id']}
     if op == 'stop':
         threading.Thread(target=lambda: (time.sleep(0.2), sess.stop(), os._exit(0)), daemon=True).start()
         return {'ok': True}
