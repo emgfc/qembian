@@ -6,7 +6,7 @@
  *   0xc0000000 interrupt controller -> CPU IRQ   0xc0001000 RTC   0xc0002000 timer (irq 1)
  *   0xc0003000 keyboard (2)   0xc0004000 pointer (3)   0xc0005000 framebuffer (4)
  *   0xc0006000..0xc0009000 serial 0..3 (5..8)   0xc000d000 NVMemory 2 = E: (14)
- *   0xc000e000 audio (13)   0xc0010000 NVMemory (12)
+ *   0xc000e000 audio (13)   0xc000f000 GL (host GLES 2 backend, syborg_gl.c)   0xc0010000 NVMemory (12)
  *   0xc0011000 platform (ID, tree offset, POWER (write 1 off, 2 reset), the device tree blob at
  *              +0x1000, 16 MB window)
  *   0x60000000 flash: 128 MB read-only window, the N95's ROFS partition (stands for its NAND);
@@ -181,6 +181,9 @@ static void syborg_init(MachineState *machine)
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, 0xc000e000);
     sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, pic[13]);
+
+    /* host GL backend for the guest's GLES rasteriser (syborg_gl.c; -global syborg-gl.backend=off) */
+    sysbus_create_simple(TYPE_SYBORG_GL, 0xc000f000, NULL);
 
     for (int i = 0; i < 4; i++) {
         dev = qdev_new(TYPE_SYBORG_SERIAL);

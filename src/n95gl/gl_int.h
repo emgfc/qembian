@@ -132,6 +132,7 @@ typedef struct SyTex
 	u32* data;
 	GLenum base;			/* GL_RGBA, GL_RGB, GL_ALPHA, GL_LUMINANCE, GL_LUMINANCE_ALPHA */
 	GLenum minF, magF, wrapS, wrapT;
+	u32 gen;				/* host backend: generation sent to the host, 0 = changed since (hw.c) */
 	} SyTex;
 
 /* objects shared between contexts created with a share context (EGL share group): texture objects.

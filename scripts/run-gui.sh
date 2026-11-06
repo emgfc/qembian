@@ -10,6 +10,7 @@
 # Clock: host time plus the offset in build/n95/rtc-offset (RTC_OFFSET= for another file), which
 # the RTC rewrites whenever the phone's date/time is changed; delete the file to go back to host time.
 # Sound: host PipeWire by default (AUDIO=alsa or AUDIO=sdl to switch).
+# GLES: the host GPU by default (syborg-gl); GL=soft for the guest's software rasteriser.
 # Controls: docs/n95-controls.md (F5 left softkey / OK, F6 centre, F7 right softkey, arrows).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -21,4 +22,5 @@ exec "$ROOT/scripts/run-modern.sh" --gui \
   --nvmem "${DRIVE_C:-$ROOT/build/n95/drive-c.img}" --nvmem2 "${DRIVE_E:-$ROOT/build/n95/drive-e.img}" --qmp "$D/qmp.sock" --serial-log "$D/serial.log" \
   --dtb "$ROOT/build/n95/syborg-n95.dtb" "${ROM:-$ROOT/build/n95/hybrid.img}" \
   -audiodev "${AUDIO:-pipewire},id=snd0" -machine audiodev=snd0 \
+  -global "syborg-gl.backend=$([ "${GL:-host}" = soft ] && echo off || echo host)" \
   -global "syborg-rtc.offset-file=${RTC_OFFSET:-$ROOT/build/n95/rtc-offset}" "$@"

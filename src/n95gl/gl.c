@@ -928,7 +928,7 @@ static int prepare(SyContext* c, int count, SyFrame* f, SyRState* st, SyRTex* rt
 		}
 	if (f->textured)
 		{
-		rt->data = t->data; rt->w = t->w; rt->h = t->h;
+		rt->data = t->data; rt->src = t; rt->w = t->w; rt->h = t->h;
 		GLenum minF = t->minF;
 		rt->linear = !(t->magF == GL_NEAREST && (minF == GL_NEAREST || minF == GL_NEAREST_MIPMAP_NEAREST || minF == GL_NEAREST_MIPMAP_LINEAR));
 		rt->clampS = t->wrapS == GL_CLAMP_TO_EDGE; rt->clampT = t->wrapT == GL_CLAMP_TO_EDGE;
@@ -1036,6 +1036,7 @@ void sy_glReadPixels(GLint x, GLint y, GLsizei w, GLsizei h, GLenum format, GLen
 	{
 	SyContext* c = sy_cur(); if (!c || !c->draw || !pixels) return;
 	if (w < 0 || h < 0) { sy_seterr(c, GL_INVALID_VALUE); return; }
+	sy_hw_sync(c->draw);
 	int bpp;
 	if (format == GL_RGBA && type == GL_UNSIGNED_BYTE) bpp = 4;
 	else if (format == GL_RGB && type == GL_UNSIGNED_BYTE) bpp = 3;

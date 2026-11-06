@@ -205,6 +205,9 @@ static inline int shade(const SyRState* st, int r, int g, int b, int a, int u, i
 
 void sy_raster_triangle(SySurface* aS, const SyRState* aSt, const SyRVtx* v0, const SyRVtx* v1, const SyRVtx* v2)
 	{
+#ifndef SYGL_HOST
+	if (aS->hw) { sy_hw_triangle(aS, aSt, v0, v1, v2); return; }	/* host GL backend (hw.c) */
+#endif
 	int X0 = fx4(v0->x), Y0 = fx4(v0->y), X1 = fx4(v1->x), Y1 = fx4(v1->y), X2 = fx4(v2->x), Y2 = fx4(v2->y);
 	int area = (X1 - X0) * (Y2 - Y0) - (Y1 - Y0) * (X2 - X0);
 	if (area == 0)
@@ -354,6 +357,9 @@ void sy_raster_triangle(SySurface* aS, const SyRState* aSt, const SyRVtx* v0, co
 
 void sy_raster_clear(SySurface* aS, int aColor, u32 aRgb, int aDepth, u16 aZ, int aX, int aY, int aW, int aH)
 	{
+#ifndef SYGL_HOST
+	if (aS->hw) { sy_hw_clear(aS, aColor, aRgb, aDepth, aZ, aX, aY, aW, aH); return; }
+#endif
 	int x0 = imax(0, aX), y0 = imax(0, aY), x1 = imin(aS->w, aX + aW), y1 = imin(aS->h, aY + aH);
 	for (int y = y0; y < y1; ++y)
 		{

@@ -218,9 +218,9 @@ class AgentLink:
 
 
 class Session:
-    def __init__(self, sdir, rom, drives, gui, extra, restore=None, audio='wav'):
+    def __init__(self, sdir, rom, drives, gui, extra, restore=None, audio='wav', gl='host'):
         self.sdir, self.rom, self.drives, self.gui, self.extra = sdir, rom, drives, gui, extra
-        self.audio = audio
+        self.audio, self.gl = audio, gl
         self.restore = restore         # snapshot dir to resume from (sydb fork / restore)
         self.stopping = False
         self.t0 = time.time()
@@ -283,6 +283,8 @@ class Session:
                 '-audiodev', self.audiodev(), '-machine', 'audiodev=snd0',
                 '-object', 'memory-backend-file,id=ram0,size=168M,share=on,mem-path=' + self.ram_path(),
                 '-machine', 'memory-backend=ram0',
+                # GLES: host GPU (syborg-gl, default) or the guest's software rasteriser
+                '-global', 'syborg-gl.backend=' + ('off' if self.gl == 'soft' else 'host'),
                 '-global', 'syborg-rtc.offset-file=' + os.path.join(dd, 'rtc-offset'),
                 # snapshots may be taken while gdb holds the machine ('debug'), a run state an incoming
                 # machine cannot enter: do not carry the run state; restores start paused (-S)
@@ -725,8 +727,8 @@ def handle(sess, req):
     raise AgentError('unknown op %r' % op)
 
 
-def serve(sdir, rom, drives, gui, extra, restore=None, audio='wav'):
-    sess = Session(sdir, rom, drives, gui, extra, restore, audio)
+def serve(sdir, rom, drives, gui, extra, restore=None, audio='wav', gl='host'):
+    sess = Session(sdir, rom, drives, gui, extra, restore, audio, gl)
     sess.start()
     path = os.path.join(sdir, 'ctl.sock')
     try:

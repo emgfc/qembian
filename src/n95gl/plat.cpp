@@ -369,6 +369,15 @@ void sy_display_wait_vsync(SyThread* aT)
 	User::WaitForRequest(s);
 	}
 
+int sy_display_ctl(SyThread* aT, int aFn, void* a1)
+	{
+	if (!aT->display)
+		return KErrNotReady;
+	RSyDisplay d;
+	d.SetHandle(aT->display);
+	return d.Ctl(aFn, a1);
+	}
+
 void sy_display_close(SyThread* aT)
 	{
 	if (!aT->display)

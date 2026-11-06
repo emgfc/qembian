@@ -37,6 +37,7 @@ int sy_tex_init(SyContext* c, SyContext* aShareWith)
 
 void sy_tex_free_all(SyContext* c)
 	{
+	sy_hw_tex_free(&c->defaultTex);
 	sy_big_free(c->defaultTex.data);
 	SyShare* sh = c->share;
 	c->share = 0;
@@ -45,6 +46,7 @@ void sy_tex_free_all(SyContext* c)
 	for (int i = 0; i < sh->texCap; ++i)
 		if (sh->texTable[i])
 			{
+			sy_hw_tex_free(sh->texTable[i]);
 			sy_big_free(sh->texTable[i]->data);
 			sy_free(sh->texTable[i]);
 			}
@@ -104,6 +106,7 @@ void sy_glDeleteTextures(GLsizei n, const GLuint* names)
 		if (nm == 0 || (int)nm >= c->share->texCap || !c->share->texTable[nm]) continue;
 		SyTex* t = c->share->texTable[nm];
 		if (c->bound == t) c->bound = &c->defaultTex;
+		sy_hw_tex_free(t);
 		sy_big_free(t->data);
 		sy_free(t);
 		c->share->texTable[nm] = 0;
@@ -189,6 +192,7 @@ static u32 convert(GLenum format, GLenum type, const u8* p)
 
 static void upload(SyContext* c, SyTex* t, int x0, int y0, int w, int h, GLenum format, GLenum type, const void* pixels)
 	{
+	t->gen = 0;			/* the host backend's copy is stale (hw.c) */
 	int bpp = pixel_bytes(format, type);
 	int rowBytes = w * bpp;
 	rowBytes = (rowBytes + c->unpackAlign - 1) / c->unpackAlign * c->unpackAlign;
@@ -328,6 +332,8 @@ void sy_glTexEnvxv(GLenum target, GLenum pname, const GLfixed* v)
 /* copy a rectangle of the surface (GL coordinates: row 0 at the bottom) into t at (dx, dy) */
 static void copy_from_surface(SyTex* t, const SySurface* s, int dx, int dy, int x, int y, int w, int h)
 	{
+	sy_hw_sync((SySurface*)s);	/* the host's picture into s->color */
+	t->gen = 0;
 	for (int j = 0; j < h; ++j)
 		{
 		int sy = s->h - 1 - (y + j);
@@ -345,6 +351,7 @@ static int tex_storage(SyTex* t, int w, int h)
 	{
 	if (t->w == w && t->h == h && t->data)
 		return 1;
+	t->gen = 0;
 	sy_big_free(t->data);
 	t->data = 0; t->w = 0; t->h = 0;
 	if (w && h)

@@ -35,6 +35,9 @@ typedef struct SySurface
 	u16* depth;
 	int frames;
 	int wx, wy;			/* window surface: the window's position at creation (fixed, as on the N95) */
+	int hw;				/* rendered by the host GL backend (hw.c): color is a read-back copy */
+	u32 hwId;
+	int hwDirty;		/* host has drawn since the last read-back */
 	} SySurface;
 
 struct SyContext;
@@ -55,6 +58,12 @@ typedef struct SyThread
 	void* bigHeap;		/* RHeap* (plat.cpp) */
 	int traced;			/* EGL calls traced so far (SYTRACE) */
 	int notInitLogged;
+	/* host GL backend (hw.c) */
+	int hwState;		/* 0 not asked, 1 host GL, -1 software */
+	u32* hwBuf; int hwLen, hwCap;	/* command words */
+	int hwDraw;			/* word index of the open SYGL_DRAW, -1 none */
+	SySurface* hwDrawSurf;
+	u32 hwNextId, hwTexGen, hwOwner;
 	} SyThread;
 
 /* trace of the first EGL calls of each thread with the caller's address (sygl entry points are
@@ -82,6 +91,15 @@ int sy_dsa_region(SyThread* aT, SySurface* aS, int* aRects, int aMax);	/* visibl
 int sy_bitmap_info(void* aBmp, int* aW, int* aH, int* aMode);			/* CFbsBitmap*: 0 ok */
 int sy_bitmap_copy(void* aBmp, u32* aPix, int aW, int aH, int aToBitmap);	/* 0 ok, -1 unsupported mode */
 void sy_dsa_destroy(SySurface* aS);
+int sy_display_ctl(SyThread* aT, int aFn, void* a1);	/* DisplayDriver DoControl */
+
+/* ---- host GL backend (hw.c, docs/gpu-roadmap.md "Host GL backend") ---- */
+int sy_hw_on(SyThread* aT);								/* 1: the host renders */
+void sy_hw_surface_new(SyThread* aT, SySurface* aS);	/* window and pbuffer surfaces */
+void sy_hw_surface_free(SyThread* aT, SySurface* aS);
+void sy_hw_sync(SySurface* aS);							/* before the CPU reads aS->color */
+void sy_hw_tex_free(void* aTex);
+void sy_hw_terminate(SyThread* aT);
 
 /* ---- libc bits (libc.c); C++ gets them from the SDK headers ---- */
 #if defined(SYGL_HOST)			/* host tests (tests/sygl): the C library's */
@@ -106,6 +124,7 @@ typedef struct SyRVtx { float x, y, z; float r, g, b, a; float iw, sw, tw; float
 typedef struct SyRTex
 	{
 	const u32* data;		/* 0xAARRGGBB */
+	void* src;				/* SyTex* (host backend: key and generation) */
 	int w, h;
 	int linear;				/* bilinear (else nearest) */
 	int clampS, clampT;		/* clamp to edge (else repeat) */
@@ -126,6 +145,8 @@ typedef struct SyRState
 	int fog, fogR, fogG, fogB;						/* fog colour 0..255; per-vertex factor in SyRVtx.fog */
 	} SyRState;
 void sy_raster_triangle(SySurface* aS, const SyRState* aSt, const SyRVtx* aV0, const SyRVtx* aV1, const SyRVtx* aV2);
+void sy_hw_triangle(SySurface* aS, const SyRState* aSt, const SyRVtx* aV0, const SyRVtx* aV1, const SyRVtx* aV2);
+void sy_hw_clear(SySurface* aS, int aColor, u32 aRgb, int aDepth, u16 aZ, int aX, int aY, int aW, int aH);
 void sy_raster_clear(SySurface* aS, int aColor, u32 aRgb, int aDepth, u16 aZ, int aX, int aY, int aW, int aH);
 
 /* big buffers (surfaces, textures): our own chunk heap per thread (plat.cpp), like Nokia's PVRHeap,

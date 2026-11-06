@@ -227,3 +227,23 @@ Done 2026-11-06 (owner: compatibility, not imitation): sygl is strict, there is 
 its 240x320 surface at (0,0) of the 320x240 screen; Carousel works on the device, so the real
 driver's native-orientation buffers + rotated pvr2d blit (FUN_80a6c3b2 swaps w/h at rotation 1/3)
 probably matter. RE that path (pvr2d ordinals used by WSEGL's present) before the host-GL backend.
+
+## Host GL backend (done 2026-11-06, H-gles-host)
+
+Phase 5 ("real accel") in a cheaper shape than a full GL forwarder: only the rasteriser runs on the
+host. sygl stays the single implementation of GLES 1.1/EGL semantics (strict WSEGL surfaces
+included), so switching the backend changes speed, not behaviour.
+
+- Protocol: `src/qemu-syborg/hw/arm/syborg_gl_proto.h` (SURF, SURF_FREE, TEX in row bands,
+  TEX_FREE, CLEAR, DRAW (state + triangle list, batched while state and surface stay the same),
+  READ in row bands, OWNER, OWNER_FREE).
+- Guest: `src/n95gl/hw.c` (hooks in raster.c; read-backs before every CPU read of a surface:
+  present, glReadPixels, CopyTex*, eglBindTexImage). Texture generation `SyTex.gen` (0 = changed).
+- Kernel: DisplayDriver ctl 0x7f10 {ready, thread id}, 0x7f11 {cmd, len, out, outLen}.
+- Host: `syborg_gl.c`, libepoxy, EGL_MESA_platform_surfaceless, GLES 2 shader with the ES 1.1
+  texture environments, alpha test and fog.
+- Setting: `--gl host|soft` (sydb start/phone), `GL=soft` (run-gui), `-global syborg-gl.backend=off`.
+- Numbers: Crash Bandicoot Nitro Kart 3D 60 fps menus and races (vsync), software 19/11.
+
+Open: the WSEGL rotation path (Fidelity above); vertex transform is still the guest's (VFP in TCG):
+if a scene becomes vertex-bound, move transform/lighting too.

@@ -91,10 +91,85 @@ static void SetPartial(TBool aOn, TUint aStart, TUint aEnd, TBool aFullColour)
 	WriteReg(KHwBaseClcd, KFbPartialMode, (aOn ? 1 : 0) | (aFullColour ? 2 : 0) | (rows ? 4 : 0));
 	}
 
+// Host GL backend (ours, not on the device): the sygl blob (src/n95gl/hw.c) sends its rasteriser's
+// command stream through these controls to the syborg-gl QEMU device (syborg_gl.c,
+// syborg_gl_proto.h). The stream is copied into contiguous RAM the device reads; read-backs come back
+// the same way. Hack H-gles-host.
+//   ctl 0x7f10 -> 2 words          {1 = device present and host GL ready (0 = software), caller's thread id}
+//   ctl 0x7f11 {cmd, len, out, outLen}  run a command buffer; out/outLen: where SYGL_READ results go
+const TUint KHwBaseGl = KHwBasePeripherals + 0x0f * KHwLinSeparation;
+enum { KGlId = 0, KGlCaps = 1, KGlBuf = 2, KGlLen = 3, KGlExec = 4, KGlOut = 5, KGlOutLen = 6 };
+const TUint32 KGlDeviceId = 0xc51d0011;
+const TInt KGlBufSize = 1 << 20;		// commands; and as much again for read-backs (bands: hw.c)
+static DPlatChunkHw* GlChunk;
+static TPhysAddr GlPhys;
+static TInt GlState;					// 0 unknown, 1 ready, -1 none
+static DMutex* GlLock;
+
+static TInt GlReady()
+	{
+	if (GlState == 0)
+		{
+		GlState = -1;
+		if (ReadReg(KHwBaseGl, KGlId) == KGlDeviceId && ReadReg(KHwBaseGl, KGlCaps) == 1)
+			{
+			NKern::ThreadEnterCS();
+			TInt r = Kern::MutexCreate(GlLock, _L("SyGl"), KMutexOrdGeneral0);
+			if (r == KErrNone)
+				r = Epoc::AllocPhysicalRam(2 * KGlBufSize, GlPhys, 12);
+			if (r == KErrNone)
+				r = DPlatChunkHw::New(GlChunk, GlPhys, 2 * KGlBufSize, EMapAttrSupRw | EMapAttrFullyBlocking);
+			NKern::ThreadLeaveCS();
+			GlState = r == KErrNone ? 1 : -1;
+			Kern::Printf("N95STUB: DisplayDriver host GL %s (%d)", GlState > 0 ? "ready" : "unavailable", r);
+			}
+		else
+			Kern::Printf("N95STUB: DisplayDriver no host GL device: software rendering");
+		}
+	return GlState > 0;
+	}
+
+static TInt GlSubmit(DThread* aClient, const TUint32* aW)
+	{
+	if (!GlReady())
+		return KErrNotSupported;
+	TUint len = aW[1], outLen = aW[3];
+	if (len < 8 || len > (TUint)KGlBufSize || outLen > (TUint)KGlBufSize)
+		return KErrArgument;
+	TUint8* in = (TUint8*)GlChunk->LinearAddress();
+	TUint8* out = in + KGlBufSize;
+	NKern::ThreadEnterCS();
+	Kern::MutexWait(*GlLock);
+	TInt r = Kern::ThreadRawRead(aClient, (TAny*)aW[0], in, len);
+	if (r == KErrNone)
+		{
+		WriteReg(KHwBaseGl, KGlBuf, GlPhys);
+		WriteReg(KHwBaseGl, KGlLen, len);
+		WriteReg(KHwBaseGl, KGlOut, GlPhys + KGlBufSize);
+		WriteReg(KHwBaseGl, KGlOutLen, outLen);
+		WriteReg(KHwBaseGl, KGlExec, 1);			// runs synchronously in the device
+		TUint32 res = ReadReg(KHwBaseGl, KGlExec);
+		if (res)
+			r = KErrGeneral;
+		if (r == KErrNone && outLen)
+			r = Kern::ThreadRawWrite(aClient, (TAny*)aW[2], out, outLen);
+		}
+	Kern::MutexSignal(*GlLock);
+	NKern::ThreadLeaveCS();
+	return r;
+	}
+
 static TInt DisplayCtl(DThread* aClient, TInt aFn, TAny* a1, TAny*, const TUint32* aWords)
 	{
 	switch (aFn)
 		{
+	case 0x7f10:	// {ready, owner}: owner = the caller's thread id (hw.c scopes its ids by it)
+		{
+		TUint32 q[2] = { (TUint32)GlReady(), aClient->iId };
+		return Kern::ThreadRawWrite(aClient, a1, q, sizeof(q));
+		}
+	case 0x7f11:
+		return GlSubmit(aClient, aWords);
 	case 3:		// {startRow, endRow, fullColour}: start < end < 240
 		if (aWords[0] >= aWords[1] || aWords[1] >= 240)
 			return KErrArgument;

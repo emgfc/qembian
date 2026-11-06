@@ -18,7 +18,7 @@ int main(void)
 	int failures = 0;
 	for (int mode = 0; mode < 4; ++mode) {
 	memset(s.color, 0, W * H * 4);
-	SyRTex rt = { tex, TW, TH, mode & 1, (mode & 2) != 0, (mode & 2) != 0, 1, 1, TW - 1, TH - 1 };
+	SyRTex rt = { tex, 0, TW, TH, mode & 1, (mode & 2) != 0, (mode & 2) != 0, 1, 1, TW - 1, TH - 1 };
 	SyRState st; memset(&st, 0, sizeof(st));
 	st.tex = &rt; st.envMode = GL_MODULATE; st.depthFunc = GL_LESS; st.writeColor = 1;
 	st.scX0 = 0; st.scY0 = 0; st.scX1 = W; st.scY1 = H;

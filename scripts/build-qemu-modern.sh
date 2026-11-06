@@ -35,8 +35,9 @@ EOF
 # (re)write the meson line so that new board files are picked up
 sed -i "/CONFIG_SYBORG/d" "$SRC/hw/arm/meson.build"
 FILES=$(cd src/qemu-syborg/hw/arm && ls syborg*.c | sed "s/.*/'&'/" | paste -sd, -)
-# syborg-audio decodes MP3/AAC with FFmpeg (libavcodec, libswresample from the host)
-sed -i "1a arm_common_ss.add(when: 'CONFIG_SYBORG', if_true: [files($FILES), dependency('libavcodec'), dependency('libavutil'), dependency('libswresample')])" "$SRC/hw/arm/meson.build"
+# syborg-audio decodes MP3/AAC with FFmpeg (libavcodec, libswresample from the host);
+# syborg-gl renders with the host GPU through libepoxy (EGL surfaceless + GLES 2)
+sed -i "1a arm_common_ss.add(when: 'CONFIG_SYBORG', if_true: [files($FILES), dependency('libavcodec'), dependency('libavutil'), dependency('libswresample'), dependency('epoxy')])" "$SRC/hw/arm/meson.build"
 
 mkdir -p "$B/build"
 cd "$B/build"

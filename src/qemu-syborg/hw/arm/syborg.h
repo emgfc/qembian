@@ -19,6 +19,7 @@
 #define TYPE_SYBORG_NVMEM    "syborg-nvmem"
 #define TYPE_SYBORG_PLATFORM "syborg-platform"
 #define TYPE_SYBORG_AUDIO    "syborg-audio"
+#define TYPE_SYBORG_GL       "syborg-gl"
 
 /* Device ID register values (register 0 of each device). */
 #define SYBORG_ID_INTC     0xc51d0000

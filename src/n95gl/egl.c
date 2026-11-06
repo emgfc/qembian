@@ -185,6 +185,7 @@ EGLBoolean sy_eglTerminate(EGLDisplay d)
 	SYTRACE(sy_thread(), "eglTerminate(%d)", (u32)__builtin_return_address(0), (int)d);
 	SyThread* t = ok_display(d, 0);
 	if (!t) return EGL_FALSE;
+	sy_hw_terminate(t);
 	t->initialized = 0;
 	return EGL_TRUE;
 	}
@@ -393,7 +394,8 @@ EGLSurface sy_eglCreateWindowSurface(EGLDisplay d, EGLConfig aConfig, NativeWind
 		return 0;
 		}
 	sy_display_open(t);
-	SYLOG("window surface %dx%d at (%d,%d), config %d", w, h, x, y, c->id);
+	sy_hw_surface_new(t, s);
+	SYLOG("window surface %dx%d at (%d,%d), config %d%s", w, h, x, y, c->id, s->hw ? ", host GL" : "");
 	return (EGLSurface)s;
 	}
 
@@ -410,6 +412,7 @@ static SySurface* new_surface(SyThread* t, const SyConfig* c, int aKind, int w, 
 		t->eglError = EGL_BAD_ALLOC;
 		return 0;
 		}
+	sy_hw_surface_new(t, s);		/* pbuffers; pixmaps stay in software (their bitmap is the target) */
 	return s;
 	}
 
@@ -523,6 +526,7 @@ EGLBoolean sy_eglDestroySurface(EGLDisplay d, EGLSurface aSurface)
 	if (t->read == s) t->read = 0;
 	if (t->ctx) sy_gl_made_current(t->ctx, t->draw);
 	sy_dsa_destroy(s);
+	sy_hw_surface_free(t, s);
 	sy_big_free(s->color); sy_big_free(s->depth);
 	s->magic = 0;
 	sy_free(s);
@@ -667,6 +671,7 @@ void sy_present(SyThread* t, SySurface* s)
 	{
 	if (sy_fb_info(t))
 		return;
+	sy_hw_sync(s);						/* host GL: the frame into s->color */
 	int x = s->wx, y = s->wy;			/* fixed at creation (WSEGL) */
 	int rects[16 * 4];
 	int n = sy_dsa_region(t, s, rects, 16);

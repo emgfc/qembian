@@ -209,7 +209,7 @@ def cmd_start(sdir, a):
     rom = os.path.abspath(a.rom)
     log = open(os.path.join(sdir, 'daemon.log'), 'w')
     subprocess.Popen([sys.executable, os.path.abspath(__file__), '--session', sdir, '_daemon', rom, drives,
-                      '--audio', getattr(a, 'audio', None) or 'wav']
+                      '--audio', getattr(a, 'audio', None) or 'wav', '--gl', getattr(a, 'gl', None) or 'host']
                      + (['--gui'] if a.gui else []), stdout=log, stderr=log, stdin=subprocess.DEVNULL,
                      start_new_session=True, cwd=ROOT)
     for _ in range(100):
@@ -308,9 +308,9 @@ def main():
         import daemon
         ap = argparse.ArgumentParser(); ap.add_argument('rom'); ap.add_argument('drives')
         ap.add_argument('--gui', action='store_true'); ap.add_argument('--restore')
-        ap.add_argument('--audio', default='wav')
+        ap.add_argument('--audio', default='wav'); ap.add_argument('--gl', default='host')
         x = ap.parse_args(rest)
-        daemon.serve(sdir, x.rom, x.drives, x.gui, [], x.restore, x.audio)
+        daemon.serve(sdir, x.rom, x.drives, x.gui, [], x.restore, x.audio, x.gl)
         return
     if cmd == 'phone':                 # emulator window: screen + phone keys + machine controls
         ap = argparse.ArgumentParser(prog='sydb phone')
@@ -320,13 +320,14 @@ def main():
         ap.add_argument('--rom', help='ROM of a session it starts (default hybrid.img, with --device hybrid-exp.img)')
         ap.add_argument('--install', action='store_true', help='install/update the sydb agent on its C: first')
         ap.add_argument('--keep', action='store_true', help='leave the session running when the window closes')
+        ap.add_argument('--gl', choices=['host', 'soft'], default='host', help='GLES on the host GPU (default) or the software rasteriser')
         x = ap.parse_args(rest)
         if x.device and sdir == DEFAULT_SESSION:
             sdir = DEVICE_SESSION
         started = False
         if not Client(sdir).alive():
             subprocess.run([sys.executable, os.path.abspath(__file__), '--session', sdir, 'start', '--no-wait',
-                            '--audio', x.audio] + (['--device'] if x.device else []) + (['--rom', x.rom] if x.rom else [])
+                            '--audio', x.audio, '--gl', x.gl] + (['--device'] if x.device else []) + (['--rom', x.rom] if x.rom else [])
                            + (['--install'] if x.install else []), check=True)
             started = True
         import phone
@@ -355,6 +356,7 @@ def main():
         ap.add_argument('--seed'); ap.add_argument('--fresh', action='store_true')
         ap.add_argument('--gui', action='store_true'); ap.add_argument('--install', action='store_true')
         ap.add_argument('--no-wait', action='store_true'); ap.add_argument('--timeout', type=float, default=180)
+        ap.add_argument('--gl', choices=['host', 'soft'], default='host', help='GLES on the host GPU (syborg-gl, default) or the software rasteriser')
         ap.add_argument('--device', action='store_true', help="run on scripts/run-gui.sh's phone (build/n95/drive-c.img, "
                         'drive-e.img, rtc-offset) in place; ROM default build/n95/hybrid-exp.img')
         ap.add_argument('--audio', default='wav', help='wav (<session>/audio.wav, default), host (speakers: '

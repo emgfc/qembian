@@ -139,7 +139,8 @@ run-gui phone in place (build/n95/drive-c.img, drive-e.img, rtc-offset; ROM hybr
 plays the startup jingle; session build/sydb-device; `--install` adds the sydb agent to its C:).
 Restoring a snapshot in such a session writes the device images. It starts a session if none is running, with sound
 on the host speakers (`--audio host`: `$AUDIO` or pipewire, like run-gui). `sydb start` keeps sound in
-`<session>/audio.wav` unless given `--audio host` (or a QEMU audiodev driver). Details:
+`<session>/audio.wav` unless given `--audio host` (or a QEMU audiodev driver). GLES runs on the host
+GPU by default (`--gl soft` for the software rasteriser, H-gles-host). Details:
 [phone-skin.md](phone-skin.md).
 
 ## TUI
