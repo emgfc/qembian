@@ -84,6 +84,8 @@ class Debugger:
         self.loaded = {}             # module name -> elf
         self.thread_filter = None
         self.rom = None
+        self.catcher = None           # catcher.Catcher: owns the catch breakpoints (sydb catch)
+        self.catch_q = queue.Queue()
 
     # ---- process / MI plumbing ----
     def start(self):
@@ -92,6 +94,7 @@ class Debugger:
         self.p = subprocess.Popen(['gdb', '-nx', '-q', '--interpreter=mi2'], stdin=subprocess.PIPE,
                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
         threading.Thread(target=self._reader, daemon=True).start()
+        threading.Thread(target=self._catch_worker, daemon=True).start()
         self.mi('-gdb-set mi-async on')       # accept commands (interrupt) while the target runs
         for c in ('set pagination off', 'set confirm off', 'set architecture arm', 'set width 0',
                   'set print pretty off', ksyms.add_symbol_file()):
@@ -115,7 +118,13 @@ class Debugger:
                 self.running = True
             elif line.startswith('*stopped'):
                 self.running = False
-                self.stops.put(mi_parse(line[len('*stopped,'):]) if ',' in line else {})
+                st = mi_parse(line[len('*stopped,'):]) if ',' in line else {}
+                # stops at catch breakpoints are the catcher's (handled on its own thread, because
+                # handling issues gdb commands whose results this reader thread must deliver)
+                if self.catcher and self.catcher.owns(st):
+                    self.catch_q.put(st)
+                else:
+                    self.stops.put(st)
             elif line.startswith('~'):
                 with self.cv:
                     self.console.append(mi_parse('x=' + line[1:])['x'])
@@ -166,9 +175,59 @@ class Debugger:
     def reg(self, name):
         return int(self.cli('p/x $%s' % name).split('=')[-1].strip(), 16)
 
-    def thread_name(self):
+    def _catch_worker(self):
+        while True:
+            st = self.catch_q.get()
+            try:
+                self.catcher.handle(st)
+            except Exception as e:           # never leave the phone frozen because of a bug here
+                self.sess.event('catch.error', error='%s: %s' % (type(e).__name__, e))
+                try:
+                    if not self.running:
+                        self.mi('-exec-continue')
+                except Exception:
+                    pass
+
+    # ---- memory / expression helpers (target stopped) ----
+    def read_mem(self, addr, n):
+        out = b''
+        while n > 0:
+            k = min(n, 4096)
+            r = self.mi('-data-read-memory-bytes 0x%x %d' % (addr, k))
+            mem = r.get('memory') or []
+            chunk = bytes.fromhex(mem[0]['contents']) if mem else b''
+            out += chunk
+            if len(chunk) < k:
+                break
+            addr += k; n -= k
+        return out
+
+    def u32(self, addr):
+        b = self.read_mem(addr, 4)
+        return int.from_bytes(b, 'little') if len(b) == 4 else None
+
+    def evalx(self, expr):
+        return int(self.cli('p/x (unsigned)(%s)' % expr).split('=')[-1].strip(), 16)
+
+    def read_des(self, addr, wide):
+        """Symbian descriptor (TDesC8/TDesC16) at addr -> str"""
+        w = self.u32(addr)
+        if w is None:
+            return '?'
+        n, typ = w & 0x0fffffff, w >> 28
+        if typ == 0:   data = addr + 4                    # EBufC
+        elif typ == 1: data = self.u32(addr + 4)          # EPtrC
+        elif typ == 2: data = self.u32(addr + 8)          # EPtr
+        elif typ == 3: data = addr + 8                    # EBuf
+        elif typ == 4: data = (self.u32(addr + 8) or 0) + 4  # EBufCPtr -> TBufC
+        else: return '?'
+        n = min(n, 256)
+        raw = self.read_mem(data, n * (2 if wide else 1))
+        return raw.decode('utf-16-le' if wide else 'latin-1', 'replace')
+
+    def thread_name(self, dthread=None):
         try:
-            t = self.cli('p/x (unsigned)' + THREAD_EXPR).split('=')[-1].strip()
+            t = ('0x%x' % dthread) if dthread else self.cli('p/x (unsigned)' + THREAD_EXPR).split('=')[-1].strip()
             names = []
             for e in ('iOwningProcess->iName', 'iName'):
                 p = int(self.cli('p/x (unsigned)((DThread*)%s)->%s' % (t, e)).split('=')[-1].strip(), 16)

@@ -81,6 +81,32 @@ TOOLS = [
     ('dbg_eval', 'Evaluate a gdb expression (kernel symbols work, e.g. TheScheduler.iCurrentThread->iPriority).',
      obj({'expr': STR}, ['expr'])),
     ('dbg_gdb', 'Raw gdb console command (escape hatch).', obj({'cmd': STR}, ['cmd'])),
+    ('catch_add', 'Catch thread deaths: when a thread dies as described, dump it (registers, symbolised call stack, '
+     'user stack, log) and optionally freeze the whole phone and/or save a machine snapshot. Triggers are cold '
+     'breakpoints on User::Panic (user mode, thread still alive: exact registers) and DThread::Die (kernel: '
+     'every exit incl. KERN-EXEC from exceptions and kills). kind: panic | kill | terminate | exit (any '
+     'abnormal exit) | any. thread = regex on "process::thread". category = exact panic category (e.g. '
+     'USER-EXEC, KERN-EXEC, E32USER-CBase). reason = exact code. action: dump (continue) | freeze (hold the '
+     'phone; inspect with dbg_*, then catch_resume). snapshot = also save a machine snapshot (fork it later).',
+     obj({'kind': STR, 'thread': STR, 'category': STR, 'reason': INT, 'action': STR, 'snapshot': BOOL, 'once': BOOL})),
+    ('catch_list', 'Catch rules, hit count, whether the phone is frozen.', obj({})),
+    ('catch_rm', 'Remove catch rule id (all if omitted); with no rules left the breakpoints are removed.', obj({'id': INT})),
+    ('catch_hits', 'Hits so far: id, thread, exit, category, reason, at, caller, dump files.', obj({'max': INT})),
+    ('catch_show', 'One hit: registers, call-stack scan (return addresses symbolised), log tail, as text and JSON.',
+     obj({'id': INT, 'brief': BOOL}, ['id'])),
+    ('catch_resume', 'Let a frozen phone run on (also: dbg_continue).', obj({})),
+    ('snap_save', 'Save a machine snapshot (RAM + device state + drives) of this session; stopped = keep it paused.',
+     obj({'name': STR, 'stopped': BOOL})),
+    ('snap_list', 'Snapshots of this session (name, uptime at save, size).', obj({})),
+    ('snap_rm', 'Delete a snapshot.', obj({'name': STR}, ['name'])),
+    ('session_fork', 'Resume a snapshot as a separate session (its own QEMU, gdb port, drives copy), paused unless '
+     'run=true: time travel to that moment as often as needed. Returns the new session dir; use session_select '
+     'to point the tools at it. into = session dir (default build/sydb-fork-NAME).',
+     obj({'snapshot': STR, 'into': STR, 'run': BOOL}, ['snapshot'])),
+    ('session_select', 'Point all tools at another session dir (e.g. a fork); empty = the default session.',
+     obj({'session': STR})),
+    ('vm_pause', 'Pause the whole machine (QMP stop; not while gdb holds it).', obj({})),
+    ('vm_resume', 'Resume the machine (QMP cont), e.g. a restored fork.', obj({})),
 ]
 
 
@@ -134,6 +160,20 @@ class Server:
             if p.returncode:
                 raise RuntimeError((p.stderr or p.stdout).strip()[-400:])
             return {'result': p.stdout.strip()}
+        if name == 'session_select':
+            self.sdir = os.path.abspath(a['session']) if a.get('session') else S.DEFAULT_SESSION
+            self.c = S.Client(self.sdir)
+            return {'session': self.sdir, 'alive': self.c.alive()}
+        if name == 'session_fork':
+            cmd = [sys.executable, os.path.join(HERE, 'sydb.py'), '--session', self.sdir, 'fork', a['snapshot']]
+            if a.get('into'):
+                cmd += ['--into', a['into']]
+            if a.get('run'):
+                cmd.append('--run')
+            p = subprocess.run(cmd, capture_output=True, text=True)
+            if p.returncode:
+                raise RuntimeError((p.stderr or p.stdout).strip()[-400:])
+            return json.loads(p.stdout.strip().splitlines()[-1])
         if not self.c.alive():
             raise RuntimeError('no session running: call session_start')
         if name == 'session_stop':
@@ -215,6 +255,14 @@ class Server:
             return self.call(req, timeout=600)
         if name == 'qemu_hmp':
             return self.call({'op': 'hmp', 'cmd': a['cmd']})
+        if name == 'catch_add':
+            return self.call(dict(a, op='catch', sub='add'), timeout=120)
+        if name in ('catch_list', 'catch_rm', 'catch_hits', 'catch_show', 'catch_resume'):
+            return self.call(dict(a, op='catch', sub=name[6:]), timeout=60)
+        if name in ('snap_save', 'snap_list', 'snap_rm'):
+            return self.call(dict(a, op='snap', sub=name[5:]), timeout=300)
+        if name in ('vm_pause', 'vm_resume'):
+            return self.call({'op': 'vm', 'sub': name[3:]})
         raise RuntimeError('unknown tool ' + name)
 
     def handle(self, msg):

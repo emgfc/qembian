@@ -76,6 +76,49 @@ state reaches 0xCB). Found with sydb itself: the IPC trace of a boot shows Start
 | `sydb startup list` | decrypted records |
 | `sydb update-agent` | re-registers the new binary (its MD5 changed) |
 
+## Catch, snapshots and forks (time travel)
+
+`sydb catch` freezes or dumps the phone the moment a thread dies the way a rule says, and
+`sydb snap`/`fork` save the whole machine and resume it later, any number of times, as separate
+sessions. Built 2026-11-06 to hunt a timing-dependent Hitchcock crash: breakpoints and
+watchpoints on hot paths changed the timing and hid it, while the catch breakpoints are on cold
+paths and caught it in the first run.
+
+```
+sydb catch add --kind panic --thread Carousel --action freeze --snapshot   # rule 1
+sydb catch add --category KERN-EXEC --reason 3                             # any thread, dump only
+sydb catch list | hits | show ID | rm [ID] | resume
+sydb snap save [NAME] [--stopped] | snap list | snap rm NAME
+sydb fork catch-1 [--into DIR] [--run]     # resume the snapshot as build/sydb-fork-catch-1, paused
+sydb --session build/sydb-fork-catch-1 dbg attach    # ... the very moment, as often as needed
+sydb restore NAME                          # the same into this session
+sydb pause | resume
+```
+
+- **Triggers:** hardware breakpoints through the persistent gdb on `User::Panic(const TDesC16&, TInt)`
+  (EUser 0x803a9f8a). That is user mode, before the panic exec call, so the thread is still alive
+  with exact registers; `User::RaiseException` (USER-EXEC 3) and CBase/USER panics end there. The
+  other breakpoint is `DThread::Die(TExitType, TInt, const TDesC8&)`, the kernel's single exit path,
+  which also sees exits the kernel decides (KERN-EXEC 3 for exceptions, KERN-EXEC 0, kills by other
+  threads). There, user registers come from the kernel's own `ThreadUserContextTables` (exact for
+  exceptions; for exec calls r4-r11 and pc). A Die that follows a caught User::Panic is skipped.
+- **Rules:** kind (panic, kill, terminate, exit = any abnormal exit, any), thread regex on
+  `process::thread`, exact category, exact reason, action dump (continue) or freeze (hold; inspect
+  with `dbg`, then `catch resume`), `--snapshot`, `--once`. A stop that matches no rule continues at
+  once. Only thread deaths stop the machine, so normal running is unaffected.
+- **Dump** (`build/sydb/catches/NNN-thread.{txt,json,stack.bin}`, event `catch.hit`): registers, `at`
+  and `caller` symbolised, and a call-stack scan. The scan takes the words on the user stack
+  whose preceding instruction is a BL/BLX/`mov lr,pc` and symbolises them against ROM modules (syb_sym)
+  and RAM code segments (`N95CODE` lines), followed by the log tail.
+- **Snapshots** (`<session>/snaps/NAME/`): QMP `migrate` to `state.bin` (RAM + all device state,
+  about 120 MB, under 1 s) plus sparse copies of the drive images and the RTC offset. QEMU runs with
+  `migration.store-global-state=off` so snapshots taken while gdb holds the machine can be
+  restored; after saving, the block devices are reactivated (`blockdev-set-active`) so the source
+  runs on. **Forks** start a new daemon + QEMU with `-incoming file:… -S` on copies of the drives:
+  paused, own gdb port, the agent answers after `resume`.
+- MCP: `catch_add/list/rm/hits/show/resume`, `snap_save/list/rm`, `session_fork`, `session_select`
+  (point the tools at a fork and back), `vm_pause/resume`.
+
 ## TUI
 
 `sydb tui` (curses) shows the status line (phone state, agent, focused window group), the named

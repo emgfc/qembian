@@ -17,6 +17,12 @@
            mem ADDR [LEN]|write ADDR HEX|eval EXPR|symbols NAME [ELF]|interrupt|detach|cmd GDBCMD
   sydb strace MATCH [--secs S]       IPC messages to/from processes matching MATCH (kernel KIPC trace)
   sydb tui                           curses view: status, window groups, events, log, command line
+  sydb catch add [--kind panic|kill|terminate|exit|any] [--thread RE] [--category CAT] [--reason N]
+                 [--action dump|freeze] [--snapshot] [--once]   catch thread deaths (see docs/sydb.md)
+  sydb catch list | hits | show ID | rm [ID] | resume
+  sydb snap save [NAME] [--stopped] | snap list | snap rm NAME     machine snapshots (RAM+devices+drives)
+  sydb fork SNAP [--into DIR] [--run] [--gui]   resume a snapshot in a new session (paused by default)
+  sydb restore SNAP [--run]          the same into this session  | sydb pause | resume
   sydb qmp CMD [JSON-ARGS] | hmp CMD | mcp (MCP stdio server) | --json (raw JSON output) | --session DIR
 Keys: QKeyCode names or aliases lsk rsk ok menu star hash clear back; a number = pause in seconds;
       KEY:SECONDS = hold (long press), e.g. menu:1.5 opens the task switcher.
@@ -187,6 +193,65 @@ def cmd_start(sdir, a):
     print(s)
 
 
+def find_snapshot(sdir, name):
+    for cand in (name, os.path.join(sdir, 'snaps', name), os.path.join(DEFAULT_SESSION, 'snaps', name)):
+        if os.path.isfile(os.path.join(cand, 'state.bin')):
+            return os.path.abspath(cand)
+    die('no snapshot %r (sydb snap list)' % name)
+
+
+def cmd_fork(sdir, cmd, rest):
+    """fork: resume a snapshot in a new session dir (default build/sydb-fork-NAME), paused.
+    restore: the same into this session (stops it first)."""
+    ap = argparse.ArgumentParser(prog='sydb ' + cmd)
+    ap.add_argument('snapshot'); ap.add_argument('--into'); ap.add_argument('--gui', action='store_true')
+    ap.add_argument('--run', action='store_true', help='resume at once instead of staying paused')
+    a = ap.parse_args(rest)
+    snap = find_snapshot(sdir, a.snapshot)
+    meta = json.load(open(os.path.join(snap, 'meta.json')))
+    if cmd == 'fork':
+        target = os.path.abspath(a.into or os.path.join(ROOT, 'build', 'sydb-fork-' + os.path.basename(snap)))
+    else:
+        target = sdir
+        c = Client(sdir)
+        if c.alive():
+            c.call({'op': 'stop'})
+            for _ in range(100):
+                time.sleep(0.1)
+                if not c.alive():
+                    break
+    c = Client(target)
+    if c.alive():
+        die('session %s is running; stop it first' % target)
+    drives = os.path.join(target, 'drives')
+    os.makedirs(drives, exist_ok=True)
+    for f in ('nvmemory.img', 'nvmemory2.img', 'rtc-offset'):
+        if os.path.exists(os.path.join(snap, f)):
+            subprocess.run(['cp', '--sparse=always', os.path.join(snap, f), os.path.join(drives, f)], check=True)
+    log = open(os.path.join(target, 'daemon.log'), 'w')
+    subprocess.Popen([sys.executable, os.path.abspath(__file__), '--session', target, '_daemon', meta['rom'], drives,
+                      '--restore', snap] + (['--gui'] if a.gui else []), stdout=log, stderr=log,
+                     stdin=subprocess.DEVNULL, start_new_session=True, cwd=ROOT)
+    for _ in range(100):
+        time.sleep(0.1)
+        if c.alive():
+            break
+    else:
+        die('daemon did not come up, see %s' % os.path.join(target, 'daemon.log'))
+    for _ in range(100):                 # wait for the incoming migration to finish loading
+        try:
+            st = c.call({'op': 'vm', 'sub': 'status'})
+            if st.get('status') in ('paused', 'prelaunch', 'running'):
+                break
+        except Exception:
+            pass
+        time.sleep(0.2)
+    if a.run:
+        c.call({'op': 'vm', 'sub': 'resume'})
+    print(json.dumps({'session': target, 'snapshot': snap, 'uptime_at_snapshot': meta.get('uptime'),
+                      'state': 'running' if a.run else 'paused (sydb --session %s resume | dbg attach)' % target}))
+
+
 def fmt_items(items, keys):
     for it in items:
         print('  '.join(str(it.get(k, '')) for k in keys if k in it or True).rstrip())
@@ -207,9 +272,9 @@ def main():
     if cmd == '_daemon':
         import daemon
         ap = argparse.ArgumentParser(); ap.add_argument('rom'); ap.add_argument('drives')
-        ap.add_argument('--gui', action='store_true')
+        ap.add_argument('--gui', action='store_true'); ap.add_argument('--restore')
         x = ap.parse_args(rest)
-        daemon.serve(sdir, x.rom, x.drives, x.gui, [])
+        daemon.serve(sdir, x.rom, x.drives, x.gui, [], x.restore)
         return
     if cmd == 'tui':
         import tui
@@ -221,6 +286,9 @@ def main():
         return
     if cmd == 'uninstall':
         cmd_uninstall(sdir, None)
+        return
+    if cmd in ('fork', 'restore'):
+        cmd_fork(sdir, cmd, rest)
         return
     if cmd in ('start', 'install'):
         ap = argparse.ArgumentParser(prog='sydb ' + cmd)
@@ -362,6 +430,35 @@ def main():
         x = ap.parse_args(rest)
         out(c.call({'op': 'events', 'since': x.since, 'wait': x.wait, 'kinds': x.kind}),
             lambda r: [print(json.dumps(e)) for e in r['events']])
+    elif cmd == 'catch':
+        sub = rest[0] if rest else 'list'
+        if sub == 'add':
+            ap = argparse.ArgumentParser(prog='sydb catch add')
+            ap.add_argument('--kind', default='panic', choices=['panic', 'kill', 'terminate', 'exit', 'any'])
+            ap.add_argument('--thread', help='regex on process::thread'); ap.add_argument('--category')
+            ap.add_argument('--reason', type=int); ap.add_argument('--action', default='dump', choices=['dump', 'freeze'])
+            ap.add_argument('--snapshot', action='store_true'); ap.add_argument('--once', action='store_true')
+            x = vars(ap.parse_args(rest[1:]))
+            out(c.call(dict(x, op='catch', sub='add'), timeout=120))
+        elif sub == 'rm':
+            out(c.call({'op': 'catch', 'sub': 'rm', 'id': int(rest[1]) if len(rest) > 1 else None}, timeout=60))
+        elif sub == 'show':
+            out(c.call({'op': 'catch', 'sub': 'show', 'id': int(rest[1])}), lambda r: print(r['text'], end=''))
+        elif sub in ('list', 'hits', 'resume'):
+            out(c.call({'op': 'catch', 'sub': sub}, timeout=60))
+        else:
+            die('catch add|rm [ID]|list|hits|show ID|resume')
+    elif cmd == 'snap':
+        sub = rest[0] if rest else 'list'
+        if sub == 'save':
+            out(c.call({'op': 'snap', 'sub': 'save', 'name': rest[1] if len(rest) > 1 and not rest[1].startswith('-') else None,
+                        'stopped': '--stopped' in rest}, timeout=300))
+        elif sub == 'rm':
+            out(c.call({'op': 'snap', 'sub': 'rm', 'name': rest[1]}))
+        else:
+            out(c.call({'op': 'snap', 'sub': 'list'}))
+    elif cmd in ('pause', 'resume'):
+        out(c.call({'op': 'vm', 'sub': cmd}))
     elif cmd == 'qmp':
         out(c.call({'op': 'qmp', 'cmd': rest[0], 'args': json.loads(rest[1]) if len(rest) > 1 else {}}),
             lambda r: print(json.dumps(r.get('return'))))

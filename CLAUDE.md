@@ -15,6 +15,9 @@ hand-made QEMU/gdb command lines:
 - `sydb dbg ...` is the persistent gdb: hw breakpoints (`dbg cmd 'condition N $r0 == -4'`),
   bt/regs/mem/eval, app ELF symbols from `N95CODE:` lines. `sydb strace MATCH` traces IPC.
 - `sydb log --grep RE` / `events` read the session's serial log; logs live in `build/sydb/`.
+- Crashes and races: `sydb catch add ...` (freeze/dump/snapshot when a thread dies as described,
+  call stack included), `sydb snap save` / `sydb fork SNAP` (resume a saved machine as a separate
+  session, again and again). Prefer this to breakpoints on hot paths, which change the timing.
 - `tools/syb_run.py` (scripted boots with timed keys and a report) and `tools/syb_gdb.py` are still
   right for one-shot boot experiments and ROM composition (`docs/tools.md`). They kill only their
   own `sybtool` QEMUs, so they don't stop a sydb session.

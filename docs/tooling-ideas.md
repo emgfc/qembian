@@ -81,3 +81,6 @@ away. Symbian has no fork(), but three things would give the same effect:
 3. **Record/replay** for races: QEMU `-icount shift=auto,rr=record` and then `rr=replay` makes a
    failing run deterministic, so breakpoints no longer change the outcome.
 1 is the cheapest and most useful first step; 2 builds on the daemon events we already have.
+**Done 2026-11-06** as `sydb catch` + `sydb snap`/`fork` (docs/sydb.md "Catch, snapshots and
+forks"), host side through gdb on cold paths (User::Panic, DThread::Die) plus QMP migration, with
+no kernel change. Record/replay (3) is still open.

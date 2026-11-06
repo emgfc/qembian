@@ -8,7 +8,7 @@ One process per session dir (default build/sydb). It starts QEMU through scripts
   gdbstub  -> tcp port SESSION/gdb.port (persistent gdb, sydb dbg ...)
 and listens on SESSION/ctl.sock for one JSON object per line: {"op": ..., ...} -> one JSON reply.
 """
-import base64, hashlib, io, json, os, re, signal, socket, socketserver, subprocess, sys, threading, time, zlib
+import shutil, base64, hashlib, io, json, os, re, signal, socket, socketserver, subprocess, sys, threading, time, zlib
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CHUNK = 2048                                           # = KAckChunk in devagent.cpp
@@ -217,8 +217,9 @@ class AgentLink:
 
 
 class Session:
-    def __init__(self, sdir, rom, drives, gui, extra):
+    def __init__(self, sdir, rom, drives, gui, extra, restore=None):
         self.sdir, self.rom, self.drives, self.gui, self.extra = sdir, rom, drives, gui, extra
+        self.restore = restore         # snapshot dir to resume from (sydb fork / restore)
         self.stopping = False
         self.t0 = time.time()
         self.events, self.ev_seq = [], 0
@@ -260,13 +261,19 @@ class Session:
         cmd += ['-serial', 'unix:%s,server=on,wait=off' % os.path.join(sd, 'agent.sock'),
                 '-gdb', 'tcp:127.0.0.1:%d' % self.gdb_port,
                 '-audiodev', 'wav,id=snd0,path=' + os.path.join(sd, 'audio.wav'), '-machine', 'audiodev=snd0',
-                '-global', 'syborg-rtc.offset-file=' + os.path.join(dd, 'rtc-offset')] + self.extra
+                '-global', 'syborg-rtc.offset-file=' + os.path.join(dd, 'rtc-offset'),
+                # snapshots may be taken while gdb holds the machine ('debug'), a run state an incoming
+                # machine cannot enter: do not carry the run state; restores start paused (-S)
+                '-global', 'migration.store-global-state=off'] + self.extra
+        if self.restore:              # resume a saved machine, paused (-S): sydb resume / dbg attach
+            cmd += ['-incoming', 'file:' + os.path.join(self.restore, 'state.bin'), '-S']
+            self.state = 'restored'
         self.qemu = subprocess.Popen(cmd, cwd=ROOT, stdout=subprocess.PIPE, stderr=open(os.path.join(sd, 'qemu.err'), 'w'),
                                      stdin=subprocess.DEVNULL, start_new_session=True)
         self.t0 = time.time()
         threading.Thread(target=self._pump, daemon=True).start()
         self.agent = AgentLink(self, os.path.join(sd, 'agent.sock'))
-        self.event('session.start', rom=self.rom)
+        self.event('session.start', rom=self.rom, restored=self.restore)
 
     def _pump(self):
         for raw in self.qemu.stdout:
@@ -314,6 +321,58 @@ class Session:
                 self.qemu.wait(5)
             except subprocess.TimeoutExpired:
                 os.killpg(self.qemu.pid, signal.SIGKILL)
+
+    # ---- machine snapshots ("fork"): RAM + device state by QMP migrate to a file, drives copied ----
+    def snapshot(self, name=None, keep_stopped=False):
+        name = name or time.strftime('snap-%H%M%S')
+        if not re.fullmatch(r'[\w.-]+', name):
+            raise AgentError('snapshot name: letters, digits, . _ - only')
+        d = os.path.join(self.sdir, 'snaps', name)
+        if os.path.exists(d):
+            shutil.rmtree(d)
+        os.makedirs(d)
+        before = self.qmp('query-status')['status']
+        if before == 'running':
+            self.qmp('stop')
+        t0 = time.time()
+        self.qmp('migrate', uri='file:' + os.path.join(d, 'state.bin'))
+        while True:
+            m = self.qmp('query-migrate')
+            if m.get('status') in ('completed', 'failed', 'cancelled'):
+                break
+            if time.time() - t0 > 120:
+                raise AgentError('snapshot: migration timed out')
+            time.sleep(0.1)
+        if m.get('status') != 'completed':
+            raise AgentError('snapshot: migration %s: %s' % (m.get('status'), m.get('error-desc', '')))
+        for f in ('nvmemory.img', 'nvmemory2.img', 'rtc-offset'):
+            src = os.path.join(self.drives, f)
+            if os.path.exists(src):
+                subprocess.run(['cp', '--sparse=always', src, os.path.join(d, f)], check=True)
+        # a completed migration leaves the block devices inactive (handed over to the destination);
+        # this machine goes on, so take them back (QMP cont would too, gdb's continue does not)
+        try:
+            self.qmp('blockdev-set-active', active=True)
+        except Exception as e:
+            self.event('snap.warning', error='blockdev-set-active: %s' % e)
+        meta = {'name': name, 'session': self.sdir, 'rom': os.path.abspath(self.rom), 'uptime': self.now(),
+                'created': time.strftime('%Y-%m-%d %H:%M:%S'), 'state_before': before,
+                'seconds': round(time.time() - t0, 2), 'bytes': os.path.getsize(os.path.join(d, 'state.bin'))}
+        json.dump(meta, open(os.path.join(d, 'meta.json'), 'w'), indent=1)
+        if before == 'running' and not keep_stopped:
+            self.qmp('cont')
+        self.event('snap.saved', name=name, path=d)
+        return dict(meta, path=d)
+
+    def snapshots(self):
+        root = os.path.join(self.sdir, 'snaps')
+        out = []
+        for n in sorted(os.listdir(root)) if os.path.isdir(root) else []:
+            try:
+                out.append(json.load(open(os.path.join(root, n, 'meta.json'))) | {'path': os.path.join(root, n)})
+            except Exception:
+                pass
+        return out
 
     # ---- QMP ----
     def qmp(self, name, **args):
@@ -517,6 +576,57 @@ def handle(sess, req):
             return sess.dbg.op(req)
         except debugger.DbgError as e:
             raise AgentError(str(e))
+    if op == 'catch':                     # freeze/dump/snapshot on thread death (catcher.py)
+        import debugger, catcher
+        if not hasattr(sess, 'dbg'):
+            sess.dbg = debugger.Debugger(sess)
+        if not getattr(sess, 'catcher', None):
+            sess.catcher = catcher.Catcher(sess, sess.dbg)
+        c, sub = sess.catcher, req.get('sub', 'list')
+        try:
+            if sub == 'add':
+                return {'rule': c.add(req), **c.status()}
+            if sub == 'rm':
+                c.remove(req.get('id'))
+                return c.status()
+            if sub == 'list':
+                return c.status()
+            if sub == 'hits':
+                return {'hits': c.hits[-int(req.get('max', 50)):]}
+            if sub == 'show':
+                h = [x for x in c.hits if x['id'] == int(req['id'])]
+                if not h:
+                    raise AgentError('no hit %s' % req['id'])
+                full = json.load(open(h[0]['files']['json']))
+                full.pop('log_tail', None) if req.get('brief') else None
+                return {'hit': full, 'text': open(h[0]['files']['txt']).read()}
+            if sub == 'resume':
+                return c.resume()
+        except (ValueError, debugger.DbgError) as e:
+            raise AgentError(str(e))
+        raise AgentError('catch: unknown sub %r' % sub)
+    if op == 'snap':
+        sub = req.get('sub', 'list')
+        if sub == 'save':
+            return sess.snapshot(req.get('name'), keep_stopped=req.get('stopped', False))
+        if sub == 'list':
+            return {'snapshots': sess.snapshots()}
+        if sub == 'rm':
+            p = os.path.join(sess.sdir, 'snaps', req['name'])
+            if not os.path.isdir(p):
+                raise AgentError('no snapshot %s' % req['name'])
+            shutil.rmtree(p)
+            return {'removed': req['name']}
+        raise AgentError('snap: unknown sub %r' % sub)
+    if op == 'vm':                        # pause / resume the whole machine (not while gdb holds it)
+        sub = req.get('sub', 'status')
+        if sub == 'pause':
+            sess.qmp('stop')
+        elif sub == 'resume':
+            sess.qmp('cont')
+            if sess.state == 'restored':
+                sess.state = 'idle'
+        return {'status': sess.qmp('query-status')['status'], 'state': sess.state}
     if op == 'qmp':                       # raw QMP command (e.g. input-send-event)
         return {'ok': True, 'return': sess.qmp(req['cmd'], **(req.get('args') or {}))}
     if op == 'hmp':
@@ -524,8 +634,8 @@ def handle(sess, req):
     raise AgentError('unknown op %r' % op)
 
 
-def serve(sdir, rom, drives, gui, extra):
-    sess = Session(sdir, rom, drives, gui, extra)
+def serve(sdir, rom, drives, gui, extra, restore=None):
+    sess = Session(sdir, rom, drives, gui, extra, restore)
     sess.start()
     path = os.path.join(sdir, 'ctl.sock')
     try:
