@@ -16,7 +16,7 @@ symbol ELFs for Nokia code in gdb backtraces, snapshots, SIS install.
 | CLI | `tools/sydb/sydb.py` | `sydb <cmd>`; `--json` for raw replies; `--session DIR` for a second phone |
 | MCP | `tools/sydb/mcp.py` | stdio JSON-RPC, 43 tools (`session_*`, `log_tail`, `events`, `fs_*`, `app_*`, `proc_*`, `ui_*`, `sys_*`, `dbg_*`, `qemu_hmp`); registered for Claude Code in `.mcp.json` |
 | agent | `src/n95apps/devagent/devagent.cpp` | `devagent.exe`, All-TCB, serial unit 1 (`RBusDevComm`), line protocol (header of the file) |
-| TCB helper | `src/n95apps/devagent/dafs.cpp` | `dafs.exe`, ALL caps, EUSER/EFSRV only. Moves files into `\sys\`/`\resource\`, does the boot autostart (as `HALSettings.exe`, hack H-sydb-autostart) and the agent self-update |
+| TCB helper | `src/n95apps/devagent/dafs.cpp` | `dafs.exe`, ALL caps, EUSER/EFSRV only. Moves files into `\sys\`/`\resource\`, and does the agent self-update |
 
 Build the agent pair with `src/n95apps/devagent/build.sh` (`--debug` = `-O0 -g`).
 
@@ -45,6 +45,36 @@ sydb update-agent                                     # rebuilt agent deployed w
 sydb hmp 'info registers' | status | stop
 ```
 Key aliases: `lsk rsk ok menu star hash clear back` (F5, F7, F6, F8, numpad *, F10, backspace, F7).
+
+## Autostart: Starter's dynamic startup list
+
+The agent starts the way an installed S60 app with a startup entry does. It is a record in the
+N95 Starter's dynamic startup list, and Starter starts it at about 21 s (right after the global
+state reaches 0xCB). Found with sydb itself: the IPC trace of a boot shows Starter reading
+`c:\private\100059C9\start.dat`, and `Starter.exe` / `StarterClient.dll` /
+`SWInstStartupTask.dll` give the rest:
+
+- **Store:** `c:\private\100059C9\start.dat`, DES-ECB with a fixed 8-byte key from Starter. The
+  last block is padded with `'0'`, which is stripped on reading. Plaintext records:
+  `path;recovery;type;w2;base64(MD5(exe));}`. Starter backs it up via `start.tmp` and
+  `bckupstart.dat` while rewriting.
+- **API:** session to `StarterServer` (StarterClient ord9 = connect, version 0.0.0).
+  - op 5 add, args {12-byte struct w0 recovery, w1 type, w2} + path (ord5/ord11);
+  - op 6 remove, arg path (ord7);
+  - op 8 path (ord3; the installer calls it too).
+
+  Add computes the EXE's MD5 itself and replaces an older record for the same path. The
+  installer's `SWInstStartupTask.dll` is the normal client.
+- **At boot:** on state 0xCB, if FeatureManager feature 0x421 is supported, Starter starts each
+  record of type 1, 7 or 8 whose EXE still has the recorded MD5 (recovery is forced to 0 on
+  `e:`).
+
+| Command | What |
+|---|---|
+| `sydb install` / `uninstall` (session stopped) | copy/delete the EXEs; write/remove the record in `start.dat` offline (`tools/sydb/startlist.py`, same format, byte-identical to what Starter writes) |
+| `sydb startup add|rm|check PATH [w0 w1 w2]` (running) | the StarterServer requests, as the installer makes them (defaults 0 1 0) |
+| `sydb startup list` | decrypted records |
+| `sydb update-agent` | re-registers the new binary (its MD5 changed) |
 
 ## TUI
 

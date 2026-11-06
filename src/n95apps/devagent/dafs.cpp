@@ -1,7 +1,6 @@
 // dafs: TCB helper of the sydb agent. ALL capabilities, links only EUSER/EFSRV (the only ROM DLLs
 // that carry TCB, so the loader accepts it; devagent.exe itself must be All-TCB because it links
 // WSERV/apparc/avkon).
-//   started as HALSettings.exe (hack H-sydb-autostart): spawn c:\sys\bin\devagent.exe, exit -12
 //   dafs mv SRC DST     move/replace SRC to DST (creating DST's directory); for \sys\, \resource\
 //   dafs rm PATH        delete
 //   dafs upgrade PIDHEX SRC   wait for process PID to exit, move SRC over c:\sys\bin\devagent.exe,
@@ -13,21 +12,6 @@
 
 static TInt Main()
 	{
-	RProcess me;
-	TFileName fn = me.FileName();
-	TParsePtrC pp(fn);
-	if (pp.Name().CompareF(_L("HALSettings")) == 0)
-		{
-		RProcess a;
-		TInt r = a.Create(_L("c:\\sys\\bin\\devagent.exe"), KNullDesC);
-		RDebug::Printf("DAFS: started as HALSettings, spawning devagent -> %d", r);
-		if (r == KErrNone)
-			{
-			a.Resume();
-			a.Close();
-			}
-		return KErrPathNotFound;	// what the N95's own HALSettings.exe returns on this board
-		}
 	TBuf<512> cl;
 	User::CommandLine(cl);
 	TLex lex(cl);

@@ -175,6 +175,30 @@ public:
 	};
 
 // ------------------------------------------------------------------------------------------------
+// Starter's dynamic startup list (the N95's StarterServer, StarterClient.dll protocol; this is
+// what the installer's SWInstStartupTask.dll uses). Kept in c:\private\100059C9\start.dat as
+// "path;w0;w1;w2;<base64 MD5 of the exe>;}" records; Starter starts them when the global state
+// reaches 0xCB, only if the exe's MD5 still matches. docs/sydb.md "Autostart".
+//   op 5 add {w0 recovery policy, w1 item type (1, 7 or 8), w2} + path, op 6 remove path,
+//   op 8 path (used by the installer before add/remove)
+
+class RStarterSession : public RSessionBase
+	{
+public:
+	TInt Connect() { return CreateSession(_L("StarterServer"), TVersion(0, 0, 0), 1); }
+	TInt Add(const TDesC& aPath, TInt aW0, TInt aW1, TInt aW2)
+		{
+		TBuf8<12> b;
+		b.Append((const TUint8*)&aW0, 4);
+		b.Append((const TUint8*)&aW1, 4);
+		b.Append((const TUint8*)&aW2, 4);
+		return SendReceive(5, TIpcArgs(&b, &aPath));
+		}
+	TInt Remove(const TDesC& aPath) { return SendReceive(6, TIpcArgs(&aPath)); }
+	TInt Op8(const TDesC& aPath) { return SendReceive(8, TIpcArgs(&aPath)); }
+	};
+
+// ------------------------------------------------------------------------------------------------
 // the agent
 
 struct SWatch
@@ -484,6 +508,34 @@ void CAgent::HandleLine(TDes8& aLine)
 	else if (cmd == _L8("pget")) CmdProp(tag, EFalse, a[0], a[1], KNullDesC8);
 	else if (cmd == _L8("pset")) CmdProp(tag, ETrue, a[0], a[1], a[2]);
 	else if (cmd == _L8("mem")) CmdMem(tag);
+	else if (cmd == _L8("startup"))
+		{
+		// startup add PATH [w0 w1 w2] | startup rm PATH | startup check PATH
+		TPtrC8 sub[8];
+		TInt m = Split(aLine, sub, 8);
+		TFileName path;
+		ToPath(a[1], path);
+		TInt w[3] = { 0, 1, 0 };
+		for (TInt i = 0; i < 3 && 4 + i < m; i++)
+			{
+			TBuf8<16> v(sub[4 + i].Left(16));
+			ParseInt(v, w[i]);
+			}
+		RStarterSession ss;
+		TInt r = ss.Connect();
+		if (r == KErrNone)
+			{
+			if (a[0] == _L8("add")) r = ss.Add(path, w[0], w[1], w[2]);
+			else if (a[0] == _L8("rm")) r = ss.Remove(path);
+			else if (a[0] == _L8("check")) r = ss.Op8(path);
+			else r = KErrArgument;
+			ss.Close();
+			}
+		TOut o;
+		o.Begin(tag, r >= 0 ? "ok" : "err");
+		if (r >= 0) o.Int("result", r); else { o.Int("code", r); o.Str("msg", "StarterServer request failed"); }
+		End(o);
+		}
 	else if (cmd == _L8("dmask"))
 		{
 		// dmask [INDEX] | dmask set HEX [INDEX]: kernel debug trace mask word (KIPC = bit 11 of word 0)

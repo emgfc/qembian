@@ -87,7 +87,7 @@ stand-ins below can be checked against their code (decompile with `tools/syb_sym
 
 | Hack | Real implementation |
 |---|---|
-| **H-sydb-autostart**: `sydb install` puts our `dafs.exe` (ALL caps, links EUSER/EFSRV only) on C: also as `C:\sys\bin\HALSettings.exe`. EStart starts `HALSettings.exe` by bare name (0.8 s), the loader takes the C: copy; it spawns `devagent.exe` and exits with -12 like the N95's own copy does on this board (HAL settings were never restored here anyway). A `[UID].rsc` in `C:\private\101f875a\import\` does **not** work: that is SWInstSvrUI's installer input, registered only during a SIS install | trace which resource/store Starter reads its start list from (Starter_Arm.rsc in ROFS, or the dynamic startup store that the startup-list updater writes), then add devagent as a non-critical item there (ROM resource edit at compose time, or a registration utility for the store), keeping HALSettings untouched |
+| ~~H-sydb-autostart~~ **retired 2026-11-06**: was `dafs.exe` copied to `C:\sys\bin\HALSettings.exe` (EStart runs it by bare name). Now the agent is a regular record in Starter's dynamic startup list (`start.dat`), added/removed through StarterServer like a SIS install does (docs/sydb.md "Autostart"); `sydb install` deletes an old HALSettings.exe copy | done |
 | devagent.exe is All-TCB, so writes to `\sys\` and `\resource\` go through `dafs.exe mv` (TCB); EKA2 refuses an ALL-caps EXE that links non-TCB DLLs (WSERV, apparc, avkon all lack TCB) | fine as is (a design constraint, not a shortcut) |
 
 ## User-side code patches (rom/hybrid/code-patches.txt, `romcompose.py --patches`)

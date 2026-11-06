@@ -3,10 +3,11 @@
 
   sydb start [--seed DIR] [--fresh] [--gui] [--rom ROM]   boot a session (daemon + QEMU), wait for idle
   sydb stop | status | wait idle|agent|REGEX [--timeout S]
-  sydb install                       put devagent.exe + its startup-list entry on C: (session stopped)
+  sydb install | uninstall           agent on/off C: incl. its Starter startup-list record (session stopped)
   sydb ls PATH | push LOCAL REMOTE | pull REMOTE LOCAL | rm PATH | mkdir PATH
   sydb run PATH [ARGS...] [--wait S] | rerun LOCAL.exe [ARGS...] [--wait S] | kill PID|NAME
   sydb ps [PATTERN] | threads [PATTERN] | apps [FILTER] | launch UID|CAPTION | mem
+  sydb startup add|rm|check PATH [w0 w1 w2] | startup list   (Starter's dynamic startup list)
   sydb wg | fg WGID | unlock | lock | keepawake on|off|unlocked
   sydb prop get CAT KEY | prop set CAT KEY VALUE              (hex category/key)
   sydb key KEY... [--delay S] | type TEXT | screenshot [OUT.png] [--scale F] [--changed]
@@ -27,6 +28,8 @@ sys.path.insert(0, HERE)
 DEFAULT_SESSION = os.path.join(ROOT, 'build', 'sydb')
 AGENT_EXE = os.path.join(ROOT, 'build', 'n95apps', 'devagent.exe')
 DAFS_EXE = os.path.join(ROOT, 'build', 'n95apps', 'dafs.exe')
+AGENT_PATH = 'c:\\sys\\bin\\devagent.exe'
+import startlist
 
 
 class Client:
@@ -93,13 +96,56 @@ def cmd_install(sdir, a):
             die('%s missing: run src/n95apps/devagent/build.sh' % f)
     drive_put(drives, AGENT_EXE, '/sys/bin')
     drive_put(drives, DAFS_EXE, '/sys/bin')
-    # autostart (hack H-sydb-autostart): EStart runs HALSettings.exe by bare name; dafs.exe under
-    # that name spawns devagent.exe and exits with -12 like the N95's own copy
-    tmp = os.path.join(sdir, 'HALSettings.exe')
-    shutil.copy(DAFS_EXE, tmp)
-    drive_put(drives, tmp, '/sys/bin')
+    drive_rm(drives, '/sys/bin/HALSettings.exe')        # the old autostart hack, if present
+    # autostart: a record in Starter's dynamic startup list (what a SIS install registers)
+    data = drive_read(drives, '/' + startlist.PATH)
+    drive_write(drives, '/' + startlist.PATH,
+                startlist.add(data, AGENT_PATH, open(AGENT_EXE, 'rb').read()))
+    print('installed devagent.exe + dafs.exe on C: and registered devagent in Starter\'s startup list')
+
+
+def cmd_uninstall(sdir, a):
+    drives = os.path.join(sdir, 'drives')
+    if Client(sdir).alive():
+        die('stop the session first, or use "sydb startup rm" while it runs')
+    data = drive_read(drives, '/' + startlist.PATH)
+    if data:
+        new = startlist.remove(data, AGENT_PATH)
+        if new:
+            drive_write(drives, '/' + startlist.PATH, new)
+        else:
+            drive_rm(drives, '/' + startlist.PATH)
+    for f in ('devagent.exe', 'dafs.exe', 'HALSettings.exe'):
+        drive_rm(drives, '/sys/bin/' + f)
+    print('removed devagent from the startup list and devagent.exe/dafs.exe from C:')
+
+
+def mt(drives, *args):
+    return subprocess.run(list(args[:1]) + ['-i', os.path.join(drives, 'nvmemory.img')] + list(args[1:]),
+                          capture_output=True)
+
+
+def drive_read(drives, path):
+    r = mt(drives, 'mtype', '::' + path)
+    return r.stdout if r.returncode == 0 else None
+
+
+def drive_write(drives, path, data):
+    tmp = os.path.join(drives, '.sydb-tmp')
+    open(tmp, 'wb').write(data)
+    d = os.path.dirname(path)
+    acc = ''
+    for part in d.strip('/').split('/'):
+        acc += '/' + part
+        mt(drives, 'mmd', '::' + acc)
+    r = mt(drives, 'mcopy', '-o', tmp, '::' + path)
     os.unlink(tmp)
-    print('installed devagent.exe, dafs.exe (+ HALSettings.exe autostart) on C:')
+    if r.returncode:
+        die('mcopy %s failed: %s' % (path, r.stderr.decode()[-300:]))
+
+
+def drive_rm(drives, path):
+    mt(drives, 'mdel', '::' + path)
 
 
 def cmd_start(sdir, a):
@@ -171,6 +217,9 @@ def main():
     if cmd == 'mcp':
         import mcp
         mcp.serve(sdir)
+        return
+    if cmd == 'uninstall':
+        cmd_uninstall(sdir, None)
         return
     if cmd in ('start', 'install'):
         ap = argparse.ArgumentParser(prog='sydb ' + cmd)
@@ -274,6 +323,17 @@ def main():
         out(agent('keepawake', rest[:1] or ['on']))
     elif cmd == 'prop':
         out(agent('pget' if rest[0] == 'get' else 'pset', rest[1:4]))
+    elif cmd == 'startup':
+        # startup add|rm|check PATH [w0 w1 w2] | startup list (reads Starter's start.dat)
+        if rest and rest[0] == 'list':
+            r = c.call({'op': 'get', 'remote': 'C:\\private\\100059C9\\start.dat'})
+            if not r.get('ok'):
+                print('(no start.dat: the dynamic startup list is empty)'); return
+            import base64 as b64
+            for rec in startlist.records(startlist.decrypt(b64.b64decode(r['b64']))):
+                print(json.dumps(rec))
+            return
+        out(agent('startup', rest[:5]))
     elif cmd == 'mem':
         out(agent('mem'))
     elif cmd == 'key':
@@ -308,8 +368,12 @@ def main():
         need(c.call({'op': 'put', 'local': DAFS_EXE, 'remote': 'C:\\sys\\bin\\dafs.exe', 'stamp': True}))
         need(agent('upgrade', ['C:\\data\\sydb\\devagent.new']))
         time.sleep(1.5)
-        out(c.call({'op': 'wait', 'what': 'agent', 'timeout': 30}),
-            lambda r: print('agent restarted (pid %s)' % r['hello'].get('pid') if r.get('agent') else 'agent did not come back'))
+        r = need(c.call({'op': 'wait', 'what': 'agent', 'timeout': 30}))
+        if not r.get('agent'):
+            die('agent did not come back')
+        # the startup list pins the exe's MD5: register the new binary
+        need(agent('startup', ['add', AGENT_PATH]))
+        print('agent restarted (pid %s), startup list entry updated' % r['hello'].get('pid'))
     elif cmd == 'strace':
         # strace MATCH [--secs S]: IPC messages to/from processes whose name contains MATCH
         ap = argparse.ArgumentParser(); ap.add_argument('match'); ap.add_argument('--secs', type=float, default=5)
