@@ -16,7 +16,7 @@ notes = "The RM-321 is the China variant without WLAN: devices/nokia-n95-8gb-rm3
 os = "symbian"
 os_version = "9.2"                         # Symbian OS 9.2 (docs/roadmap.md)
 ui = "s60-3.1"                             # S60 3rd Edition Feature Pack 1
-personality = "sym92"                      # exec numbering + driver ABI: personalities/sym92 (today tools/exec92, tools/kabi92.py)
+personality = "sym92"                      # exec numbering + driver ABI: personalities/sym92 (today personalities/sym92, tools/personality/kabi.py)
 soc = "omap2420"                           # TI OMAP2420, ARM1136 r0p2 (docs/hacks.md H-cpu-arm1136)
 cellular = "bb5"                           # Nokia BB5 modem over ISC/ISI (docs/n95-isc-isi-protocol.md)
 

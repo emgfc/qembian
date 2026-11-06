@@ -1,7 +1,7 @@
 # Symbian 9.2 (N95 8GB, RM-320 v35.0.001 EUser.dll) executive call numbering -> our kernel.
 # <9.2 number> <our exec name | @Shim[:NativeExecForFlags] | !invalid>  # source
-# F = fast (SWI 0x800000|n), S = slow (SWI n). Generated draft: tools/exec92/align.py;
-# reviewed overrides are marked "manual". Consumed by tools/exec92/gen_kernel_map.py.
+# F = fast (SWI 0x800000|n), S = slow (SWI n). Generated draft: personalities/sym92/align.py;
+# reviewed overrides are marked "manual". Consumed by tools/personality/gen_exec_map.py.
 F00  WaitForAnyRequest                    # export+eka2l1
 F01  Heap                                 # manual: sequence; export match paired with KernelHeapDebug by mistake
 F02  HeapSwitch                           # export+eka2l1

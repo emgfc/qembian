@@ -243,8 +243,8 @@ def build(prof, variant=None, kernel=False, standins=True, out=None, trace=None)
     k = os.path.join('build', 'epocroot', 'sf', 'os', 'kernelhwsrv', 'kernel', 'eka')
     pers = get(prof, 'platform.personality')
     if pers == 'sym92':			# exec numbering table compiled into the kernel (personalities, step 4)
-        _run(['python3', '-I', 'tools/exec92/gen_kernel_map.py', k + '/kernel/execs.txt',
-              'tools/exec92/exec92.map', k + '/kernel/exec92_map.h'])
+        _run(['python3', '-I', 'tools/personality/gen_exec_map.py', k + '/kernel/execs.txt',
+              'personalities/%s/exec.map' % pers, k + '/kernel/exec92_map.h'])
     if kernel:
         _run(['scripts/build-syborg.sh', get(prof, 'kernel.variant', 'udeb')], os.path.join(logs, 'device-syborg-build.txt'))
     if standins:

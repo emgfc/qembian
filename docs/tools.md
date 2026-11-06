@@ -107,7 +107,7 @@ panic on the chosen GL backend, Switch off ends the session. Run it after every 
 - `tools/qmp.py SOCK screendump|type|key|hmp ...` (QMP client), `scripts/run-modern.sh` (plain run).
 - `tools/ghidra/decompile.sh NAME` (headless Ghidra, output `build/n95/ghidra/NAME.c`).
 - `tools/xipdis.py` (objdump with import names), `tools/research/xip_importers.py`.
-- `tools/kabi92.py` (our kernel's driver-facing vtables vs the N95's 9.2 ekern, slot by slot;
+- `tools/personality/kabi.py` (our kernel's driver-facing vtables vs the N95's 9.2 ekern, slot by slot;
   `--func NAME` disassembles an export from both).
 - `tools/rofs.py`, `tools/e32load.py` (ROFS files, RAM-loaded images to ELF).
 - `scripts/measure-boot.sh --qemu modern` (milestone timings, `build/logs/boot-times.tsv`).

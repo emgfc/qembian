@@ -1,0 +1,11 @@
+# Driver-facing kernel ABI of the Symbian 9.2 personality: the exported classes whose vtables a
+# third-party driver built for the device's own 9.2 ekern derives from, and the differences our
+# kernel is allowed to have. tools/personality/check.py --device ID compares them slot by slot
+# against the device's ekern (tools/personality/kabi.py) and fails on anything not listed here.
+schema = 1
+classes = ["DObject", "DLogicalDevice", "DPhysicalDevice", "DLogicalChannelBase", "DLogicalChannel", "DPowerHandler"]
+
+# DLogicalChannel::SendMsg is ours only (after HandleMsg, called non-virtually for RAM-loaded
+# drivers: personalities/sym92/patches/0008): extra slots at the END of a vtable are allowed when listed.
+[allowed_extra_tail]
+DLogicalChannel = ["DLogicalChannel::SendMsg(TMessageBase*)"]

@@ -76,19 +76,24 @@ sync_src external/oss.FCL.interim.SFTools.LinuxBuild "$E/linux_build"
 sync_src external/oss.FCL.sf.os.kernelhwsrv          "$E/sf/os/kernelhwsrv"
 sync_src external/oss.FCL.sf.adapt.Qemu              "$E/sf/adapt/qemu"
 
-# Local source patches (patches/<pkg>/*.patch, applied once, -p1 relative to the package root).
-apply_patches() {  # pkgdir patchdir
-  local stamp="$1/.patches-applied"
-  for p in "$2"/*.patch; do
-    [ -e "$p" ] || continue
+# Local source patches (*.patch, applied once, -p1 relative to the package root). Several patch
+# directories may feed one package; their patches are applied in file-name order across them.
+apply_patches() {  # pkgdir patchdir...
+  local pkg="$1"; shift
+  local stamp="$pkg/.patches-applied"
+  local p
+  for p in $(for d in "$@"; do ls "$d"/*.patch 2>/dev/null; done | awk -F/ '{print $NF "\t" $0}' | sort | cut -f2); do
     grep -qxF "$(basename "$p")" "$stamp" 2>/dev/null && continue
     echo ">> patch $(basename "$p")"
-    patch -d "$1" -p1 --forward < "$p"
+    patch -d "$pkg" -p1 --forward < "$p"
     basename "$p" >> "$stamp"
   done
 }
 apply_patches "$E/linux_build"        /work/patches/linux_build
-apply_patches "$E/sf/os/kernelhwsrv"  /work/patches/kernelhwsrv
+# the kernel: platform-wide patches, policy choices, and every personality's own patches
+# (docs/devices.md: personalities/<sym9x>/patches)
+apply_patches "$E/sf/os/kernelhwsrv"  /work/patches/kernelhwsrv/platform /work/patches/kernelhwsrv/policy \
+                                       /work/personalities/*/patches
 apply_patches "$E/sf/adapt/qemu"      /work/patches/qemu-baseport
 
 # --- toolchain

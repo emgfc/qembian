@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""kabi92: compare the kernel ABI that third-party drivers see on the N95 (its own 9.2 ekern.exe in
+"""kabi (personality sym92): compare the kernel ABI that third-party drivers see on the N95 (its own 9.2 ekern.exe in
 build/n95/core-flat.img) with our kernel's (ekern.exe in build/n95/hybrid.img).
 
 Drivers import ekern by ordinal; the ordinals match (eabi/ekernu.def), so each exported vtable
@@ -7,13 +7,15 @@ Drivers import ekern by ordinal; the ordinals match (eabi/ekernu.def), so each e
 (N95) or our ELF symbols (ours). Differences in slot order/count are ABI breaks for drivers that
 derive from those classes.
 
-  tools/kabi92.py                 report every exported vtable, OK or the differing slots
-  tools/kabi92.py --json OUT      also write the slot tables (for generated checks)
+  tools/personality/kabi.py                 report every exported vtable, OK or the differing slots
+  tools/personality/kabi.py --json OUT      also write the slot tables (for generated checks)
 """
 import argparse, bisect, json, os, re, struct, subprocess, sys
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-N95 = os.path.join(ROOT, 'build', 'n95')
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(ROOT, 'tools'))
+import device as devmodel                       # the device's build dir ($SYBORG_DEVICE / devices/default)
+N95 = devmodel.paths(devmodel.load())['dir']
 DEF = os.path.join(ROOT, 'build', 'epocroot', 'sf', 'os', 'kernelhwsrv', 'kernel', 'eka', 'eabi', 'ekernu.def')
 SYM = os.path.join(ROOT, 'build', 'epocroot', 'epoc32', 'release', 'armv5', 'udeb', '_syborg_ekern.exe.sym')
 BASE = 0x80000000

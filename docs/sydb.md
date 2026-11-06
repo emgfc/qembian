@@ -180,7 +180,7 @@ sydb dbg step | next | stepi | finish | interrupt | delete [N] | detach | cmd 'i
 ```
 - `N95CODE: <file> code=<run>+<size> data=... bss=... ep=...` is printed by our kernel for every
   code segment loaded into RAM (C: apps and ROFS binaries; kernel patch
-  `patches/kernelhwsrv/0007-sydb-codeseg-load-trace.patch`). ROM XIP code is named by
+  `patches/kernelhwsrv/platform/0007-sydb-codeseg-load-trace.patch`). ROM XIP code is named by
   `tools/syb_sym.py` in stop records.
 - Kernel DWARF placement comes from `tools/ksyms.py` (computed from the ELF; syb_gdb uses it too,
   because the old hardcoded `.rodata` address had gone stale).

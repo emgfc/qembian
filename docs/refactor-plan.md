@@ -116,10 +116,10 @@ unaffected; smoke.
 
 ## Step 4 [M] — personalities directory and verification tool
 
-Files: `tools/exec92/` → `personalities/sym92/` (`exec.map`, `align.py`, `map-draft.txt`,
+Files: `personalities/sym92/` → `personalities/sym92/` (`exec.map`, `align.py`, `map-draft.txt`,
 README with the derivation), `gen_kernel_map.py` → `tools/personality/gen_exec_map.py` (input path
 from the personality dir; `hybrid-boot.sh`'s first line moves into `device.py build`);
-`tools/kabi92.py` → `tools/personality/kabi.py` with the class list and expected deltas in
+`tools/personality/kabi.py` → `tools/personality/kabi.py` with the class list and expected deltas in
 `personalities/sym92/kabi.toml`, inputs from `device.py paths`; new `tools/personality/check.py
 --device ID` (runs `swi_map.py --compare` + `kabi.py`, prints unknown SWIs / slot deltas, exit 1 if
 any that the personality or `[personality.overrides]` does not list). `patches/kernelhwsrv/` →

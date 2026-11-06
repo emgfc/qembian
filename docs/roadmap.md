@@ -143,7 +143,7 @@ orientation. Also open: Carousel's boot instance still dies with USER-EXEC 3 on 
 
 **RomPatcher+ (2026-11-06, owner's device): works.** It hung the phone because its `patcherShadow.ldd`
 (built for the 9.2 kernel) crashed our kernel; fixed by matching the N95 kernel's driver ABI
-(H-kernel-abi-92, `tools/kabi92.py`); it now lists and applies its patches. Old notes: Its drivers only use `Epoc::AllocShadowPage` / `CopyToShadowMemory` /
+(H-kernel-abi-92, `tools/personality/kabi.py`); it now lists and applies its patches. Old notes: Its drivers only use `Epoc::AllocShadowPage` / `CopyToShadowMemory` /
 `FreeShadowPage` / `Epoc::RomHeader` / `Kern::SuperPage`. Options: (1) a 9.2 kernel-ABI personality
 for RAM-loaded drivers (loader marks the code segment; imports of DObject/DLogicalDevice/
 DLogicalChannelBase constructors, destructors, SetName, Close... go to 9.2-layout shims; the kernel

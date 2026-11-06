@@ -51,7 +51,7 @@ container format (mock-level: partition table layout only) before going on.
 ```
 tools/personality/check.py --device nokia-e72-rm530
 ```
-[Today: read `build/n95/abi/swi-n95-vs-ours.txt` and run `tools/kabi92.py`.]
+[Today: read `build/n95/abi/swi-n95-vs-ours.txt` and run `tools/personality/kabi.py`.]
 - Zero unknown SWIs and zero vtable deltas: keep `platform.personality` as set.
 - A few: add them under `[personality.overrides]` in the profile (exec lines in `exec.map`
   syntax; class deltas in `kabi.toml` syntax) — the generator merges them.

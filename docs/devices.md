@@ -13,7 +13,7 @@ flow for a new phone is in [adding-a-device.md](adding-a-device.md).
 | QEMU board `src/qemu-syborg/hw/arm/` (one binary, `scripts/build-qemu-modern.sh`) | all devices always present; options via `-global` (fb width/height/refresh-rate/blank-dim, gl backend, rtc offset-file, pointer input), `-cpu`, `-m`, `-drive if=mtd`, `-device loader` for ROFS [V] | machine class defaults (`arm1136-r2`, 168 MB) and the description string say "N95" [V `syborg.c`]; nothing else |
 | Run scripts `scripts/run-modern.sh`, `run-gui.sh`, `tools/sydb/daemon.py` | compose the QEMU command line | `build/n95/*` paths, `syborg-n95.dtb`, 168M memory backend, drive sizes 64M/1G, audio/gl defaults [V] |
 | Guest baseport `patches/qemu-baseport/` (16 patches on `external/oss.FCL.sf.adapt.Qemu`) | built by `scripts/build-syborg.sh` | keyboard table (0005/0012/0014/0015/0016), LCD modes and pitch (0001/0003/0013), RAM size in the bootstrap (0010), CPU (0011), tick/fast counter (0008/0009), RTC hook (0007), nvmem instance (0006) [V] |
-| Kernel `patches/kernelhwsrv/` (9 patches) | `scripts/build-kernel.sh` | 9.2 exec personality (0001/0005, tables from `tools/exec92/exec92.map`), 9.2 driver ABI (0008/0009), N95 critical-thread policy (0003/0006), debug traces (0002/0004/0007) [V] |
+| Kernel `patches/kernelhwsrv/` (9 patches) | `scripts/build-kernel.sh` | 9.2 exec personality (0001/0005, tables from `personalities/sym92/exec.map`), 9.2 driver ABI (0008/0009), N95 critical-thread policy (0003/0006), debug traces (0002/0004/0007) [V] |
 | Stand-ins `src/n95compat/` | `scripts/build-n95compat.sh` copies the tree into the baseport and writes an oby fragment | 15 drivers listed in `bld.inf`; `isi/isi-db.txt` (names + canned replies) → generated `isireplies.h`; stateful modem in `stubs/iscpeer.inl`; `lcd/lcd_n95.mmp` macros [V] |
 | ROM composition `tools/romcompose.py`, `rom/hybrid/` | `scripts/hybrid-boot.sh` / `compose-exp.sh` | `code-patches.txt` (addresses in the RM-320 v35 ROM), `ESTARTCOMP.TXT`, blob address `0x80320000`, `--exec92`, trace mask [V] |
 | GL `src/n95gl/` | `build.sh` → `sygl.bin` + `rom/hybrid/gles-patches.txt` via `tools/gen-gles-glue.py` | ordinals of this ROM's `libgles_cm.dll`, `n95imports.txt`, identity strings in `gl.c`/`egl.c`, `SYGL_BASE` [V] |
@@ -223,14 +223,14 @@ Proposal [I]: translate in QEMU, keep the guest driver a passthrough.
 ## 4. Kernel ABI strategy: personalities
 
 A **personality** is everything our newer EPL kernel must present to an older user side and to
-drivers built for the older kernel. Today's `sym92` personality is spread over `tools/exec92/`
+drivers built for the older kernel. Today's `sym92` personality is spread over `personalities/sym92/`
 (exec map, generator), kernel patches 0001/0005 (tables + shims), 0008/0009 (driver ABI, memory
-guards), `tools/kabi92.py` (vtable check) and `scodeseg.cpp` loader-struct sizes [V hacks.md].
+guards), `tools/personality/kabi.py` (vtable check) and `scodeseg.cpp` loader-struct sizes [V hacks.md].
 
 ```
 personalities/sym92/
   personality.toml     os_version, memory model, which shims, loader struct deltas, guard policy
-  exec.map             9.2 exec numbering -> our handlers (today tools/exec92/exec92.map)
+  exec.map             9.2 exec numbering -> our handlers (today personalities/sym92/exec.map)
   kabi.toml            driver-facing classes to compare + known slot deltas (today in kabi92.py)
   patches/             kernel patches that implement it (today 0001, 0005, 0008, 0009)
   README.md            evidence: how the map was derived (swi_map + EKA2L1 cross-check), status

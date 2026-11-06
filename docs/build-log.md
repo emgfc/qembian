@@ -128,12 +128,12 @@ The plan is in [roadmap.md](roadmap.md) and the firmware facts in
 - **Data overrides** (`--file ROMPATH=LOCAL`) are for board configuration only. Currently that is
   `rom/hybrid/ESTARTCOMP.TXT`.
 
-## E1.2 9.2 exec tables in the kernel (`patches/kernelhwsrv/0001-exec92-personality.patch`) [verified]
+## E1.2 9.2 exec tables in the kernel (`personalities/sym92/patches/0001-exec92-personality.patch`) [verified]
 - **Mechanism:** each `NThread` carries its own fast/slow exec table pointers (`sthread.cpp`). When
   `TRomHeader.iKernelConfigFlags` bit 29 is set (`romcompose.py --exec92`), `Exec92Init()` builds
   `EpocFastExecTable92`/`EpocSlowExecTable92` at boot. It copies entries (handler and flags) out of
-  the native tables per `exec92_map.h`, which `tools/exec92/gen_kernel_map.py` generates from the
-  reviewed `tools/exec92/exec92.map`. Every user thread then gets the 9.2 tables. The native ROM is
+  the native tables per `exec92_map.h`, which `tools/personality/gen_exec_map.py` generates from the
+  reviewed `personalities/sym92/exec.map`. Every user thread then gets the 9.2 tables. The native ROM is
   unaffected: the regression boot to ESHELL passes.
 - **Map:** 28 fast + 238 slow 9.2 calls. 6 map to per-number logging stubs (calls with no caller
   in the N95 EUSER). Shims so far: `SafeInc32`/`SafeDec32` (9.2-only fast calls),

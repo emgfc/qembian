@@ -72,7 +72,7 @@ output, and make the host tool "app-aware". No TRK.
 
 ### Phase 1 (about 1 day): app-aware probes with what exists
 
-1. **Kernel trace line** (patch `patches/kernelhwsrv/0007-debug-trace-codeseg-load.patch`, same
+1. **Kernel trace line** (patch `patches/kernelhwsrv/platform/0007-debug-trace-codeseg-load.patch`, same
    style as 0004 `N95PROP:`): in `DCodeSeg::Create` (scodeseg.cpp, after "Added By Address") print
    `N95CODE: <filename> code=<iRunAddress> size=<iSize> data=<data run addr>` under an
    always-on switch (or under `KPANIC` like the other N95 lines) so it costs nothing to

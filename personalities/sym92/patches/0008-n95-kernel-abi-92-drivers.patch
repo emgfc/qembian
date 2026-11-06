@@ -5,7 +5,7 @@
  	IMPORT_C virtual TInt Close(TAny* aPtr);
  	IMPORT_C virtual TInt RequestUserHandle(DThread* aThread, TOwnerType aType);
 -	IMPORT_C virtual TInt RequestUserHandle(DThread* aThread, TOwnerType aType, TUint aAttr);
-+	// N95 hybrid (kernel ABI 9.2, tools/kabi92.py): not virtual, so DObject keeps the N95 kernel's
++	// N95 hybrid (kernel ABI 9.2, tools/personality/kabi.py): not virtual, so DObject keeps the N95 kernel's
 +	// six vtable slots and drivers built for it line up (only the flexible/win32 memory models'
 +	// shared buffers overrode these; we build the multiple model)
 +	IMPORT_C TInt RequestUserHandle(DThread* aThread, TOwnerType aType, TUint aAttr);
@@ -40,7 +40,7 @@
  	}
  
 +// N95 hybrid (kernel ABI 9.2): drivers loaded from C:/E: are third-party ones built for the N95's
-+// kernel; ours are all in ROM (tools/kabi92.py compares the two kernels' driver-facing vtables)
++// kernel; ours are all in ROM (tools/personality/kabi.py compares the two kernels' driver-facing vtables)
 +static TBool Is92Driver(DCodeSeg* aSeg)
 +	{
 +	const TRomHeader& rh = Epoc::RomHeader();
