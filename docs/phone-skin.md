@@ -18,6 +18,22 @@ keys open, with landscape). Status: analysis only. [V] = checked, [I] = inferred
 - The display path renders every WSERV rotation correctly since 2026-11-06 (fb ORIENTATION, 1280-byte
   lines, owner-checked on the screensaver), so a landscape screen mode already works on the guest side.
 
+## How the Android emulator does it (for comparison)
+
+The Android emulator is a QEMU fork (AOSP `external/qemu`, goldfish/ranchu boards) that does not use
+QEMU's own display front end:
+1. **UI linked into the emulator binary.** First an SDL skin (phone images and layouts from the
+   SDK skin files), then since about 2016 a Qt window with the side bar and "extended controls".
+   Buttons go to a virtual input device; rotation, sensors and battery go through virtual devices
+   and the host-to-guest pipe; there is also a text console (`adb emu`, telnet 5554).
+2. **Headless emulator plus a separate UI client.** Android Studio's embedded emulator (about
+   2020+) runs it without a window. Frames and input travel over the emulator's gRPC service.
+
+We follow model 2: QEMU headless (`-display none` plus a VNC/D-Bus socket), and `sydb phone` as the
+only visible window, talking to the sydb daemon (our counterpart of the gRPC service). Model 1, our
+own display front end compiled into our QEMU, stays an option only if the separate window is too
+slow.
+
 ## Design: a separate host app, `sydb phone`
 
 A PyQt6 window (`tools/sydb/phone.py`) attached to a running sydb session. It does not modify QEMU.
