@@ -14,6 +14,7 @@
   sydb update-agent                  push a rebuilt devagent.exe/dafs.exe and restart the agent live
   sydb dbg attach|break LOC [--thread T]|continue [--wait S]|wait|step|next|stepi|finish|regs|bt|
            mem ADDR [LEN]|write ADDR HEX|eval EXPR|symbols NAME [ELF]|interrupt|detach|cmd GDBCMD
+  sydb strace MATCH [--secs S]       IPC messages to/from processes matching MATCH (kernel KIPC trace)
   sydb hmp CMD | mcp (MCP stdio server) | --json (raw JSON output) | --session DIR
 Keys: QKeyCode names or aliases lsk rsk ok menu star hash clear back; a number = pause in seconds.
 """
@@ -304,6 +305,29 @@ def main():
         time.sleep(1.5)
         out(c.call({'op': 'wait', 'what': 'agent', 'timeout': 30}),
             lambda r: print('agent restarted (pid %s)' % r['hello'].get('pid') if r.get('agent') else 'agent did not come back'))
+    elif cmd == 'strace':
+        # strace MATCH [--secs S]: IPC messages to/from processes whose name contains MATCH
+        ap = argparse.ArgumentParser(); ap.add_argument('match'); ap.add_argument('--secs', type=float, default=5)
+        ap.add_argument('--max', type=int, default=200)
+        x = ap.parse_args(rest)
+        r = need(c.call({'op': 'trace', 'on': True, 'match': x.match}))
+        seq, end, n = r['seq'], time.time() + x.secs, 0
+        try:
+            while time.time() < end and n < x.max:
+                e = c.call({'op': 'events', 'since': seq, 'wait': end - time.time(), 'kinds': ['ipc'], 'max': 500})
+                seq = e['last']
+                for v in e['events']:
+                    n += 1
+                    if js:
+                        print(json.dumps(v))
+                    elif v['kind'] == 'ipc.call':
+                        print('%8.3f %s -> %s  %s' % (v['t'], v['client'], v['server'], v.get('op') or 'fn %d' % v['fn']))
+                    elif v['kind'] == 'ipc.read':
+                        print('%8.3f      %s read "%s"' % (v['t'], v['server'], v['data']))
+                    else:
+                        print('%8.3f %s <- %s  fn %d = %d' % (v['t'], v['client'], v['server'], v['fn'], v['r']))
+        finally:
+            c.call({'op': 'trace', 'on': False})
     elif cmd == 'dbg':
         # dbg attach|detach|interrupt|continue [--wait S]|wait [S]|step|next|stepi|finish|regs|bt
         #     break LOC [--thread T] [--once] [--sw]|delete [N]|mem ADDR [LEN]|write ADDR HEX|eval EXPR

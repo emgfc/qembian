@@ -4,7 +4,8 @@ adb-like bridge. Its main user is an LLM (through the MCP server); the CLI is th
 Design and roadmap: [devtools-bridge.md](devtools-bridge.md). Status 2026-11-06: phase 0/1 work, and
 phase 3's basic debugger works. Done: session daemon, agent (files, processes, apps, UI, keyguard,
 P&S), CLI, MCP server (43 tools), live agent update, persistent gdb with kernel DWARF and app ELF
-symbols placed from the kernel's `N95CODE:` line. Not yet: strace / IPC trace LDD (phase 2), XIP
+symbols placed from the kernel's `N95CODE:` line. IPC strace via the kernel's KIPC trace works. Not yet:
+exec-call strace (phase-2 LDD), XIP
 symbol ELFs for Nokia code in gdb backtraces, snapshots, TUI.
 
 ## Pieces
@@ -13,7 +14,7 @@ symbol ELFs for Nokia code in gdb backtraces, snapshots, TUI.
 |---|---|---|
 | daemon | `tools/sydb/daemon.py` | one per session dir (`build/sydb`). It starts QEMU (`run-modern.sh -name sydb`; syb_run/syb_gdb kill only `sybtool` QEMUs, so they don't collide with it) and serves JSON on `ctl.sock`. The session dir holds: serial0 → `serial.log` (timestamped), serial1 → `agent.sock`, QMP → `qmp.sock`, gdbstub → tcp port in `gdb.port`, and the phone drives in `drives/` |
 | CLI | `tools/sydb/sydb.py` | `sydb <cmd>`; `--json` for raw replies; `--session DIR` for a second phone |
-| MCP | `tools/sydb/mcp.py` | stdio JSON-RPC, 27 tools (`session_*`, `log_tail`, `events`, `fs_*`, `app_*`, `proc_*`, `ui_*`, `sys_*`, `qemu_hmp`); registered for Claude Code in `.mcp.json` |
+| MCP | `tools/sydb/mcp.py` | stdio JSON-RPC, 43 tools (`session_*`, `log_tail`, `events`, `fs_*`, `app_*`, `proc_*`, `ui_*`, `sys_*`, `dbg_*`, `qemu_hmp`); registered for Claude Code in `.mcp.json` |
 | agent | `src/n95apps/devagent/devagent.cpp` | `devagent.exe`, All-TCB, serial unit 1 (`RBusDevComm`), line protocol (header of the file) |
 | TCB helper | `src/n95apps/devagent/dafs.cpp` | `dafs.exe`, ALL caps, EUSER/EFSRV only. Moves files into `\sys\`/`\resource\`, does the boot autostart (as `HALSettings.exe`, hack H-sydb-autostart) and the agent self-update |
 
@@ -44,6 +45,21 @@ sydb update-agent                                     # rebuilt agent deployed w
 sydb hmp 'info registers' | status | stop
 ```
 Key aliases: `lsk rsk ok menu star hash clear back` (F5, F7, F6, F8, numpad *, F10, backspace, F7).
+
+## IPC strace
+
+`sydb strace MATCH --secs 5` (MCP `trace_ipc` + `events kinds=["ipc"]`) switches the kernel's KIPC
+debug bit on through the agent (`User::SetDebugMask`) and turns the kernel's `MsgAc`/`MsgCo`/`IPCRD`
+lines into events. Only processes whose client or server name contains MATCH are kept:
+```
+  20.760 Calcsoft.exe::Calcsoft -> !FileServer  Entry
+         efile.exe::Main read "C:\Resource\Uiklaf\eikcore.r01"
+  20.761 Calcsoft.exe::Calcsoft <- efile.exe::DriveThread_02  fn 22 = -12
+```
+File-server function names come from F32's `OperationArray` (index = opcode) in our source; our
+`efile.exe` is built from it. Other servers show numbers. All IPC in the system is printed while
+the bit is on, which slows the phone a little; it is switched off when the strace ends.
+Exec-call (system call) tracing per thread needs the phase-2 driver (devtools-bridge.md).
 
 ## Debugger
 

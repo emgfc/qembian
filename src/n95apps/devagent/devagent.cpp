@@ -14,6 +14,7 @@
 #include <e32base.h>
 #include <e32debug.h>
 #include <e32property.h>
+#include <e32svr.h>
 #include <f32file.h>
 #include <d32comm.h>
 #include <w32std.h>
@@ -483,6 +484,21 @@ void CAgent::HandleLine(TDes8& aLine)
 	else if (cmd == _L8("pget")) CmdProp(tag, EFalse, a[0], a[1], KNullDesC8);
 	else if (cmd == _L8("pset")) CmdProp(tag, ETrue, a[0], a[1], a[2]);
 	else if (cmd == _L8("mem")) CmdMem(tag);
+	else if (cmd == _L8("dmask"))
+		{
+		// dmask [INDEX] | dmask set HEX [INDEX]: kernel debug trace mask word (KIPC = bit 11 of word 0)
+		TInt idx = 0;
+		TUint32 v = 0;
+		TBool set = a[0] == _L8("set");
+		if (set && !ParseUint(a[1], v, EHex)) { Err(tag, KErrArgument, "usage: dmask set HEX [index]"); return; }
+		ParseInt(set ? a[2] : a[0], idx);
+		if (set) User::SetDebugMask(v, idx);
+		TOut o;
+		o.Begin(tag, "ok");
+		o.Int("index", idx);
+		o.Hex("mask", UserSvr::DebugMask(idx));
+		End(o);
+		}
 	else if (cmd == _L8("quit")) { Ok(tag); iQuit = ETrue; }
 	else if (cmd == _L8("upgrade"))
 		{

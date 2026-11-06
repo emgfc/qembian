@@ -13,6 +13,26 @@ import base64, hashlib, io, json, os, re, signal, socket, socketserver, subproce
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CHUNK = 2048                                           # = KAckChunk in devagent.cpp
 IDLE_RE = re.compile(r'sets 101f8766/41 = 203')        # SysAp "self-test OK" = idle screen up
+MSGAC_RE = re.compile(r'^MsgAc: M:(-?\d+) (\S+)->(\S+)')
+MSGCO_RE = re.compile(r'^MsgCo: M:(-?\d+) r:(-?\d+) (\S+)->(\S+)')
+KIPC = 1 << 11
+IPCRD_RE = re.compile(r'^IPCRD (\S+) <- (\S+): "(.*)"$')
+_FSOPS = None
+
+
+def fs_op_name(fn):
+    """F32 client opcode -> name, from the file server's OperationArray (index = opcode)."""
+    global _FSOPS
+    if _FSOPS is None:
+        try:
+            src = open(os.path.join(ROOT, 'build', 'epocroot', 'sf', 'os', 'kernelhwsrv', 'userlibandfileserver',
+                                    'fileserver', 'sfile', 'sf_ops.h'), encoding='latin-1').read()
+            body = src[src.index('OperationArray'):]
+            _FSOPS = re.findall(r'\{\s*(EFs\w+)\s*,', body)
+        except (OSError, ValueError):
+            _FSOPS = []
+    fn &= 0xffff                        # high bits carry flags (e.g. KIpcSlot...)
+    return _FSOPS[fn][3:] if fn < len(_FSOPS) else None
 PANIC_RE = re.compile(r'^Thread (\S+) (Panic \S+ ?-?\d*|Killed -?\d+)')
 
 
@@ -193,6 +213,7 @@ class Session:
         self.qemu = None
         self.log = open(os.path.join(sdir, 'serial.log'), 'w')
         self.log_lines = 0
+        self.ipc_match = None          # IPC trace filter (substring of client or server name)
 
     def now(self):
         return round(time.time() - self.t0, 3)
@@ -242,6 +263,24 @@ class Session:
             if self.state == 'booting' and IDLE_RE.search(line):
                 self.state = 'idle'
                 self.event('phone.idle')
+            if self.ipc_match is not None and line.startswith('Msg'):
+                m = MSGAC_RE.match(line) or MSGCO_RE.match(line)
+                if m and any(self.ipc_match.lower() in x.lower() for x in m.groups()[-2:]):
+                    fn = int(m.group(1))
+                    if line.startswith('MsgAc'):
+                        srv = m.group(3)
+                        e = dict(fn=fn, client=m.group(2), server=srv)
+                        if fn in (-1, -2):
+                            e['op'] = 'Connect' if fn == -1 else 'Disconnect'
+                        elif 'FileServer' in srv and fs_op_name(fn):
+                            e['op'] = fs_op_name(fn)
+                        self.event('ipc.call', **e)
+                    else:          # MsgCo: completing (server) thread -> client
+                        self.event('ipc.done', fn=fn, r=int(m.group(2)), server=m.group(3), client=m.group(4))
+            elif self.ipc_match is not None and line.startswith('IPCRD'):
+                m = IPCRD_RE.match(line)
+                if m and any(self.ipc_match.lower() in x.lower() for x in m.groups()[:2]):
+                    self.event('ipc.read', server=m.group(1), client=m.group(2), data=m.group(3))
             m = PANIC_RE.match(line)
             if m:
                 self.event('thread.' + ('panic' if m.group(2).startswith('Panic') else 'killed'),
@@ -432,6 +471,20 @@ def handle(sess, req):
         return {'ok': True}
     if op == 'screenshot':
         return screenshot(sess, req.get('path'), req.get('scale', 1.0), req.get('crop'), req.get('only_if_changed', False))
+    if op == 'trace':
+        # trace ipc: switch the kernel's KIPC debug bit through the agent, turn matching
+        # MsgAc/MsgCo lines into ipc.call / ipc.done events
+        _, f = a.request('dmask', [])
+        mask = int(str(f['mask']), 16)
+        if req.get('on', True):
+            sess.ipc_match = req.get('match', '')
+            mask |= KIPC
+        else:
+            sess.ipc_match = None
+            if not req.get('keep_kernel_bit'):
+                mask &= ~KIPC
+        _, f = a.request('dmask', ['set', '%x' % mask])
+        return {'ipc': sess.ipc_match is not None, 'match': sess.ipc_match, 'mask': f['mask'], 'seq': sess.ev_seq}
     if op == 'dbg':
         import debugger
         if not hasattr(sess, 'dbg'):

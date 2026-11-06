@@ -59,6 +59,9 @@ TOOLS = [
      obj({'op': STR, 'category': STR, 'key': STR, 'value': INT}, ['op', 'category', 'key'])),
     ('sys_mem', 'RAM total/free, ROM size.', obj({})),
     ('qemu_hmp', 'QEMU monitor command (e.g. "info registers", "x/8wx 0xc8000000").', obj({'cmd': STR}, ['cmd'])),
+    ('trace_ipc', 'IPC strace: on = kernel KIPC trace on, events ipc.call {fn, client, server} / ipc.done {fn, r} for '
+     'processes whose client or server name contains match (read them with events kinds=["ipc"]); on=false stops.',
+     obj({'match': STR, 'on': BOOL})),
     ('dbg_attach', 'Attach the persistent gdb (stops the whole phone). Kernel DWARF is loaded; returns the stop record.', obj({})),
     ('dbg_detach', 'Detach gdb; the phone runs on.', obj({})),
     ('dbg_symbols', 'Load our app ELF at its run address (from the kernel N95CODE line). name = exe base name.',
@@ -203,6 +206,8 @@ class Server:
             return self.agent('pget', [a['category'], a['key']])
         if name == 'sys_mem':
             return self.agent('mem')
+        if name == 'trace_ipc':
+            return self.call({'op': 'trace', 'on': a.get('on', True), 'match': a.get('match', '')})
         if name.startswith('dbg_'):
             sub = {'dbg_step': a.get('kind', 'step'), 'dbg_gdb': 'cmd'}.get(name, name[4:])
             req = dict(a, op='dbg', sub=sub)
