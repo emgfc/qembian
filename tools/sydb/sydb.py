@@ -300,6 +300,10 @@ def main():
     sdir = DEFAULT_SESSION
     if '--session' in argv:
         i = argv.index('--session'); sdir = os.path.abspath(argv[i + 1]); del argv[i:i + 2]
+    elif '--device' in argv:          # your run-gui phone's session, for every command
+        sdir = DEVICE_SESSION
+        if argv and argv[0] not in ('start', 'install', 'phone'):
+            argv.remove('--device')
     if not argv or argv[0] in ('-h', '--help', 'help'):
         print(__doc__); return
     cmd, rest = argv[0], argv[1:]
@@ -320,10 +324,27 @@ def main():
         ap.add_argument('--rom', help='ROM of a session it starts (default hybrid.img, with --device hybrid-exp.img)')
         ap.add_argument('--install', action='store_true', help='install/update the sydb agent on its C: first')
         ap.add_argument('--keep', action='store_true', help='leave the session running when the window closes')
+        ap.add_argument('--restart', action='store_true', help='restart a running session first (fresh boot, current ROM)')
         ap.add_argument('--gl', choices=['host', 'soft'], default='host', help='GLES on the host GPU (default) or the software rasteriser')
         x = ap.parse_args(rest)
         if x.device and sdir == DEFAULT_SESSION:
             sdir = DEVICE_SESSION
+        c0 = Client(sdir)
+        if c0.alive():
+            st = c0.call({'op': 'status'})
+            rom = st.get('rom')
+            stale = rom and os.path.exists(rom) and os.path.getmtime(rom) > (st.get('rom_mtime') or 0) + 1
+            if x.restart or stale:
+                print('session %s %s: restarting it' % (sdir, 'runs an older build of ' + os.path.basename(rom)
+                                                        if stale else 'is running'), flush=True)
+                x.rom = x.rom or rom                 # the same ROM file, now its current build
+                c0.call({'op': 'stop'})
+                for _ in range(150):
+                    if not c0.alive():
+                        break
+                    time.sleep(0.1)
+            else:
+                print('joining the running session %s (up %.0f s; --restart for a fresh boot)' % (sdir, st.get('uptime', 0)), flush=True)
         started = False
         if not Client(sdir).alive():
             subprocess.run([sys.executable, os.path.abspath(__file__), '--session', sdir, 'start', '--no-wait',

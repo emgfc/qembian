@@ -221,6 +221,7 @@ class Session:
     def __init__(self, sdir, rom, drives, gui, extra, restore=None, audio='wav', gl='host'):
         self.sdir, self.rom, self.drives, self.gui, self.extra = sdir, rom, drives, gui, extra
         self.audio, self.gl = audio, gl
+        self.rom_mtime = os.path.getmtime(rom) if os.path.exists(rom) else 0   # phone: stale ROM check
         self.restore = restore         # snapshot dir to resume from (sydb fork / restore)
         self.stopping = False
         self.t0 = time.time()
@@ -561,7 +562,7 @@ def handle(sess, req):
         return {'state': sess.state, 'uptime': sess.now(), 'agent': bool(a.connected()) and a.hello,
                 'qemu_pid': sess.qemu.pid if sess.qemu else None, 'session': sess.sdir,
                 'gdb_port': sess.gdb_port, 'log_lines': sess.log_lines, 'events': sess.ev_seq,
-                'ram': sess.ram_path()}
+                'ram': sess.ram_path(), 'rom': os.path.abspath(sess.rom), 'rom_mtime': sess.rom_mtime}
     if op == 'stop':
         threading.Thread(target=lambda: (time.sleep(0.2), sess.stop(), os._exit(0)), daemon=True).start()
         return {'ok': True}
