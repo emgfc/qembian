@@ -130,3 +130,8 @@ syborg-audio device's rate handling.
 F15/F16 = EStdKeyApplication19/1A (camera app captures them), F17/F18 = EStdKeyApplication7/8
 (akncapserver captures their up/downs). None of F13/F14/F17/F18 brought Carousel up at the idle
 screen: the Multimedia key is not identified yet. Camera keys untested (camera has no stand-in).
+Finding: akncapserver (key handler around 0x82df0600) publishes RProperty 0x101f876e/4 on the
+key-down of scan code 0xbb (EStdKeyApplication7: value 1) or 0xbc (EStdKeyApplication8): most
+likely the Multimedia/media key path. Pressing F17/F18 left the property at 0, so check first that
+QEMU's f17/f18 qcodes reach our table slots 0x68/0x69 (set-1 scan codes), e.g. by moving them to
+known-good slots.
