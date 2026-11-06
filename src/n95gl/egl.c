@@ -557,11 +557,13 @@ EGLBoolean sy_eglSurfaceAttrib(EGLDisplay d, EGLSurface aSurface, EGLint aAttr, 
 EGLContext sy_eglCreateContext(EGLDisplay d, EGLConfig aConfig, EGLContext aShare, const EGLint* aAttr)
 	{
 	SYTRACE(sy_thread(), "eglCreateContext(cfg %d)", (u32)__builtin_return_address(0), (int)aConfig);
-	(void)aShare; (void)aAttr;
+	(void)aAttr;
 	SyThread* t = ok_display(d, 1);
 	if (!t) return 0;
 	if (!config_of(aConfig)) { t->eglError = EGL_BAD_CONFIG; return 0; }
-	struct SyContext* c = sy_gl_create();
+	struct SyContext* share = 0;
+	if (aShare && !(share = context_of(aShare))) { t->eglError = EGL_BAD_CONTEXT; return 0; }
+	struct SyContext* c = sy_gl_create(share);
 	if (!c) { t->eglError = EGL_BAD_ALLOC; return 0; }
 	return (EGLContext)c;
 	}

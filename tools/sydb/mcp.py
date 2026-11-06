@@ -88,7 +88,10 @@ TOOLS = [
      'abnormal exit) | any. thread = regex on "process::thread". category = exact panic category (e.g. '
      'USER-EXEC, KERN-EXEC, E32USER-CBase). reason = exact code. action: dump (continue) | freeze (hold the '
      'phone; inspect with dbg_*, then catch_resume). snapshot = also save a machine snapshot (fork it later).',
-     obj({'kind': STR, 'thread': STR, 'category': STR, 'reason': INT, 'action': STR, 'snapshot': BOOL, 'once': BOOL})),
+     'at = an address instead: a breakpoint rule that dumps (call stack included) every time that code runs, up to '
+     'max hits (cold code only: every hit stops the phone briefly).',
+     obj({'kind': STR, 'thread': STR, 'category': STR, 'reason': INT, 'action': STR, 'snapshot': BOOL, 'once': BOOL,
+          'at': STR, 'max': INT})),
     ('catch_list', 'Catch rules, hit count, whether the phone is frozen.', obj({})),
     ('catch_rm', 'Remove catch rule id (all if omitted); with no rules left the breakpoints are removed.', obj({'id': INT})),
     ('catch_hits', 'Hits so far: id, thread, exit, category, reason, at, caller, dump files.', obj({'max': INT})),

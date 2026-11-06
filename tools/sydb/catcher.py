@@ -44,10 +44,14 @@ class Catcher:
 
     # ---- rules ----
     def add(self, rule):
-        r = {'id': self.next_rule, 'kind': rule.get('kind', 'panic'), 'thread': rule.get('thread'),
+        at = rule.get('at')
+        if at is not None:          # breakpoint rule: dump (or freeze) every time this address runs
+            at = int(str(at), 0) & ~1
+        r = {'id': self.next_rule, 'kind': 'break' if at is not None else rule.get('kind', 'panic'),
+             'at': '0x%08x' % at if at is not None else None, 'max': int(rule.get('max') or 20), 'thread': rule.get('thread'),
              'category': rule.get('category'), 'reason': rule.get('reason'), 'action': rule.get('action', 'dump'),
              'snapshot': bool(rule.get('snapshot')), 'once': bool(rule.get('once')), 'hits': 0}
-        if r['kind'] not in ('panic', 'kill', 'terminate', 'exit', 'any'):
+        if r['kind'] not in ('panic', 'kill', 'terminate', 'exit', 'any', 'break'):
             raise ValueError('kind must be panic, kill, terminate, exit (abnormal exits) or any')
         if r['action'] not in ('dump', 'freeze'):
             raise ValueError('action must be dump or freeze')
@@ -56,10 +60,28 @@ class Catcher:
         self.next_rule += 1
         self.rules.append(r)
         self.arm()
+        if at is not None:
+            self.insert_bp('*0x%x' % at, 'at:%d' % r['id'])
         return r
 
+    def insert_bp(self, loc, what):
+        d = self.dbg
+        was = d.running
+        if was:
+            d.mi('-exec-interrupt', timeout=5)
+            d.wait(5)
+        r = d.mi('-break-insert -h %s' % loc)
+        self.bps[int(r['bkpt']['number'])] = what
+        if was and not self.frozen:
+            d.mi('-exec-continue')
+
     def remove(self, rid=None):
+        gone = [r for r in self.rules if rid is None or r['id'] == rid]
         self.rules = [r for r in self.rules if rid is not None and r['id'] != rid]
+        for r in gone:                 # drop a breakpoint rule's own breakpoint
+            for n, what in list(self.bps.items()):
+                if what == 'at:%d' % r['id'] and self.rules:
+                    self.delete_bp(n)
         if not self.rules:
             self.disarm()
         return {'rules': self.rules}
@@ -96,6 +118,20 @@ class Catcher:
         self.bps = {}
         if was or self.frozen:
             self.frozen = None
+            d.mi('-exec-continue')
+
+    def delete_bp(self, n):
+        d = self.dbg
+        was = d.running
+        if was:
+            d.mi('-exec-interrupt', timeout=5)
+            d.wait(5)
+        try:
+            d.mi('-break-delete %d' % n)
+        except Exception:
+            pass
+        self.bps.pop(n, None)
+        if was and not self.frozen:
             d.mi('-exec-continue')
 
     def owns(self, st):
@@ -169,6 +205,9 @@ class Catcher:
     # ---- what happened ----
     def read_event(self, what):
         d = self.dbg
+        if what.startswith('at:'):
+            return {'source': 'break', 'kind': 'break', 'rule_id': int(what[3:]), 'category': None, 'reason': None,
+                    'thread': d.thread_name(), 'dthread': None}
         r0, r1, r2, r3 = (d.reg(x) for x in ('r0', 'r1', 'r2', 'r3'))
         if what == 'panic':      # User::Panic(const TDesC16& aCategory, TInt aReason), user mode
             return {'source': 'User::Panic', 'kind': 'panic', 'category': d.read_des(r0, True), 'reason': _s32(r1),
@@ -184,6 +223,11 @@ class Catcher:
             return None          # already handled at its User::Panic
         for r in self.rules:
             k = r['kind']
+            if ev['kind'] == 'break' or k == 'break':
+                if ev['kind'] == 'break' and k == 'break' and r['id'] == ev['rule_id'] and r['hits'] < r['max'] \
+                        and (not r['thread'] or re.search(r['thread'], ev['thread'], re.I)):
+                    return r
+                continue
             if k == 'panic' and ev['kind'] != 'panic':
                 continue
             if k in ('kill', 'terminate') and ev['kind'] != k:
@@ -203,9 +247,9 @@ class Catcher:
     def user_context(self, ev):
         """user registers: from gdb at User::Panic (user mode), else from the kernel's tables"""
         d = self.dbg
-        if ev['source'] == 'User::Panic':
+        if ev['source'] in ('User::Panic', 'break'):
             regs = {n: d.reg(n) for n in REGNAMES}
-            return regs, 'exact (user mode at User::Panic)'
+            return regs, 'exact (at the breakpoint)'
         t = ev['dthread']
         nt = d.evalx('&((DThread*)0x%x)->iNThread' % t)
         ctype = d.evalx('((DThread*)0x%x)->iNThread.iSpare3' % t) & 0xff

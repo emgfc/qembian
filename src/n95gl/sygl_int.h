@@ -58,7 +58,9 @@ typedef struct SyThread
 
 /* trace of the first EGL calls of each thread with the caller's address (sygl entry points are
    reached by a plain branch from libgles_cm, so LR is the app's return address) */
-#define SY_TRACE_MAX 300
+#ifndef SY_TRACE_MAX				/* src/n95gl/build.sh --trace sets 700 */
+#define SY_TRACE_MAX 0
+#endif
 #define SYTRACE(t, fmt, ...) do { if ((t) && (t)->traced < SY_TRACE_MAX) { ++(t)->traced; \
 	((SyPrintf)N95_RDebug_Printf)("SYGL: trace [%08x] %08x " fmt, (u32)(t), __VA_ARGS__); } } while (0)
 
@@ -81,7 +83,9 @@ int sy_bitmap_copy(void* aBmp, u32* aPix, int aW, int aH, int aToBitmap);	/* 0 o
 void sy_dsa_destroy(SySurface* aS);
 
 /* ---- libc bits (libc.c); C++ gets them from the SDK headers ---- */
-#ifndef __cplusplus
+#if defined(SYGL_HOST)			/* host tests (tests/sygl): the C library's */
+#include <string.h>
+#elif !defined(__cplusplus)
 void* memcpy(void* aDst, const void* aSrc, unsigned aLen);
 void* memset(void* aDst, int aVal, unsigned aLen);
 #endif
@@ -91,7 +95,7 @@ float sy_sqrtf(float aX);
 float sy_powf(float aX, float aE);
 
 /* ---- GL (gl.c) ---- */
-struct SyContext* sy_gl_create(void);
+struct SyContext* sy_gl_create(struct SyContext* aShareWith);	/* shares texture objects with it (EGL share context) */
 void sy_gl_destroy(struct SyContext* aCtx);
 void sy_gl_made_current(struct SyContext* aCtx, SySurface* aDraw);
 

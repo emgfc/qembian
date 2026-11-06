@@ -135,7 +135,7 @@ static void mult_cur(SyContext* c, const float* m)
 
 /* ---------------------------------------------------------------- context */
 
-struct SyContext* sy_gl_create(void)
+struct SyContext* sy_gl_create(struct SyContext* aShareWith)
 	{
 	SyContext* c = (SyContext*)sy_allocz(sizeof(SyContext));
 	if (!c)
@@ -158,7 +158,11 @@ struct SyContext* sy_gl_create(void)
 	c->alphaFunc = GL_ALWAYS;
 	c->colorMask = 15;
 	sy_light_init(c);
-	sy_tex_init(c);
+	if (sy_tex_init(c, aShareWith))
+		{
+		sy_free(c);
+		return 0;
+		}
 	return c;
 	}
 
@@ -336,6 +340,7 @@ void sy_glShadeModel(GLenum m)
 
 void sy_glClearColor(GLclampf r, GLclampf g, GLclampf b, GLclampf a)
 	{
+	SYTRACE(sy_thread_peek(), "glClearColor(%d,%d,%d,%d /255)", (u32)__builtin_return_address(0), (int)(r*255), (int)(g*255), (int)(b*255), (int)(a*255));
 	SyContext* c = sy_cur(); if (!c) return;
 	c->clear[0] = r; c->clear[1] = g; c->clear[2] = b; c->clear[3] = a;
 	}
@@ -368,6 +373,7 @@ void sy_glClear(GLbitfield mask)
 
 static void set_cap(GLenum cap, int on)
 	{
+	SYTRACE(sy_thread_peek(), "gl%sable(0x%x)", (u32)__builtin_return_address(1), on ? "En" : "Dis", cap);
 	SyContext* c = sy_cur(); if (!c) return;
 	if (sy_light_cap(c, cap, on) || sy_tex_cap(c, cap, on))
 		return;
@@ -426,7 +432,8 @@ void sy_glColorMask(GLboolean r, GLboolean g, GLboolean b, GLboolean a)
 	}
 void sy_glCullFace(GLenum m) { SyContext* c = sy_cur(); if (c) c->cullMode = m; }
 void sy_glFrontFace(GLenum m) { SyContext* c = sy_cur(); if (c) c->frontFace = m; }
-void sy_glBlendFunc(GLenum s, GLenum d) { SyContext* c = sy_cur(); if (c) { c->blendSrc = s; c->blendDst = d; } }
+void sy_glBlendFunc(GLenum s, GLenum d) {
+	SYTRACE(sy_thread_peek(), "glBlendFunc(0x%x, 0x%x)", (u32)__builtin_return_address(0), s, d); SyContext* c = sy_cur(); if (c) { c->blendSrc = s; c->blendDst = d; } }
 void sy_glAlphaFunc(GLenum f, GLclampf ref)
 	{
 	SyContext* c = sy_cur(); if (!c) return;
@@ -439,6 +446,7 @@ void sy_glHint(GLenum t, GLenum m) { (void)t; (void)m; }
 
 void sy_glColor4f(GLfloat r, GLfloat g, GLfloat b, GLfloat a)
 	{
+	SYTRACE(sy_thread_peek(), "glColor4f(%d,%d,%d,%d /255)", (u32)__builtin_return_address(0), (int)(r*255), (int)(g*255), (int)(b*255), (int)(a*255));
 	SyContext* c = sy_cur(); if (!c) return;
 	c->color[0] = r; c->color[1] = g; c->color[2] = b; c->color[3] = a;
 	if (c->colorMaterial)
@@ -447,9 +455,11 @@ void sy_glColor4f(GLfloat r, GLfloat g, GLfloat b, GLfloat a)
 		memcpy(c->mat.diffuse, c->color, 16);
 		}
 	}
-void sy_glColor4x(GLfixed r, GLfixed g, GLfixed b, GLfixed a) { sy_glColor4f(sy_fx(r), sy_fx(g), sy_fx(b), sy_fx(a)); }
+void sy_glColor4x(GLfixed r, GLfixed g, GLfixed b, GLfixed a) {
+	SYTRACE(sy_thread_peek(), "glColor4x(%d,%d,%d,%d /65536)", (u32)__builtin_return_address(0), r, g, b, a); sy_glColor4f(sy_fx(r), sy_fx(g), sy_fx(b), sy_fx(a)); }
 void sy_glColor4ub(GLubyte r, GLubyte g, GLubyte b, GLubyte a)
-	{ sy_glColor4f(r / 255.0f, g / 255.0f, b / 255.0f, a / 255.0f); }
+	{
+	SYTRACE(sy_thread_peek(), "glColor4ub(%d,%d,%d,%d)", (u32)__builtin_return_address(0), r, g, b, a); sy_glColor4f(r / 255.0f, g / 255.0f, b / 255.0f, a / 255.0f); }
 
 void sy_glMultiTexCoord4f(GLenum unit, GLfloat s, GLfloat t, GLfloat r, GLfloat q)
 	{
@@ -473,6 +483,7 @@ static SyArray* array_of(SyContext* c, GLenum a)
 	}
 void sy_glEnableClientState(GLenum a)
 	{
+	SYTRACE(sy_thread_peek(), "glEnableClientState(0x%x)", (u32)__builtin_return_address(0), a);
 	SyContext* c = sy_cur(); if (!c) return;
 	SyArray* p = array_of(c, a);
 	if (p) p->enabled = 1; else if (a != GL_POINT_SIZE_ARRAY_OES) sy_seterr(c, GL_INVALID_ENUM);
@@ -497,6 +508,7 @@ void sy_glVertexPointer(GLint size, GLenum type, GLsizei stride, const void* ptr
 	}
 void sy_glColorPointer(GLint size, GLenum type, GLsizei stride, const void* ptr)
 	{
+	SYTRACE(sy_thread_peek(), "glColorPointer(%d, 0x%x)", (u32)__builtin_return_address(0), size, type);
 	SyContext* c = sy_cur(); if (!c) return;
 	if (size != 4 || stride < 0) { sy_seterr(c, GL_INVALID_VALUE); return; }
 	if (type != GL_UNSIGNED_BYTE && type != GL_FIXED && type != GL_FLOAT) { sy_seterr(c, GL_INVALID_ENUM); return; }
@@ -800,6 +812,15 @@ static void draw_triangle(SyContext* c, const SyRState* st, const SyCV* a, const
 		if (c->cullMode == GL_FRONT_AND_BACK || (c->cullMode == GL_FRONT && front) || (c->cullMode == GL_BACK && !front))
 			return;
 		}
+	if (c->traceTri > 0)
+		{
+		--c->traceTri;
+		for (int i = 0; i < 3 && i < n; ++i)
+			SYTRACE(sy_thread_peek(), "  v%d x %d y %d z %d rgba %d %d %d %d iw %d sw %d tw %d (/1000) tex %d lin %d", 0, i,
+					(int)(w[i].x * 1000), (int)(w[i].y * 1000), (int)(w[i].z * 1000), (int)w[i].r, (int)w[i].g, (int)w[i].b,
+					(int)w[i].a, (int)(w[i].iw * 1000), (int)(w[i].sw * 1000), (int)(w[i].tw * 1000),
+					st->tex ? st->tex->w : 0, st->tex ? st->tex->linear : -1);
+		}
 	for (int i = 1; i + 1 < n; ++i)
 		sy_raster_triangle(c->draw, st, &w[0], &w[i], &w[i + 1]);
 	}
@@ -865,8 +886,28 @@ static int prepare(SyContext* c, int count, SyFrame* f, SyRState* st, SyRTex* rt
 	return 1;
 	}
 
+static void trace_draw(SyContext* c, const SyCV* v, int n)
+	{
+	SyThread* t = sy_thread_peek();
+	if (!t || t->traced >= SY_TRACE_MAX || n <= 0) return;
+	float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f;
+	for (int i = 0; i < n; ++i)
+		{
+		if (v[i].w == 0.0f) continue;
+		float x = (float)c->vpX + (v[i].x / v[i].w + 1.0f) * 0.5f * (float)c->vpW;
+		float y = (float)c->vpY + (v[i].y / v[i].w + 1.0f) * 0.5f * (float)c->vpH;
+		if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+		}
+	SYTRACE(t, "  draw bbox x %d..%d y %d..%d (GL y up) va 0x%x ta %s0x%x/%d ca %s0x%x col0 %d,%d,%d,%d st0 %d,%d /1000",
+			0, (int)x0, (int)x1, (int)y0, (int)y1, c->va.type, c->ta.enabled ? "" : "off ", c->ta.type, c->ta.size,
+			c->ca.enabled ? "" : "off ", c->ca.type, (int)(v[0].r * 255), (int)(v[0].g * 255), (int)(v[0].b * 255),
+			(int)(v[0].a * 255), (int)(v[0].s * 1000), (int)(v[0].t * 1000));
+	}
+
 static void assemble(SyContext* c, const SyRState* st, GLenum mode, const SyCV* v, int n)
 	{
+	trace_draw(c, v, n);
+	c->traceTri = 1;
 	switch (mode)
 		{
 	case GL_TRIANGLES:
@@ -887,6 +928,7 @@ static void assemble(SyContext* c, const SyRState* st, GLenum mode, const SyCV* 
 
 void sy_glDrawArrays(GLenum mode, GLint first, GLsizei count)
 	{
+	SYTRACE(sy_thread_peek(), "glDrawArrays(%d, %d, %d) tex2d %d bound %d env 0x%x blend %d", (u32)__builtin_return_address(0), mode, first, count, sy_cur() ? sy_cur()->texture2D : -1, sy_cur() && sy_cur()->bound ? (int)sy_cur()->bound->name : -1, sy_cur() ? sy_cur()->envMode : 0, sy_cur() ? sy_cur()->blend : -1);
 	SyContext* c = sy_cur(); if (!c) return;
 	if (count < 0 || first < 0) { sy_seterr(c, GL_INVALID_VALUE); return; }
 	if (mode > GL_TRIANGLE_FAN) { sy_seterr(c, GL_INVALID_ENUM); return; }
@@ -899,6 +941,7 @@ void sy_glDrawArrays(GLenum mode, GLint first, GLsizei count)
 
 void sy_glDrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices)
 	{
+	SYTRACE(sy_thread_peek(), "glDrawElements(%d, %d) tex2d %d bound %d env 0x%x blend %d", (u32)__builtin_return_address(0), mode, count, sy_cur() ? sy_cur()->texture2D : -1, sy_cur() && sy_cur()->bound ? (int)sy_cur()->bound->name : -1, sy_cur() ? sy_cur()->envMode : 0, sy_cur() ? sy_cur()->blend : -1);
 	SyContext* c = sy_cur(); if (!c) return;
 	if (count < 0) { sy_seterr(c, GL_INVALID_VALUE); return; }
 	if (mode > GL_TRIANGLE_FAN || (type != GL_UNSIGNED_BYTE && type != GL_UNSIGNED_SHORT)) { sy_seterr(c, GL_INVALID_ENUM); return; }

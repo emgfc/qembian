@@ -134,6 +134,14 @@ typedef struct SyTex
 	GLenum minF, magF, wrapS, wrapT;
 	} SyTex;
 
+/* objects shared between contexts created with a share context (EGL share group): texture objects.
+   Texture object 0 stays per context (GL). */
+typedef struct SyShare
+	{
+	int refs;
+	SyTex** texTable; int texCap; GLuint nextTexName;
+	} SyShare;
+
 typedef struct SyContext
 	{
 	u32 magic;
@@ -160,7 +168,7 @@ typedef struct SyContext
 	/* texturing (unit 0) */
 	int texture2D;
 	SyTex defaultTex;		/* texture object 0 */
-	SyTex** texTable; int texCap; GLuint nextTexName;
+	struct SyShare* share;	/* texture objects (shared with contexts created with this one as share context) */
 	SyTex* bound;
 	GLenum envMode; float envColor[4];
 	int unpackAlign, packAlign;
@@ -171,6 +179,7 @@ typedef struct SyContext
 	int colorMask;			/* bit 0..3 = r g b a; only all-or-nothing honoured */
 	int polyOffset; float polyFactor, polyUnits;
 	int errLogged;
+	int traceTri;
 	SySurface* draw;
 	struct SyCV* vbuf; int vcap;
 	} SyContext;
@@ -187,7 +196,7 @@ void sy_light_vertex(SyContext* c, const float* aEye, const float* aN, const flo
 int sy_light_cap(SyContext* c, GLenum cap, int on);		/* 1 if cap was a lighting cap */
 
 /* tex.c */
-void sy_tex_init(SyContext* c);
+int sy_tex_init(SyContext* c, SyContext* aShareWith);		/* 0 ok */
 void sy_tex_free_all(SyContext* c);
 int sy_tex_cap(SyContext* c, GLenum cap, int on);		/* 1 if cap was a texture cap */
 

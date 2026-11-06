@@ -13,26 +13,43 @@ static void tex_defaults(SyTex* t, GLuint aName)
 	t->wrapS = GL_REPEAT; t->wrapT = GL_REPEAT;
 	}
 
-void sy_tex_init(SyContext* c)
+int sy_tex_init(SyContext* c, SyContext* aShareWith)
 	{
 	tex_defaults(&c->defaultTex, 0);
 	c->bound = &c->defaultTex;
-	c->nextTexName = 1;
+	if (aShareWith && aShareWith->share)
+		{
+		c->share = aShareWith->share;
+		++c->share->refs;
+		}
+	else
+		{
+		c->share = (SyShare*)sy_allocz(sizeof(SyShare));
+		if (!c->share)
+			return -1;
+		c->share->refs = 1;
+		c->share->nextTexName = 1;
+		}
 	c->envMode = GL_MODULATE;
 	c->unpackAlign = 4; c->packAlign = 4;
+	return 0;
 	}
 
 void sy_tex_free_all(SyContext* c)
 	{
-	for (int i = 0; i < c->texCap; ++i)
-		if (c->texTable[i])
-			{
-			sy_big_free(c->texTable[i]->data);
-			sy_free(c->texTable[i]);
-			}
-	sy_free(c->texTable);
 	sy_big_free(c->defaultTex.data);
-	c->texTable = 0; c->texCap = 0;
+	SyShare* sh = c->share;
+	c->share = 0;
+	if (!sh || --sh->refs > 0)
+		return;
+	for (int i = 0; i < sh->texCap; ++i)
+		if (sh->texTable[i])
+			{
+			sy_big_free(sh->texTable[i]->data);
+			sy_free(sh->texTable[i]);
+			}
+	sy_free(sh->texTable);
+	sy_free(sh);
 	}
 
 int sy_tex_cap(SyContext* c, GLenum cap, int on)
@@ -45,24 +62,24 @@ static SyTex* lookup(SyContext* c, GLuint aName, int aCreate)
 	{
 	if (aName == 0)
 		return &c->defaultTex;
-	if ((int)aName >= c->texCap)
+	if ((int)aName >= c->share->texCap)
 		{
 		if (!aCreate) return 0;
-		int cap = c->texCap ? c->texCap : 16;
+		int cap = c->share->texCap ? c->share->texCap : 16;
 		while (cap <= (int)aName) cap *= 2;
 		SyTex** nt = (SyTex**)sy_allocz(cap * (int)sizeof(SyTex*));
 		if (!nt) return 0;
-		if (c->texTable) memcpy(nt, c->texTable, (unsigned)c->texCap * sizeof(SyTex*));
-		sy_free(c->texTable);
-		c->texTable = nt; c->texCap = cap;
+		if (c->share->texTable) memcpy(nt, c->share->texTable, (unsigned)c->share->texCap * sizeof(SyTex*));
+		sy_free(c->share->texTable);
+		c->share->texTable = nt; c->share->texCap = cap;
 		}
-	SyTex* t = c->texTable[aName];
+	SyTex* t = c->share->texTable[aName];
 	if (!t && aCreate)
 		{
 		t = (SyTex*)sy_alloc(sizeof(SyTex));
 		if (!t) return 0;
 		tex_defaults(t, aName);
-		c->texTable[aName] = t;
+		c->share->texTable[aName] = t;
 		}
 	return t;
 	}
@@ -73,8 +90,8 @@ void sy_glGenTextures(GLsizei n, GLuint* names)
 	if (n < 0) { sy_seterr(c, GL_INVALID_VALUE); return; }
 	for (int i = 0; i < n && names; ++i)
 		{
-		while ((int)c->nextTexName < c->texCap && c->texTable[c->nextTexName]) ++c->nextTexName;
-		names[i] = c->nextTexName++;
+		while ((int)c->share->nextTexName < c->share->texCap && c->share->texTable[c->share->nextTexName]) ++c->share->nextTexName;
+		names[i] = c->share->nextTexName++;
 		}
 	}
 
@@ -84,20 +101,20 @@ void sy_glDeleteTextures(GLsizei n, const GLuint* names)
 	for (int i = 0; i < n; ++i)
 		{
 		GLuint nm = names[i];
-		if (nm == 0 || (int)nm >= c->texCap || !c->texTable[nm]) continue;
-		SyTex* t = c->texTable[nm];
+		if (nm == 0 || (int)nm >= c->share->texCap || !c->share->texTable[nm]) continue;
+		SyTex* t = c->share->texTable[nm];
 		if (c->bound == t) c->bound = &c->defaultTex;
 		sy_big_free(t->data);
 		sy_free(t);
-		c->texTable[nm] = 0;
-		if (nm < c->nextTexName) c->nextTexName = nm;
+		c->share->texTable[nm] = 0;
+		if (nm < c->share->nextTexName) c->share->nextTexName = nm;
 		}
 	}
 
 GLboolean sy_glIsTexture(GLuint name)
 	{
 	SyContext* c = sy_cur(); if (!c) return 0;
-	return name != 0 && (int)name < c->texCap && c->texTable[name] != 0;
+	return name != 0 && (int)name < c->share->texCap && c->share->texTable[name] != 0;
 	}
 
 void sy_glBindTexture(GLenum target, GLuint name)
@@ -188,6 +205,7 @@ static void upload(SyContext* c, SyTex* t, int x0, int y0, int w, int h, GLenum 
 void sy_glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei w, GLsizei h, GLint border,
 					 GLenum format, GLenum type, const void* pixels)
 	{
+	SYTRACE(sy_thread_peek(), "glTexImage2D(lvl %d, ifmt 0x%x, %dx%d, fmt 0x%x, type 0x%x, %s)", (u32)__builtin_return_address(0), level, internalformat, w, h, format, type, pixels ? "data" : "null");
 	SyContext* c = sy_cur(); if (!c) return;
 	if (target != GL_TEXTURE_2D) { sy_seterr(c, GL_INVALID_ENUM); return; }
 	if (level < 0 || w < 0 || h < 0 || w > 1024 || h > 1024 || border != 0) { sy_seterr(c, GL_INVALID_VALUE); return; }
@@ -210,12 +228,23 @@ void sy_glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei w
 		}
 	t->base = format;
 	if (pixels && w && h)
+		{
 		upload(c, t, 0, 0, w, h, format, type, pixels);
+		u32 sr = 0, sg = 0, sb = 0, sa = 0, n = (u32)(w * h);
+		for (u32 i = 0; i < n; ++i)
+			{
+			u32 px = t->data[i];
+			sa += px >> 24; sr += (px >> 16) & 255; sg += (px >> 8) & 255; sb += px & 255;
+			}
+		SYTRACE(sy_thread_peek(), "  tex %d %dx%d texel0 %08x avg a%u r%u g%u b%u", (u32)__builtin_return_address(0),
+				(int)t->name, w, h, t->data[0], sa / n, sr / n, sg / n, sb / n);
+		}
 	}
 
 void sy_glTexSubImage2D(GLenum target, GLint level, GLint x, GLint y, GLsizei w, GLsizei h,
 						GLenum format, GLenum type, const void* pixels)
 	{
+	SYTRACE(sy_thread_peek(), "glTexSubImage2D(lvl %d, %d,%d %dx%d, fmt 0x%x, type 0x%x)", (u32)__builtin_return_address(0), level, x, y, w, h, format, type);
 	SyContext* c = sy_cur(); if (!c) return;
 	if (target != GL_TEXTURE_2D) { sy_seterr(c, GL_INVALID_ENUM); return; }
 	if (!pixel_bytes(format, type)) { sy_seterr(c, GL_INVALID_ENUM); return; }
@@ -249,6 +278,7 @@ void sy_glTexParameterxv(GLenum target, GLenum pname, const GLfixed* v) { if (v)
 
 void sy_glTexEnvfv(GLenum target, GLenum pname, const GLfloat* v)
 	{
+	SYTRACE(sy_thread_peek(), "glTexEnv(0x%x, 0x%x, %d)", (u32)__builtin_return_address(0), target, pname, v ? (int)v[0] : 0);
 	SyContext* c = sy_cur(); if (!c || !v) return;
 	if (target != GL_TEXTURE_ENV) { sy_seterr(c, GL_INVALID_ENUM); return; }
 	if (pname == GL_TEXTURE_ENV_MODE)
@@ -328,6 +358,7 @@ static int tex_storage(SyTex* t, int w, int h)
 
 void sy_glCopyTexImage2D(GLenum target, GLint level, GLenum internalformat, GLint x, GLint y, GLsizei w, GLsizei h, GLint border)
 	{
+	SYTRACE(sy_thread_peek(), "glCopyTexImage2D(%dx%d)", (u32)__builtin_return_address(0), w, h);
 	SyContext* c = sy_cur(); if (!c || !c->draw) return;
 	if (target != GL_TEXTURE_2D) { sy_seterr(c, GL_INVALID_ENUM); return; }
 	if (level < 0 || w < 0 || h < 0 || w > 1024 || h > 1024 || border != 0) { sy_seterr(c, GL_INVALID_VALUE); return; }

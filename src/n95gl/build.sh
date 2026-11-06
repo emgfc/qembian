@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build the sygl blob (our GLES 1.1 + EGL behind libgles_cm.dll's entry points; docs/gpu-roadmap.md)
 # and the libgles_cm patches that point at it.
-#   src/n95gl/build.sh [--debug]
+#   src/n95gl/build.sh [--debug] [--trace]
 # Output: build/n95gl/sygl.bin (raw, linked at SYGL_BASE), sygl.elf (symbols for gdb), sygl.map,
 #         rom/hybrid/gles-patches.txt (regenerated; depends only on SYGL_BASE).
 # scripts/hybrid-boot.sh puts the blob into the composed ROM when sygl.bin exists.
@@ -14,7 +14,13 @@ SYGL_BASE=0x80320000          # free gap in our ROM window (dead user-side files
 OUT="$ROOT/build/n95gl"; GEN="$OUT/gen"
 mkdir -p "$GEN"
 OPT=(-O2)
-[ "${1:-}" = "--debug" ] && OPT=(-O0 -g)
+for arg in "$@"; do
+  case "$arg" in
+    --debug) OPT=(-O0 -g) ;;
+    --trace) TRACE=1 ;;		# SYGL: trace lines (first 700 EGL/GL calls per thread, draw boxes)
+  esac
+done
+[ -n "${TRACE:-}" ] && OPT+=(-DSY_TRACE_MAX=700)
 
 python3 -I "$ROOT/tools/gen-gles-glue.py" --blob-addr $SYGL_BASE \
   --patches "$ROOT/rom/hybrid/gles-patches.txt" --asm "$GEN/entry.S" --names "$GEN/names.c" \

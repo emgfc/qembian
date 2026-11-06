@@ -17,6 +17,7 @@
            mem ADDR [LEN]|write ADDR HEX|eval EXPR|symbols NAME [ELF]|interrupt|detach|cmd GDBCMD
   sydb strace MATCH [--secs S]       IPC messages to/from processes matching MATCH (kernel KIPC trace)
   sydb tui                           curses view: status, window groups, events, log, command line
+  sydb catch add --at ADDR [--thread RE] [--max N] [--action dump|freeze]   dump each time ADDR runs
   sydb catch add [--kind panic|kill|terminate|exit|any] [--thread RE] [--category CAT] [--reason N]
                  [--action dump|freeze] [--snapshot] [--once]   catch thread deaths (see docs/sydb.md)
   sydb catch list | hits | show ID | rm [ID] | resume
@@ -439,6 +440,8 @@ def main():
             ap.add_argument('--thread', help='regex on process::thread'); ap.add_argument('--category')
             ap.add_argument('--reason', type=int); ap.add_argument('--action', default='dump', choices=['dump', 'freeze'])
             ap.add_argument('--snapshot', action='store_true'); ap.add_argument('--once', action='store_true')
+            ap.add_argument('--at', help='breakpoint rule: dump every time this address runs (cold code only)')
+            ap.add_argument('--max', type=int, default=20, help='breakpoint rule: stop matching after N hits')
             x = vars(ap.parse_args(rest[1:]))
             out(c.call(dict(x, op='catch', sub='add'), timeout=120))
         elif sub == 'rm':

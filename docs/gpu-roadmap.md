@@ -14,10 +14,14 @@ eglInitialize and stops at eglCreatePbufferSurface ("Feature not supported"): mi
 8888/gray, written back at the EGL sync points), eglCopyBuffers, eglBindTexImage, glReadPixels,
 glCopyTex(Sub)Image2D, glPolygonOffset, GL limits answered without a context, EGL_NO_DISPLAY
 accepted as our display, GL error log and a per-thread EGL call trace (`SYGL: trace`). Carousel
-renders its Music page (washed out: white on white). Open: a timing-dependent USER-EXEC 3 in
-Hitchcock (integer divide by zero: its renderer releases the display ~3 s after start and
-rebuilds on the window; a texture upload in that gap gets max texture size 0). See
-tooling-ideas.md "Freeze and snapshot on panic".
+renders its Music page. **Carousel renders correctly (2026-11-06)** once EGL share contexts
+share texture objects (Hitchcock uploads in one context and draws in the window's context).
+The USER-EXEC 3 seen when *launching a second Carousel instance* is Carousel's own race: its
+ConstructL calls CHuiEnv::Release (start in background) and the first view activation (CIdle)
+uploads textures before the foreground event's RestoreL. Bringing the boot-time instance to the
+front, as the Multimedia key does, works. Found with `sydb catch` (docs/sydb.md).
+Debug aids: `src/n95gl/build.sh --trace` (SYGL: trace of the first EGL/GL calls, draw boxes),
+host tests of the portable rasterizer: `tests/sygl/run.sh`.
 
 Static analysis, 2026-11-06. **[V]** = seen in code/binary/listing, **[I]** = inferred.
 Owner's constraints (2026-11-06): no host GPU / host-GL forwarding for now; start with a software
