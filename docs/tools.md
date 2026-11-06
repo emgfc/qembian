@@ -119,3 +119,5 @@ Its `wgprobe_reg.rsc` is dsbtest's with UID3 and name patched (UID checksum reco
 needed). Install like dsbtest, launch from Menu → Applications; it prints `WGPROBE: focus <id>
 <name>` and the full window-group order (front first, ordinal priority, name = status|UID|caption)
 every time focus or order changes, polled every 0.5 s for 10 minutes.
+
+See also [sydb.md](sydb.md): the dev/debug bridge (session daemon + phone agent + CLI + MCP).

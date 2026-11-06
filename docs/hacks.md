@@ -83,6 +83,13 @@ stand-ins below can be checked against their code (decompile with `tools/syb_sym
 | N95 kernel side dropped wholesale; our kernel files placed below the N95 user window | n/a |
 | Paging off: the core ROM is flattened | n/a |
 
+## sydb dev bridge (tools/sydb, src/n95apps/devagent)
+
+| Hack | Real implementation |
+|---|---|
+| **H-sydb-autostart**: `sydb install` puts our `dafs.exe` (ALL caps, links EUSER/EFSRV only) on C: also as `C:\sys\bin\HALSettings.exe`. EStart starts `HALSettings.exe` by bare name (0.8 s), the loader takes the C: copy; it spawns `devagent.exe` and exits with -12 like the N95's own copy does on this board (HAL settings were never restored here anyway). A `[UID].rsc` in `C:\private\101f875a\import\` does **not** work: that is SWInstSvrUI's installer input, registered only during a SIS install | trace which resource/store Starter reads its start list from (Starter_Arm.rsc in ROFS, or the dynamic startup store that the startup-list updater writes), then add devagent as a non-critical item there (ROM resource edit at compose time, or a registration utility for the store), keeping HALSettings untouched |
+| devagent.exe is All-TCB, so writes to `\sys\` and `\resource\` go through `dafs.exe mv` (TCB); EKA2 refuses an ALL-caps EXE that links non-TCB DLLs (WSERV, apparc, avkon all lack TCB) | fine as is (a design constraint, not a shortcut) |
+
 ## User-side code patches (rom/hybrid/code-patches.txt, `romcompose.py --patches`)
 
 Byte patches on N95 binaries in the composed ROM; original bytes are verified at compose time.

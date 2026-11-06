@@ -1,0 +1,116 @@
+// dafs: TCB helper of the sydb agent. ALL capabilities, links only EUSER/EFSRV (the only ROM DLLs
+// that carry TCB, so the loader accepts it; devagent.exe itself must be All-TCB because it links
+// WSERV/apparc/avkon).
+//   started as HALSettings.exe (hack H-sydb-autostart): spawn c:\sys\bin\devagent.exe, exit -12
+//   dafs mv SRC DST     move/replace SRC to DST (creating DST's directory); for \sys\, \resource\
+//   dafs rm PATH        delete
+//   dafs upgrade PIDHEX SRC   wait for process PID to exit, move SRC over c:\sys\bin\devagent.exe,
+//                             start the new agent (agent self-update, sydb update-agent)
+// Exit reason = Symbian error code of the operation.
+#include <e32base.h>
+#include <e32debug.h>
+#include <f32file.h>
+
+static TInt Main()
+	{
+	RProcess me;
+	TFileName fn = me.FileName();
+	TParsePtrC pp(fn);
+	if (pp.Name().CompareF(_L("HALSettings")) == 0)
+		{
+		RProcess a;
+		TInt r = a.Create(_L("c:\\sys\\bin\\devagent.exe"), KNullDesC);
+		RDebug::Printf("DAFS: started as HALSettings, spawning devagent -> %d", r);
+		if (r == KErrNone)
+			{
+			a.Resume();
+			a.Close();
+			}
+		return KErrPathNotFound;	// what the N95's own HALSettings.exe returns on this board
+		}
+	TBuf<512> cl;
+	User::CommandLine(cl);
+	TLex lex(cl);
+	TPtrC op = lex.NextToken();
+	TPtrC a1 = lex.NextToken();
+	TPtrC a2 = lex.NextToken();
+	RFs fs;
+	TInt r = fs.Connect();
+	if (r != KErrNone)
+		return r;
+	if (op == _L("mv") && a1.Length() && a2.Length())
+		{
+		fs.MkDirAll(a2);
+		fs.Delete(a2);
+		r = fs.Rename(a1, a2);
+		}
+	else if (op == _L("rm") && a1.Length())
+		r = fs.Delete(a1);
+	else if (op == _L("upgrade") && a1.Length() && a2.Length())
+		{
+		TUint32 pid = 0;
+		TLex l(a1);
+		l.Val(pid, EHex);
+		RProcess old;
+		if (old.Open(TProcessId(pid)) == KErrNone)
+			{
+			TRequestStatus st;
+			old.Logon(st);
+			if (st == KRequestPending)
+				User::WaitForRequest(st);
+			old.Close();
+			}
+		User::After(200000);
+		_LIT(KAgent, "c:\\sys\\bin\\devagent.exe");
+		fs.Delete(KAgent);
+		r = fs.Rename(a2, KAgent);
+		RProcess a;
+		TInt r2 = a.Create(KAgent, KNullDesC);
+		if (r2 == KErrNone)
+			{
+			a.Resume();
+			a.Close();
+			}
+		RDebug::Printf("DAFS: upgrade: rename %d, start %d", r, r2);
+		if (r == KErrNone) r = r2;
+		}
+	else
+		r = KErrArgument;
+	fs.Close();
+	return r;
+	}
+
+GLDEF_C TInt E32Main()
+	{
+	return Main();
+	}
+
+// Startup glue called from startup.s (see src/n95apps/dsbtest/dsbtest.cpp).
+struct SDaThreadCreateInfo
+	{
+	TAny* iHandle;
+	TInt iType;
+	TThreadFunction iFunction;
+	TAny* iPtr;
+	};
+struct SStdEpocThreadCreateInfo;
+IMPORT_C TInt DaSetupThreadHeap(TBool, SStdEpocThreadCreateInfo&) asm("_ZN8UserHeap15SetupThreadHeapEiR24SStdEpocThreadCreateInfo");
+
+extern "C" void DaRunThread(TBool aNotFirst, SDaThreadCreateInfo& aInfo)
+	{
+	TInt r = DaSetupThreadHeap(aNotFirst, (SStdEpocThreadCreateInfo&)aInfo);
+	if (r == KErrNone)
+		{
+		if (aNotFirst)
+			r = (*aInfo.iFunction)(aInfo.iPtr);
+		else
+			{
+			User::InitProcess();
+			r = E32Main();
+			}
+		}
+	User::Exit(r);
+	}
+
+extern "C" void DaInvariant() { User::Invariant(); }
+extern "C" void DaHandleException(TAny* aInfo) { User::HandleException(aInfo); }

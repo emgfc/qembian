@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "sydb": {
+      "command": "python3",
+      "args": ["tools/sydb/sydb.py", "mcp"]
+    }
+  }
+}
