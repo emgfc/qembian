@@ -490,6 +490,7 @@ EGLBoolean sy_eglCopyBuffers(EGLDisplay d, EGLSurface aSurface, void* aPixmap)
 	if (!t) return EGL_FALSE;
 	SySurface* s = surface_of(aSurface);
 	if (!s) return fail(t, EGL_BAD_SURFACE);
+	sy_hw_sync(s);			/* host GL: the picture into s->color first (Nokia Maps renders a pbuffer and copies it) */
 	if (!aPixmap || sy_bitmap_copy(aPixmap, s->color, s->w, s->h, 1)) return fail(t, EGL_BAD_NATIVE_PIXMAP);
 	return EGL_TRUE;
 	}

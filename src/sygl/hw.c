@@ -21,7 +21,7 @@ int sy_hw_on(SyThread* t)
 	if (!t) return 0;
 	if (t->hwState == 0)
 		{
-		u32 q[2] = { 0, 0 };		/* host GL ready, the caller's kernel thread id (owner) */
+		u32 q[2] = { 0, 0 };		/* host GL ready, the caller's process id (owner of ids and keys) */
 		t->hwState = -1;
 		if (!sy_display_open(t) && !sy_display_ctl(t, KCtlHwQuery, q) && q[0])
 			{
@@ -81,8 +81,9 @@ void sy_hw_surface_new(SyThread* t, SySurface* s)
 	u32* p = emit(t, 6);
 	if (!p) return;
 	s->hw = 1;
-	s->hwId = ++t->hwNextId;
+	s->hwId = (u32)s;			/* unique in the process (the owner), whichever thread draws to it */
 	p[0] = SYGL_SURF; p[1] = 6; p[2] = s->hwId; p[3] = (u32)s->w; p[4] = (u32)s->h; p[5] = s->depth != 0;
+	submit(t, 0, 0);			/* now: another thread may draw to it before this one submits again */
 	}
 
 void sy_hw_surface_free(SyThread* t, SySurface* s)

@@ -163,9 +163,9 @@ static TInt DisplayCtl(DThread* aClient, TInt aFn, TAny* a1, TAny*, const TUint3
 	{
 	switch (aFn)
 		{
-	case 0x7f10:	// {ready, owner}: owner = the caller's thread id (hw.c scopes its ids by it)
-		{
-		TUint32 q[2] = { (TUint32)GlReady(), aClient->iId };
+	case 0x7f10:	// {ready, owner}: owner = the caller's process id (hw.c's surface ids and texture
+		{			// keys are addresses, unique in one process, and any of its threads may use them)
+		TUint32 q[2] = { (TUint32)GlReady(), aClient->iOwningProcess->iId };
 		return Kern::ThreadRawWrite(aClient, a1, q, sizeof(q));
 		}
 	case 0x7f11:

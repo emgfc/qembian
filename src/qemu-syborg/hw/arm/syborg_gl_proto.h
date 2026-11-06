@@ -36,8 +36,8 @@ enum {
     SYGL_CLEAR,         /* surf, flags (1 colour, 2 depth), rgb 0x00RRGGBB, z 0..65535, x, y, w, h */
     SYGL_DRAW,          /* surf, SyglState, n vertices, then n SyglVtx (triangle list) */
     SYGL_READ,          /* surf, byte offset in OUT, y0, rows: rows*w words 0x00RRGGBB, top row first */
-    SYGL_OWNER,         /* owner: the guest thread the following ids and keys belong to (every
-                           buffer starts with it; ids and keys are only unique per owner) */
+    SYGL_OWNER,         /* owner: the guest process the following ids and keys belong to (every
+                           buffer starts with it; ids and keys are addresses, unique per process) */
     SYGL_OWNER_FREE,    /* owner: free all of its surfaces and textures (eglTerminate) */
 };
 
