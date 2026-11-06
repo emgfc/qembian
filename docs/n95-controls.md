@@ -11,6 +11,8 @@ you may need Fn with the function keys if they normally adjust volume/brightness
 | Applications menu | F8 | `f8` |
 | Navigation pad | Arrow keys | `up`, `down`, `left`, `right` |
 | Clear text | Backspace | `backspace` |
+| `*` key | F9 or numeric-keypad `*` | `f9`, `kp_multiply` |
+| `#` key | F10 (or `\`) | `f10` |
 | Text/numbers in edit fields | Letter/digit keys | corresponding QMP keys |
 
 Enter sends the Symbian Enter key; F6 sends the phone's centre/select key. Use
@@ -81,3 +83,13 @@ Built `keyboard.mmp` with GCCE 4.4.1, repacked the kernel ROM and composed
 Screenshots and the guest serial log are in `build/controls-test/`. This test
 covers the startup controls; applications-menu and later application behavior
 were not verified.
+
+## Keypad lock (keyguard)
+
+The N95 firmware asks "Press Unlock and then \*". Its keyguard (`aknoldstylenotif.dll`,
+0x82ddc620, verified from the code) accepts after **Unlock (F5)** either `*` (F9 / numpad `*`,
+since 2026-11-06) or the **right softkey (F7)**, within its time-out. Known problem (2026-11-06,
+open): after waking from the screensaver and pressing the second key, the screen stops being
+redrawn (only the wallpaper shows, WSERV sends no more updates and SysAp turns the backlight
+off), so the phone looks stuck even though no "locked" note follows further keys. See
+docs/roadmap.md.

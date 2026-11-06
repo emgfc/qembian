@@ -77,3 +77,12 @@ Details: docs/nokia-dsp-playback.md, docs/hacks.md (H-dspbridge).
   expected to go away as SysAp/Startup get their missing features. Not a display bug.
 - Done: host mouse input to the Syborg pointer is off by default on modern QEMU
   (`-global syborg-pointer.input=on` to enable); S60 3rd edition has no touch screen.
+
+**Open (2026-11-06): screen frozen after keyguard unlock / screensaver.** Unlock (F5 then F7 or
+`*`) is accepted per the keyguard code, but after leaving the screensaver and pressing the
+second key WSERV sends no more DisplayDriver updates (no ctl 9) and SysAp sets the lights off
+(LightDrv req 1 `0d 00`); the screen keeps only the wallpaper. Next: probe who stops drawing
+(WSERV redraw after partial-display cancel ctl 4 + rotation req 0x8003; SysAp display/light
+state), e.g. `syb_gdb brk` on ScDv's update path after the unlock. Also the screensaver band
+looks clipped (date/operator cut at the sides): check partial-display row/column mapping at
+rotation 3. Repro: `tools/syb_run.py --keep-drives D --secs 178 --key 165:f5 --key 165.6:f7`.
