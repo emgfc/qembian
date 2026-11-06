@@ -1,0 +1,11 @@
+# Personality numbers: the ROM header's kernel config field (bits 25..28) that tells our kernel which
+# exec tables a ROM's user side expects (tools/romcompose.py --exec-personality NAME; the kernel's
+# Exec92Init / sexec92.cpp). 0 = our own numbering. Bit 29 is also set for sym92, the original flag,
+# so ROMs and kernels from before the field still pair up.
+schema = 1
+[ids]
+native = 0
+sym92 = 1        # Symbian OS 9.2  (S60 3rd Edition FP1)      personalities/sym92
+sym93 = 2        # Symbian OS 9.3  (S60 3rd Edition FP2)      not yet
+sym94 = 3        # Symbian OS 9.4  (S60 5th Edition)          not yet
+symbian3 = 4     # Symbian^3 / Anna / Belle                   not yet

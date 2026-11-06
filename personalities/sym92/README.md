@@ -21,4 +21,10 @@ device's own ekern; exit 1 on any difference `kabi.toml` does not allow).
 2. Driver ABI: copy `kabi.toml`, run `tools/personality/kabi.py` against the device's ekern, and change
    our kernel until only listed differences remain (each change a patch in `personalities/sym9x/patches`).
 3. Point the device profile at it (`platform.personality`), build, smoke (`tests/device-smoke.sh ID`).
-A kernel build carries one personality's tables today (docs/devices.md, "personalities").
+The ROM says which personality its user side needs: `personalities/registry.toml` gives each one a
+number, `tools/romcompose.py --exec-personality NAME` (from the profile, via `tools/device.py build`)
+writes it into the ROM header (kernel config bits 25..28; sym92 also sets bit 29, the original flag),
+and the kernel builds that personality's tables at boot (`Exec92Init`; patch
+`patches/kernelhwsrv/platform/0010-exec-personality-number.patch`). A kernel without the asked
+personality logs `EXEC: ROM asks for personality N ... not built into this kernel` and keeps its own
+numbering. Adding sym93: its tables next to sym92's in the kernel, one more case in that selection.

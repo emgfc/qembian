@@ -18,7 +18,7 @@ exception search table, paging/compression off).
                                         files and the N95 user side (holds only our dead user-side
                                         files); listed nowhere, reached through code patches
 """
-import argparse, os, struct, sys
+import argparse, os, re, struct, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import romimg  # noqa: E402
 
@@ -141,7 +141,9 @@ def main():
                     help='add or replace a ROM file (data only), e.g. Sys/Data/ESTARTCOMP.TXT=rom/hybrid/ESTARTCOMP.TXT')
     ap.add_argument('--rofs', action='append', default=[], metavar='IMG',
                     help='ROFS image(s) for the N95 ROFS media (MEDROFS.PDD): first ROFS, then ROFx extension')
-    ap.add_argument('--exec92', action='store_true', help='set the 9.2 exec personality flag (kernel config bit 29)')
+    ap.add_argument('--exec92', action='store_true', help='= --exec-personality sym92 (the original flag, bit 29)')
+    ap.add_argument('--exec-personality', help='personality NAME or number from personalities/registry.toml: '
+                    'kernel config bits 25..28 (+ bit 29 for sym92)')
     ap.add_argument('--trace', type=lambda x: int(x, 0), help='kernel trace mask word 0 (nk_trace.h bits)')
     ap.add_argument('--patches', metavar='FILE', action='append', default=[],
                     help='code patch list: "ADDR ORIGHEX NEWHEX  # why" per line; original bytes are verified')
@@ -261,8 +263,19 @@ def main():
     put(188, est_at)               # iRomExceptionSearchTable
     put(236, 0); put(240, size); put(244, size)   # compression off, sizes
     put(328, 0); put(332, 0); put(336, 0)         # no paging
-    if a.exec92:
-        put(184, struct.unpack_from('<I', out, 184)[0] | (1 << 29))   # iKernelConfigFlags
+    pers = a.exec_personality or ('sym92' if a.exec92 else None)
+    if pers is not None:
+        import tomllib
+        ids = tomllib.load(open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                             'personalities', 'registry.toml'), 'rb'))['ids']
+        num = int(pers, 0) if re.fullmatch(r'(0x)?[0-9a-fA-F]+', pers) else ids.get(pers)
+        if num is None or not 0 <= num < 16:
+            raise SystemExit('--exec-personality %s: not in personalities/registry.toml' % pers)
+        f = struct.unpack_from('<I', out, 184)[0] & ~(0xf << 25)      # iKernelConfigFlags
+        f |= num << 25
+        if num == ids['sym92']:
+            f |= 1 << 29							# what kernels before the field look at
+        put(184, f)
     if a.trace is not None:
         put(256, a.trace)                         # iTraceMask[0]
     for pf in a.patches:

@@ -15,7 +15,7 @@ with `tools/personality/check.py` (driver ABI + exec numbering), key translation
 device id from the board, stand-in settings from the board (`[modem]` imei, power-off delay), GL per
 device (`src/sygl`, `devices/<id>/gl`), ISI names shared / replies per device, device docs and hacks
 under `docs/devices/<id>/` and `devices/<id>/hacks.md`, a phone window generated from `keymap.toml`.
-Not yet: personality chosen at run time (4.3), the LCD HAL from fb registers (`lcd_n95` is still a
+Personality selection at run time (4.3) is done (registry numbers in the ROM header). Not yet: the LCD HAL from fb registers (`lcd_n95` is still a
 profile-chosen build). Section 1 describes the state *before* the refactor, kept for the record.
 
 ## 1. Before the refactor: where the N95 was hard-wired

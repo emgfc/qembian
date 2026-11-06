@@ -1,0 +1,37 @@
+--- a/kernel/eka/kernel/sexec92.cpp
++++ b/kernel/eka/kernel/sexec92.cpp
+@@ -14,6 +14,11 @@
+ #include "exec92_map.h"
+ 
+ const TUint32 KKernelConfigExec92Personality = 1u<<29;
++// syborg-pg: the personality number (personalities/registry.toml: 0 native, 1 sym92, 2 sym93, ...)
++// in bits 25..28, written by tools/romcompose.py --exec-personality; bit 29 alone (older ROMs) = sym92
++const TUint32 KKernelConfigPersonalityShift = 25;
++const TUint32 KKernelConfigPersonalityMask = 0xfu << KKernelConfigPersonalityShift;
++const TInt KPersonalitySym92 = 1;
+ 
+ TBool Exec92Enabled = EFalse;
+ TUint32 EpocFastExecTable92[EXEC92_FAST_COUNT];
+@@ -141,9 +146,20 @@
+ 
+ void Exec92Init()
+ 	{
+-	if (!(TheSuperPage().KernelConfigFlags() & KKernelConfigExec92Personality))
++	TUint32 cfg = TheSuperPage().KernelConfigFlags();
++	TInt pers = (cfg & KKernelConfigPersonalityMask) >> KKernelConfigPersonalityShift;
++	if (!pers && (cfg & KKernelConfigExec92Personality))
++		pers = KPersonalitySym92;
++	TheSuperPage().SetKernelConfigFlags(cfg & ~(KKernelConfigExec92Personality | KKernelConfigPersonalityMask));
++	if (!pers)
+ 		return;
+-	TheSuperPage().SetKernelConfigFlags(TheSuperPage().KernelConfigFlags() & ~KKernelConfigExec92Personality);
++	if (pers != KPersonalitySym92)
++		{
++		// a personality this kernel was not built with: our own exec numbering (the ROM's user side
++		// will not run, but the kernel says why)
++		Kern::Printf("EXEC: ROM asks for personality %d (personalities/registry.toml), not built into this kernel: native exec tables", pers);
++		return;
++		}
+ 
+ 	EpocFastExecTable92[0] = EXEC92_FAST_COUNT;
+ 	for (TInt n=1; n<EXEC92_FAST_COUNT; ++n)

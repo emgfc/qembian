@@ -51,7 +51,12 @@ buttons from keymap.toml (one button per key, found by its host qcodes).
   configuration, user-side code patches) -> devices/nokia-n95-8gb-rm320/hacks.md (same hack ids);
   tests/docs-links.sh (all links resolve); tool defaults (syb_sym, ghidra/decompile.sh, n95-drive.sh)
   follow device.py paths (build/n95 remains a symlink for old command lines).
-Next: step 9 (personality chosen at run time) - only needed when a second personality exists.
+- Step 9 (done): personalities/registry.toml numbers (native 0, sym92 1, sym93 2, sym94 3,
+  symbian3 4); romcompose --exec-personality NAME writes bits 25..28 (+ bit 29 for sym92, so old
+  kernels/ROMs pair up); the kernel selects by number (patch platform/0010) and logs a personality it
+  was not built with. Verified: field ROM, legacy bit-29 ROM -> sym92; a sym93-marked ROM -> the log
+  line and native tables. device.py check requires the profile's personality in the registry.
+Remaining: the LCD HAL from fb registers (step 8 part); more personalities' tables when a 9.3+ device comes.
 
 ## Proposed section for CLAUDE.md (paste as is)
 

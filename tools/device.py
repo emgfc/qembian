@@ -361,8 +361,8 @@ def build(prof, variant=None, kernel=False, standins=True, out=None, trace=None,
            '--ours', 'build/rom-hybrid/syborg_hybrid_kernel_ARMV5_%s.img' % vr,
            '--n95', ps['core_flat'], '-o', img, '--manifest', ps['manifest'],
            '--trace', trace or hex(get(prof, 'kernel.trace_mask', 0x80000000))]
-    if pers == 'sym92':
-        cmd.append('--exec92')
+    if pers:
+        cmd += ['--exec-personality', pers]		# personalities/registry.toml number in the ROM header
     for f in get(prof, 'rom.files', []):
         cmd += ['--file', '%s=%s' % (f['rom'], device_file(prof, f['local']))]
     for r in ps['rofs']:
@@ -484,8 +484,12 @@ def check(prof):
     for f in get(prof, 'rom.files', []):
         if not os.path.exists(device_file(prof, f['local'])):
             errs.append('rom.files: %s missing' % f['local'])
-    if not os.path.isdir(os.path.join(ROOT, 'personalities', get(prof, 'platform.personality', ''))):
-        warn.append('personality %r has no directory yet (refactor step 4)' % get(prof, 'platform.personality'))
+    pers = get(prof, 'platform.personality', '')
+    reg = tomllib.load(open(os.path.join(ROOT, 'personalities', 'registry.toml'), 'rb'))['ids']
+    if pers not in reg:
+        errs.append('personality %r is not in personalities/registry.toml' % pers)
+    elif pers != 'native' and not os.path.isdir(os.path.join(ROOT, 'personalities', pers)):
+        errs.append('personality %r has a number but no personalities/%s/ (exec map, patches, kabi.toml)' % (pers, pers))
     return errs, warn
 
 
