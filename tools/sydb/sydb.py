@@ -17,8 +17,9 @@
            mem ADDR [LEN]|write ADDR HEX|eval EXPR|symbols NAME [ELF]|interrupt|detach|cmd GDBCMD
   sydb strace MATCH [--secs S]       IPC messages to/from processes matching MATCH (kernel KIPC trace)
   sydb tui                           curses view: status, window groups, events, log, command line
-  sydb hmp CMD | mcp (MCP stdio server) | --json (raw JSON output) | --session DIR
-Keys: QKeyCode names or aliases lsk rsk ok menu star hash clear back; a number = pause in seconds.
+  sydb qmp CMD [JSON-ARGS] | hmp CMD | mcp (MCP stdio server) | --json (raw JSON output) | --session DIR
+Keys: QKeyCode names or aliases lsk rsk ok menu star hash clear back; a number = pause in seconds;
+      KEY:SECONDS = hold (long press), e.g. menu:1.5 opens the task switcher.
 """
 import argparse, json, os, shutil, socket, subprocess, sys, time, zlib
 
@@ -361,6 +362,9 @@ def main():
         x = ap.parse_args(rest)
         out(c.call({'op': 'events', 'since': x.since, 'wait': x.wait, 'kinds': x.kind}),
             lambda r: [print(json.dumps(e)) for e in r['events']])
+    elif cmd == 'qmp':
+        out(c.call({'op': 'qmp', 'cmd': rest[0], 'args': json.loads(rest[1]) if len(rest) > 1 else {}}),
+            lambda r: print(json.dumps(r.get('return'))))
     elif cmd == 'hmp':
         out(c.call({'op': 'hmp', 'cmd': ' '.join(rest)}), lambda r: print(r['out'], end=''))
     elif cmd == 'update-agent':    # deploy a rebuilt agent without stopping the session

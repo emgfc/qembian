@@ -15,6 +15,11 @@ you may need Fn with the function keys if they normally adjust volume/brightness
 | `#` key | F10 (or `\`) | `f10` |
 | Text/numbers in edit fields | Letter/digit keys | corresponding QMP keys |
 
+**Long press** (e.g. hold F8 for the task switcher): hold the PC key. The Syborg keyboard device
+reports one key-down and one key-up per press like the phone's keypad and drops the host's
+autorepeat key-downs, which used to restart WSERV's own repeat/long-press timing (fixed
+2026-11-06, `src/qemu-syborg/hw/arm/syborg_input.c`). From sydb: `sydb key menu:1.5`.
+
 Enter sends the Symbian Enter key; F6 sends the phone's centre/select key. Use
 F5 to activate the displayed **OK** softkey during initial date/time setup.
 The softkey labels are not touchscreen buttons: the N95 UI expects physical

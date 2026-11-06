@@ -40,6 +40,7 @@ struct SyborgKeyboardState {
     uint32_t count, head;
     uint32_t fifo[INPUT_FIFO_MAX];
     QemuInputHandlerState *hs;
+    uint32_t held[8];         /* keys currently down (by 8-bit code): a keypad has no autorepeat */
 };
 
 static void kbd_update(SyborgKeyboardState *s)
@@ -71,7 +72,16 @@ static void kbd_event(DeviceState *dev, QemuConsole *src, QemuInputEvent *evt)
         return;
     }
     v = (kc & 0x7f) | ((kc & 0xff00) ? 0x80 : 0);
-    if (!evt->key.down) {
+    /* Host autorepeat (GTK/SDL send repeated key-downs while a key is held) would reach the guest
+       as fresh presses and keep restarting WSERV's own repeat/long-press timing, so holding Menu
+       never opened the task switcher. Like the phone's keypad, report one down and one up. */
+    if (evt->key.down) {
+        if (s->held[v >> 5] & (1u << (v & 31))) {
+            return;
+        }
+        s->held[v >> 5] |= 1u << (v & 31);
+    } else {
+        s->held[v >> 5] &= ~(1u << (v & 31));
         v |= 0x80000000;
     }
     kbd_push(s, v);

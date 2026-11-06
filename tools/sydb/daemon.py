@@ -399,9 +399,16 @@ def press(sess, keys, delay=0.3):
         if isinstance(k, (int, float)):
             time.sleep(k)
             continue
+        hold = None
+        if ':' in k:                      # KEY:SECONDS = hold (long press), e.g. menu:1.5
+            k, hold = k.rsplit(':', 1)
+            hold = float(hold)
         chord = [KEYMAP.get(p, p) for p in k.split('-')]
-        sess.qmp('send-key', keys=[{'type': 'qcode', 'data': c} for c in chord])
-        time.sleep(delay)
+        args = {'keys': [{'type': 'qcode', 'data': c} for c in chord]}
+        if hold:
+            args['hold-time'] = int(hold * 1000)
+        sess.qmp('send-key', **args)
+        time.sleep(delay + (hold or 0))
 
 
 def handle(sess, req):
@@ -510,6 +517,8 @@ def handle(sess, req):
             return sess.dbg.op(req)
         except debugger.DbgError as e:
             raise AgentError(str(e))
+    if op == 'qmp':                       # raw QMP command (e.g. input-send-event)
+        return {'ok': True, 'return': sess.qmp(req['cmd'], **(req.get('args') or {}))}
     if op == 'hmp':
         return {'out': sess.qmp('human-monitor-command', **{'command-line': req['cmd']})}
     raise AgentError('unknown op %r' % op)
