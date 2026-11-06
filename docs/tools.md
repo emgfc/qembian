@@ -60,16 +60,18 @@ Boots the ROM as it is (`build/n95/hybrid.img`) with the gdbstub, loads the kern
 the current thread from `TheScheduler`; kills stray QEMUs first. Output also in
 `build/runs/gdb-<cmd>.log`. Hardware breakpoints have no practical limit under TCG.
 
-## Modem (ISI): `tools/isi.py` and `src/n95compat/isi/isi-db.txt`
+## Modem (ISI): `tools/isi.py`, `platform/isi/names.txt`, `devices/<id>/isi-replies.txt`
 
 ```
 tools/isi.py name 09 1d                 # PN_SIM/SIM_IMSI_REQ_READ_IMSI
 tools/isi.py log build/runs/X/serial.log [--all]   # unanswered requests, or every message decoded
 ```
-`isi-db.txt` holds resource/message names (with evidence tags) and the canned reply table;
-`scripts/build-n95compat.sh` regenerates `src/n95compat/stubs/isireplies.h` from it. Adding a
-simple modem answer = one `reply RES REQ RESP bytes...` line. Replies that depend on the request
-(echoes, IMEI, light, MTC state) stay in `src/n95compat/stubs/iscpeer.inl`.
+`platform/isi/names.txt` holds the resource/message names of the BB5 modem (with evidence tags),
+shared by every BB5 device; each device's `isi-replies.txt` (profile `[modem].replies`) is its canned
+reply table. `scripts/build-standins.sh` regenerates `src/standins/_shared/isireplies.h` from them.
+Adding a simple modem answer = one `reply RES REQ RESP bytes...` line in the device file. Replies that
+depend on the request (echoes, IMEI, light, MTC state) stay in `src/standins/_shared/iscpeer.inl`;
+per-device values there come from the board config (`[modem].imei`, `power_off_delay_s`).
 
 ## Interactive runs: `scripts/run-gui.sh`
 

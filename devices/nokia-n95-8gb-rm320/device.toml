@@ -270,9 +270,8 @@ drivers = ["keypad.dll", "accelerometerldd.ldd", "accelerometerpdd.pdd", "mobile
 # Fake modem (ISI over ISC). Simple replies are a table; stateful ones are code in the stand-in.
 [modem]
 kind = "isi-fake-peer"
-db = "isi-db.txt"                          # names + replies (tools/isi.py); to be split into platform names + device replies
-names = "platform/isi/names.txt"           # resource/message names, shared (today: the res/msg lines of src/n95compat/isi/isi-db.txt)
-replies = "isi-replies.txt"                # device reply table (today: the reply lines of isi-db.txt) -> generated isireplies.h
+names = "platform/isi/names.txt"           # resource/message names, shared by BB5 devices
+replies = "isi-replies.txt"                # this device's canned replies -> generated isireplies.h
 stateful = "nokiaiscdriver"                # H-modem-power, H-light, H-em, H-imei, MTC state machine (iscpeer.inl)
 device_id = 0x6C                           # PN_DEV_SOS
 imei = "490154203237518"                   # documentation example, not a real IMEI (H-imei)
