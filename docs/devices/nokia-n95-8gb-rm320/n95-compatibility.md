@@ -1,7 +1,7 @@
 # N95 (Symbian 9.2 / S60 3rd FP1) on the open-source EKA2 kernel: first assessment
 
 Scope: what can be checked **without** the N95 firmware. Evidence files are in
-[evidence/abi/](../../evidence/abi). The tools are `tools/dso_ordinals.py` and `tools/exec_table.py`.
+evidence/abi/. The tools are `tools/dso_ordinals.py` and `tools/exec_table.py`.
 Legend: **[verified]**, **[inferred]**, **[unverified]**.
 
 ## Verdict

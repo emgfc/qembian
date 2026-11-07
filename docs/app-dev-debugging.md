@@ -132,8 +132,7 @@ is that every call returns one small structure and never a transcript. Live tran
   E32 header capabilities of the exe we build (elf2e32 `--capability`); for a test exe with no
   caps nothing is checked. WSERV/Avkon apps need no caps for drawing.
 - Executables must live in `\sys\bin` of a drive; `C:\sys\bin` is searched before `Z:`
-  (that is how `installserver.exe` is replaced, unverified so far [verified:
-  n95-installserver.md]). No SIS, no signing: the loader does not verify signatures, only the
+  (so a replacement `installserver.exe` on C: would take precedence). No SIS, no signing: the loader does not verify signatures, only the
   install server does.
 - A launcher calling `RProcess::Create` needs no capability; `kill` of another process needs
   `PowerMgmt` — give the launcher `ALL -TCB` when building (elf2e32), the loader accepts any

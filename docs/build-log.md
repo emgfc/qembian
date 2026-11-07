@@ -88,7 +88,7 @@ verified. All fixes live in scripts or the container definition, so nothing is a
 ## 8. Verified outcome
 
 - Clean rebuild from scratch (`rm -rf build cache`, container image deleted) via `scripts/build-all.sh`:
-  **3 min 35 s**, exit 0 ([log](evidence/clean-build.log)). This excludes the one-time
+  **3 min 35 s**, exit 0 (log). This excludes the one-time
   downloads (about 2 GB, which were cached).
 - `kernelhwsrv`: `sbs : errors: 0`. Syborg BSP + ROM: `sbs : errors: 0`, 124 warnings
   (mostly unfrozen exports and `-Wno-*` noise).
@@ -185,8 +185,8 @@ The plan is in [roadmap.md](roadmap.md) and the firmware facts in
 | 41 | Startup runs 2→3→5→6→7→8 (gdb breakpoint on its state function) and stops in state 8: `sae` publishes SIM status 0x100052E9 = 1 and 0x100052F0 = 3 (neither OK nor "SIM problem"): SIM state never definite | | fake modem gives a definite "no SIM" (run 42) |
 | 42 | Fake modem: `SIM_STATUS_RESP` status 0x06 (SIM_SERV_SIM_DISCONNECTED; NokiaDSY 0x808bfb54 read our old 0x1C as "card present") and `SEC_STATE_RESP` 0x05 (SEC_STARTUP_OK; NokiaDSY ignores 0x16). sae now publishes 0x100052E9 = 5 (SIM removed) and 0x100052F0 = 1 (security OK); Startup takes its no-SIM path (offline, 0x11 = 0x66) and runs 8→9→**10 (hands animation)**→11..14: region, date, time queries (answered with F5) → **212 at 42 s, SysAp 203, idle screen**. At 71 s Starter panics `Phone.exe 2` (Phone never signals ready; see H-phone-ready-skip) and the system restarts | | next: Phone readiness (213 / Starter's Phone monitor) |
 
-What already works in run 13, all N95 binaries on our kernel ([boot summary](evidence/e1/hybrid-boot-summary.txt)) ([trace excerpt](evidence/e1/hybrid-serial-excerpt.txt),
-[loaded code segments](evidence/e1/hybrid-codesegs-loaded.txt), [exec call counts](evidence/e1/hybrid-exec-call-counts.txt)):
+What already works in run 13, all N95 binaries on our kernel (boot summary) (trace excerpt,
+loaded code segments, exec call counts):
 - `efile.exe` and its loader thread: code-seg create, load, dependencies, library attach.
 - C++ leave/trap through `LeaveStart`/`LeaveEnd`, client/server IPC, drive threads.
 - `erofs.fsy`, `ecomp.fsy` and `ELocal.fsy`, with C: mounted as FAT on Syborg NVMemory through our
@@ -204,7 +204,7 @@ and answers like a modem in NORMAL state with no SIM, per
 Ghidra, `tools/ghidra/decompile.sh`; key claims re-checked against the decompiled IscApi). With it,
 DosServer finishes, Starter runs its start list (c32start/c32exe with ETel and NOKIATSY,
 FeatMgrServer, mpmserver, SAServer), and LanguageSelection no longer panics. All ISC traffic is
-logged ([evidence](evidence/e1/hybrid-isc-traffic.txt)): unanswered so far are NOKIATSY's
+logged (evidence): unanswered so far are NOKIATSY's
 resource 0x1b/0x0a/0x17/0xdb requests, SAServer's 0x1b, and LanguageSelection's SIM 0x1f/0x19 reads.
 
 Remaining non-fatal panics: `LanguageSelection` (`StartupLangPlugI -5`), `mc_useragent` (`KERN-EXEC 0`).

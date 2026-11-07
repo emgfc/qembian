@@ -3,7 +3,7 @@
 Continuation of [n95-isc-isi-protocol.md](n95-isc-isi-protocol.md) (same conventions: wire offsets
 are those of the buffer handed to `RIscApi::Send`/returned by `Receive`, `[8]` = transaction id,
 `[9]` = message id, `[10..]` = payload; length `[4..5]` little-endian = total − 6). Input: the
-ISC traffic of the 2026-11-04 hybrid boot ([evidence/e1/hybrid-isc-traffic.txt](../../evidence/e1/hybrid-isc-traffic.txt)),
+ISC traffic of the 2026-11-04 hybrid boot (evidence/e1/hybrid-isc-traffic.txt),
 the Ghidra decompiles in `build/n95/ghidra/` (NOKIATSY, SAFeatureInfoService, SAServer, SAClient,
 FeatureInfoAdaptation, FeatMgrServer, startuplanguageplugin, EInfoServer, NokiaDSY) and
 `build/n95/ghidra/DATAPORT.CSY.c`, produced with the new `tools/e32load.py` from the ROFS image

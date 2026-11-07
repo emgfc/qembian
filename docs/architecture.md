@@ -52,7 +52,7 @@ the ROM at linear `0x80000000` (`romlinearbase`) and kernel data at `0xC8000000`
 jumps to EKERN's `_E32Startup` (`0x80003130` in our build).
 
 ROM header settings (`rom/header.iby`, preprocessed into
-[the generated oby](evidence/syborg_tshell_ARMV5_udeb_rom.oby)): `memmodel multiple 0x100000`,
+the generated oby): `memmodel multiple 0x100000`,
 `romsize 0x2000000`, `kerneltrace 0x80000000` (panics only; `build-rom-trace.sh` changes it),
 `debugport 0`, `nowrapper`, PlatSec enforcement ON.
 
@@ -62,7 +62,7 @@ Kernel-side load order (from the oby): `EKERN.EXE` (primary) → `BTRACEX.LDD` �
 `MEDNVMEMORY.PDD`, `MEDINT.PDD`, sound.
 
 Boot sequence observed on serial with `kerneltrace 0x80000003`
-([excerpt](evidence/own-udeb-trace0x80000003-serial-head.txt)):
+(excerpt):
 
 1. `Variant installed` → `K::InitialiseMicrokernel` → `MM::Init1` (ARM MMU, caches)
 2. `Syborg::Init1`, `SyborgInterrupt::Init1`, `NTimerQ::Init1 - period 10000 us` (100 Hz tick)

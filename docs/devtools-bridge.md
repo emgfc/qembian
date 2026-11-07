@@ -74,7 +74,7 @@ ESTART drive entry is more work than the agent's `put`).
 | P&S / CenRep read/write | agent `pget/pset CAT KEY` (`RProperty`), `crget` (`CRepository`, `centralrepository.h`) | 0.3 d | agent |
 | Files: ls/get/put/rm anywhere | agent (`RFs`, TCB) — replaces `n95-drive.sh` while the phone runs | in agent v1 | agent |
 | Rerun without reboot | agent kill+put+run (seconds); **instant reset**: QMP `savevm`/`loadvm` of a post-boot state needs qcow2 drives (`-drive format=qcow2`); today's drives are raw [verified run-modern.sh] | 0.5 d | QMP, drive format |
-| Install SIS/SISX (later) | hacked `installserver.exe` on C: (docs/devices/nokia-n95-8gb-rm320/n95-installserver.md) + agent calling the SW installer launcher API (`SwiUI::RSWInstSilentLauncher`, header not in the public SDK [verified: not found in the SDK]) — or just `put` the files the SIS would install | 2–4 d | install server |
+| Install SIS/SISX (later) | a patched `installserver.exe` on C: + agent calling the SW installer launcher API (`SwiUI::RSWInstSilentLauncher`, header not in the public SDK [verified: not found in the SDK]) — or just `put` the files the SIS would install | 2–4 d | install server |
 | Human TUI | `textual` app on the same session: screen pane (PNG), filtered serial pane, ps pane, command line with the MCP verbs | 2 d | everything above |
 
 ## 3. Transport and on-target design decisions

@@ -4,9 +4,7 @@
 /build/
 /out/
 *.log
-!docs/evidence/*.log
 __pycache__/
-/linuxboot/linux-stable-nokia-tablets/
-/linuxboot/rapuyama-linux/
 /roms/
 src/standins/_shared/isireplies.h
+/firmware/

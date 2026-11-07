@@ -2,9 +2,8 @@
 
 Goal: start Linux from a running Symbian on our QEMU N95 the way it would be done on a real N95
 (app + kernel driver take over the machine), as a rehearsal for the real phone. Status 2026-11-06:
-plan only. Sources: `linuxboot/N95-REPORT.md`, `linuxboot/N95-AGENT-PLAN.md` (real-phone plan),
-`linuxboot/rapuyama-linux` (Nokia E6 loader that boots Linux, ARM1176), `linuxboot/linux-stable-nokia-tablets`
-(Linux 5.15.86, `n810-5.15`, OMAP2420/ARM1136). Both checkouts are git-ignored.
+plan only. Background: rapuyama-linux (a Nokia E6 loader that boots Linux, ARM1176) and
+the Linux 5.15 Nokia tablet tree (`n810-5.15`, OMAP2420/ARM1136); neither is part of this repository.
 
 ## What carries over to the real N95 and what does not
 
@@ -66,7 +65,7 @@ step 5, not before.
    trampoline and Linux run the exact ARMv6 code paths of the phone; optionally 128 MB RAM.
    Risk: breaks the working N95 boot; do it on a branch with a ROM per CPU.
 7. **Real-phone track** (outside the emulator): the loader LDD rebuilt against 9.2 EKERN, an
-   installation route on a hacked phone, then the plan in `linuxboot/N95-AGENT-PLAN.md`
+   installation route on a hacked phone, then an OMAP2420 bring-up
    (OMAP2420 DT, UART/USB console, RFBI panel). Everything from steps 3–5 is reused.
 
 ## Not wasting tokens
@@ -87,4 +86,4 @@ step 5, not before.
 - **Stop rule:** the same symptom 3 runs in a row → stop, write down facts vs hypotheses, change
   the method (add a probe/tool), and log the missing tool in `docs/tooling-ideas.md`.
 - **Build hygiene:** kernel build output to a log file, show only errors; incremental builds;
-  one config file in the repo (`linuxboot/syborg/…`, to be created), not edited by hand each run.
+  one config file in the repo (to be created), not edited by hand each run.
