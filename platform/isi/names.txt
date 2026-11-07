@@ -32,6 +32,7 @@ res 59 PN_UNKNOWN_59          inferred  # 4th self-test step, 10 s timeout in No
 res 62 PN_EPOC_INFO           ref
 res D9 PN_PIPE                ref
 res DB PN_NAMESERVICE         verified
+res F3 PN_DSP_MDAIF?           inferred  # 5730 RAPIDO audio DSP setup (Aamm.DLL); docs/devices/nokia-5730-rm465/rapido-audio.md
 
 msg 09 19 SIM_NETWORK_INFO_REQ            ref
 msg 09 1D SIM_IMSI_REQ_READ_IMSI          ref
@@ -80,5 +81,6 @@ msg 47 08 LIGHT_CTRL_IND?                 inferred
 msg DB 01 PNS_NAME_QUERY_REQ              verified
 msg DB 05 PNS_NAME_ADD_REQ                verified
 msg DB 07 PNS_NAME_REMOVE_REQ             verified
+msg F3 30 DSP_START_REQ?                  inferred  # header only; resp 31 = 34 bytes (A0..A3, B0..B3)
 
 # ---- canned replies (formerly the KTable in iscpeer.inl) ----

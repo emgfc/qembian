@@ -236,7 +236,7 @@ role = "backlight PDD: load-only"
 name = "aamdaifdriver"
 kind = "ldd"
 family = "nokia-rapido"
-role = "MdaifDriver (RAPIDO audio): PROBE, accepts and logs everything (H-mdaif-probe)"
+role = "MdaifDriver (RAPIDO audio): start-up controls 5/2/10/7/6, silent (docs/devices/nokia-5730-rm465/rapido-audio.md)"
 
 [[standins]]
 name = "medrofs"
