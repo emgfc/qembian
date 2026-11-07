@@ -42,6 +42,9 @@ apply (fake modem, stub certificate, ...).
    for idle: EikSrvs dies with MmfAudioServer.
 2. `[milestones]` idle line and `expected_idle_s` once it reaches idle.
 3. Camera lens-cover switch, landscape (camera) mode, twips of the 2.4" panel.
+4. Modem: `PN_PHONE_INFO` 0x15 (INFO_PRODUCT_INFO_READ, selector 0x0A, from EInfoServer) is the only
+   unanswered ISI request of the boot so far; the N95 never sends it, so its reply layout is unknown
+   (left unanswered rather than guessed).
 
 ## Checklist (docs/adding-a-device.md)
 
