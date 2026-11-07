@@ -2,7 +2,7 @@
  * Syborg audio output for the N95 hybrid: the "speaker" behind our fake DSP.
  *
  * On the N95 the DSP decodes audio and drives the codec itself; decoded sound never comes back
- * to the ARM side. Our DSP-bridge stand-in (src/n95compat/stubs/ehwa.cpp) therefore hands the
+ * to the ARM side. Our DSP-bridge stand-in (src/standins/ehwa/ehwa.cpp) therefore hands the
  * streams it receives to this device, which plays them through QEMU's audio backend
  * (-audiodev ...; the board passes it on as the "audiodev" property).
  *

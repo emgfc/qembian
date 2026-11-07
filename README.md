@@ -1,114 +1,177 @@
-# syborg-pg — EKA2 on the Syborg virtual platform
+# qembian
 
-A reproducible environment that builds the open-source Symbian **EKA2 kernel** (Symbian
-Foundation `kernelhwsrv`, branch `GCC_SURGE`, E32 build 3098) and the **Syborg** board
-support package with GCC, packs a text-shell ROM, and boots it in the Symbian-modified
-**QEMU 0.9.1** ("Symbian Virtual Platform").
+qembian runs the original user side of Nokia S60 phones (Symbian 9.x) on an open-source EKA2
+kernel inside QEMU. The phone's own ROM supplies the applications, servers and libraries. qembian
+supplies the kernel, the board, and replacements for the phone's hardware drivers. The goal is
+to develop and debug Symbian applications in the real firmware environment of a given phone,
+with a debugger, symbols and tracing, instead of on a device or in a high-level emulator.
 
-The longer-term goal is running original Nokia N95 8GB (Symbian 9.2 / S60 3rd FP1) userspace.
-The current plan is in [docs/roadmap.md](docs/roadmap.md): first our kernel with a 9.2 exec personality
-running the N95 user side unmodified, then full OMAP2420 emulation.
+## Read this first
 
-## Status (2026-11-04)
+This is an early, unpolished research project, and it is written mainly for AI coding agents.
+Building it, adding a phone and debugging on it are designed to be done by an agent (an LLM
+with shell access) that reads the documents in `docs/` and `CLAUDE.md`. On-device debugging is
+exposed as an MCP server (`sydb`) for that purpose. Setting it up by hand is possible, but the
+instructions are not written for people following them step by step. Some human-oriented notes
+are given below on a best-effort basis.
 
-| Milestone | Status | Evidence |
+If you want to play old Symbian games or run applications, this is not the right tool. Use
+[EKA2L1](https://github.com/EKA2L1/EKA2L1), which is a ready-to-use emulator. qembian is for
+developers who need the phone's real ROM.
+
+No firmware is included. You need your own copy of the phone's flash files (see "Firmware").
+
+## How it works
+
+**Hybrid ROM.** A phone ROM holds a kernel side (the EKA2 kernel, memory model, hardware drivers)
+and a user side (file server, window server, every DLL and application). qembian builds its own
+kernel side from the Symbian Foundation's open-source kernel (`kernelhwsrv`) and the Syborg
+board support package, and composes it with the phone's user side into one ROM image. The phone's
+user side stays byte-for-byte at its original addresses, so every import and DLL reference in it
+remains valid (`tools/romcompose.py`).
+
+**Personalities.** The open-source kernel is not the one the phone shipped with. Symbian 9.1 and
+9.2 numbered their kernel calls differently and laid out some structures differently. A
+personality (`personalities/sym91`, `personalities/sym92`) maps the phone's calls onto the kernel
+and adapts what differs. The ROM header selects one at boot.
+
+**Stand-in drivers.** The phone's kernel-side drivers drive real hardware (OMAP display, DSP,
+modem link) that the emulated board does not have. They are replaced by stand-ins
+(`src/standins/`) that answer the same interfaces as far as the user side needs: display, DSP
+bridge for audio, a fake cellular modem (ISI protocol, canned replies), security, lights, and
+ROFS media. A stand-in is written from the calls the phone's user-side clients make, at the level
+needed to satisfy them.
+
+**Debugging.** Since the kernel is ours, the platform can observe everything: gdb with symbols
+for both our kernel and the phone's ROM, IPC tracing, catching a thread the moment it panics,
+machine snapshots that can be resumed again and again, screenshots and key input. `sydb`
+(`tools/sydb/`, `docs/sydb.md`) bundles this as a command-line tool and as an MCP server.
+
+**Patches.** Everything we change in other projects is kept as patch files and applied at build
+time, never as edited copies:
+
+| Patch set | Applies to | Why |
 |---|---|---|
-| M1 environment | done | `scripts/build-all.sh` rebuilds everything from pinned, checksummed inputs in about 3.5 min (input downloads not included): [clean-build.log](docs/evidence/clean-build.log) |
-| M2 QEMU | done | Symbian QEMU builds; the prebuilt PDK 4.0a Syborg ROM boots to ESHELL: [screenshot](docs/evidence/pdk-fixture-eshell.png) |
-| M3 own ROM | done (udeb) | A ROM of our own GCC-built kernel, BSP and file server boots to an interactive ESHELL ([screenshot](docs/evidence/clean-build-eshell-dir.png)) and starts processes ([btrace](docs/evidence/own-udeb-btrace.png)). The serial kernel trace is in [evidence](docs/evidence/own-udeb-trace0x80000003-serial-head.txt). |
-| M4 N95 assessment | firmware inventoried | [docs/n95-firmware-inventory.md](docs/n95-firmware-inventory.md) (RM-320 core ROM extracted, 9.2 exec table recovered, XIP import census) and [docs/n95-compatibility.md](docs/n95-compatibility.md) (options; recommendation) |
+| `patches/kernelhwsrv/platform/` | the open-source EKA2 kernel | build with modern toolchains, tracing, kernel personality support |
+| `patches/kernelhwsrv/policy/` | the kernel | optional run-time policies (e.g. survive a critical user thread that exits) |
+| `personalities/*/patches/` | the kernel | each Symbian version's call numbering and ABI differences |
+| `patches/qemu-baseport/` | the Syborg board support package | phone-like CPU, RAM, timers, RTC, display modes, keyboard |
+| `patches/qemu-modern/` | QEMU | CPU model details the phone firmware relies on |
+| `patches/elf2e32_next/` | elf2e32_next | post-linking GCC 14 output |
+| `devices/<id>/code-patches.txt` | the composed phone ROM | small byte patches where a stand-in cannot help (each one documented, original bytes verified before patching) |
 
-| E1 option 1 (N95 user side on our kernel) | in progress | Nokia's file server, EStart, WSERV, FBSERV, ECOM, Starter and DosServer (21 processes) run unmodified on our kernel with the 9.2 exec personality and stand-ins for Nokia hardware drivers; next blocker: modem/system state for Starter ([build-log](docs/build-log.md#option-1-e1-our-kernel--92-exec-personality--n95-user-side)) |
+Every workaround is listed in `docs/hacks.md` and `devices/<id>/hacks.md`.
 
-The `urel` variant has not been built yet. SDL window mode (`run.sh --gui`) has not been
-tried on a desktop session. All other features have been run as documented below.
+**Devices.** Everything specific to a phone is declared in `devices/<id>/` (`device.toml`,
+keymap, modem replies, drive map, byte patches). One QEMU binary and one set of tools serve
+every phone. `docs/devices.md` describes the model, `docs/adding-a-device.md` the procedure.
 
-## Requirements
+## Status
 
-- Linux x86_64 host with **podman** (rootless works; tested with 6.1.2). Docker should also
-  work: run with `ENGINE=docker`, which has not been tested.
-- `git`, `curl`, `sha256sum`, about 8 GB of free disk (the downloads are about 2 GB).
-- Optional: a multi-arch `gdb` on the host, for kernel debugging.
+- Nokia N95 8GB (RM-320, Symbian 9.2, S60 3rd Edition FP1) is the device that was actually
+  tested: start-up, home screen, menus, built-in applications, installed applications, audio,
+  OpenGL ES.
+- Nokia N73 (RM-132, Symbian 9.1) reaches the home screen and its menu.
+- Nokia 5730 XpressMusic (RM-465, Symbian 9.3) boots but does not finish start-up yet.
 
-All legacy tooling runs in a **Debian 6 "squeeze" i386** container built from
-`container/Containerfile`. The host needs no 32-bit libraries.
+Devices other than the N95 are first bring-up steps, used mainly to exercise the kernel
+compatibility layer. Expect them to stop short of a usable phone.
 
-## Quick start
+**3D graphics.** OpenGL ES 1.1 is a first, simple implementation. It renders a limited set of
+known applications correctly; correctness elsewhere is not guaranteed. There is a software
+renderer and a host-GPU-accelerated one (`sydb start --gl soft|host`).
+
+**Audio.** By default a session records the phone's audio to a WAV file. `sydb start --audio host`
+plays it through PipeWire; `AUDIO=pa`, `alsa` or `sdl` selects another QEMU audio driver. This
+works on a typical PipeWire desktop. Other audio setups are not supported.
+
+**Host platform.** Linux on x86-64 (amd64) is the only tested host. Other systems and
+architectures may work, but they are not tested or supported.
+
+## Firmware
+
+Put the flash files of your phone in a directory (for example `roms/<model>/`, which git ignores)
+and point the inventory tool at it. The following original files (as distributed, before any
+conversion) were used. Compare yours with `sha256sum`:
+
+| Device | File | SHA-256 |
+|---|---|---|
+| N95 8GB RM-320, 35.0.001 | `RM-320_35.0.001_PR.C0R` | `018dc62b2378801d26aa86e76e019236c57ac756925dc00a99b354f5ecbccf95` |
+| | `RM-320_35.0.001_PR.v13` | `9797555aa695f7424bd8fe5f1aaf918ea35da628f01bdaeef7f80f1073212a86` |
+| N73 RM-132, 3.0717.1.4.1 | `N73_3.0717.1.4.1_western_C00_PRD_cc.fpsx` | `d708a376e57c0d42dbe83bec94a1c7119598ff13b0e630954314ab9712edad05` |
+| | `N73_rofx_3.0717.1.4.1_PRD.V16` | `0efd5eb42072f8a00bf294c532777410fe64834b0adbf5bf602da15f23552fcf` |
+| 5730 RM-465, 101.48.128 | `rm465_10148128_prd.c00` | `5f11fc66e5588a98bbf4fdf47f2b774ffaeea25137a0ee2a2f7fa20543e98967` |
+| | `rm465_10148128_prd_prdapps.rofs2.v19` | `c2ff454a10b8d5675abbf1e57fa79fc511b509ad0e54b0d6ffd19b06ac493bb0` |
+| | `rm465_10148128_prd_prdapps.rofs3.v19` | `2b5ea8f95f42cdb7b6e93e158c2e03c7eeb5add8f2e3378a57c194e3c1a723d8` |
+
+The same list is in `devices/<id>/firmware.sha256`. `tools/device.py identify DIR` tells which
+profile a set of extracted images belongs to.
+
+## Building
+
+Requirements: Linux amd64, podman (or Docker with `ENGINE=docker`), git, curl, Python 3.11 or
+newer, about 15 GB of disk. All compilers run in two containers that the scripts build on first
+use: `container/Containerfile` (Debian 6 i386: Symbian host tools, kernel, board support,
+stand-ins) and `container/Containerfile.modern` (Debian 13: QEMU, GCC 14 for
+`arm-none-symbianelf`, elf2e32_next).
 
 ```sh
-scripts/build-all.sh          # fetch -> container -> QEMU -> host tools -> kernel -> BSP+ROM -> boot test
+scripts/fetch.sh                        # pinned sources and toolchains (sources.lock), checksummed
+scripts/setup-epocroot.sh               # Symbian build tree, applies the kernel and board patches
+scripts/build-hosttools.sh              # Symbian host tools (rombuild, elf2e32, ...)
+scripts/build-kernel.sh                 # the EKA2 kernel
+scripts/build-qemu-modern.sh --container   # QEMU with the Syborg board -> build/qemu-modern-ct/
+
+# per phone (N95 8GB shown)
+tools/fw/inventory.py --device nokia-n95-8gb-rm320 --fw-dir roms/<model>/<version>
+tools/device.py build nokia-n95-8gb-rm320 --kernel   # board support, stand-ins, composed ROM
+
+# run it in a session of its own, with a window
+tools/sydb/sydb.py --session build/sydb-n95 start --fresh --gui
 ```
 
-Results:
-- ROM: `build/epocroot/epoc32/rom/syborg_tshell_ARMV5_udeb.img` (+ `.symbol`, ROMBUILD log in `epoc32/rom/syborg/`)
-- Boot test: `build/boot-test/syborg_tshell_ARMV5_udeb/{serial0.log,screen-*.png}`
+The container-built QEMU runs through `scripts/qemu-container.sh`, which the run scripts use
+automatically when there is no host build. With the development packages listed in
+`container/Containerfile.modern` installed on the host, `scripts/build-qemu-modern.sh` without
+`--container` builds a native QEMU instead.
 
-## Individual steps
-
-| Script | What it does |
-|---|---|
-| `scripts/fetch.sh` | Clones the pinned git revisions into `external/` and downloads the pinned archives into `downloads/`. Every pin is in `sources.lock` and every download is sha256-verified. |
-| `scripts/setup-epocroot.sh` | Assembles `build/epocroot`: the PDK epoc32 headers and tools, the LinuxBuild package, and copies of the kernel and baseport sources. Unpacks the GCC toolchain, patches its libgcc ([why](docs/build-log.md#5-libgcc-lacks-the-arm-eabi-integer-helpers)) and extracts the PDK fixture ROMs. |
-| `scripts/build-qemu.sh` | Builds QEMU 0.9.1-symbian, its Python device plugins and `libnvmemmory.so` into `build/qemu/install`. |
-| `scripts/build-hosttools.sh` | Builds Raptor (sbs 2.15.2) and the Linux host tools (elf2e32, rcomp, rombuild, ...). |
-| `scripts/build-kernel.sh [udeb\|urel]` | Builds `ksrt_gcce` and then the whole `kernelhwsrv` package (`arm.v5.<var>.gcce4_4_1.surge`). |
-| `scripts/build-syborg.sh [udeb\|urel]` | Builds the Syborg BSP and, through its ROM extension, the text-shell ROM. |
-| `scripts/build-rom-trace.sh [var] [mask]` | Rebuilds the ROM with a different `kerneltrace` mask, for example `0x80000003` (KBOOT and KHARDWARE). |
-| `scripts/hybrid-boot.sh [--no-build] [--secs N] [--trace MASK]` | Option 1 loop: rebuild our kernel side, compose it with the N95 user side and ROFS (`tools/romcompose.py`, 9.2 exec personality on), boot headless on a 240×320 board (`SYBORG_DTB`) and summarise the serial log. |
-| `scripts/build-n95compat.sh` | Builds `src/n95compat` (stand-ins for N95 kernel drivers: ISC, Custom, DisplayDriver, ROFS media, `lcd_n95`) and the hybrid's kernel-side ROM. |
-| `N95_FW_DIR=… scripts/n95-inventory.sh` | Read-only analysis of an N95 8GB firmware set: container split, core-ROM unpaging, file list, EUSER SWI table, import census. Output goes to `build/n95/`. No firmware bytes are committed. |
-
-## Running
-
-For the N95 hybrid on modern QEMU, see [N95 controls](docs/n95-controls.md):
-F5/F6/F7 are left softkey/select/right softkey, F8 opens the applications menu.
-The guide also covers the arrow-key fix and the numeric-keypad workaround.
+Guest code built with GCC 14 (the OpenGL ES library, the sydb on-phone agent) also needs the
+Nokia S60 3rd Edition SDK, which cannot be redistributed. It is mounted at build time:
 
 ```sh
-scripts/run.sh --fixture --timeout 30          # prebuilt PDK ROM; serial0 on stdout, headless
-scripts/run.sh                                 # our ROM, headless (the shell is on the framebuffer, so use boot-test or --gui)
-scripts/boot-test.sh --secs 60 --type 'dir z:\sys\bin'   # Xvfb + screenshots + typed commands
-scripts/run.sh --gui                           # SDL window via host X11 (not yet tried)
-scripts/run.sh --gdb                           # gdbstub on 127.0.0.1:1234, CPU halted at reset
-scripts/run.sh --gdb-nowait IMG                # gdbstub without halting (attach/detach to sample the PC)
+S60SDK=/path/to/S60_3rd_FP1/Epoc32 CONTAINER=modern scripts/in-container.sh src/sygl/build.sh
+S60SDK=/path/to/S60_3rd_FP1/Epoc32 CONTAINER=modern scripts/in-container.sh src/n95apps/devagent/build.sh
 ```
 
-- **serial0** is the kernel debug port (`Kern::Printf`, `RDebug::Print`). ESHELL draws on the
-  framebuffer through EWSRV, so the shell shows up in screenshots or the SDL window, not on serial.
-- The Syborg keymap is UK layout. `boot-test.sh` sends `\` as the ISO 102nd key.
-- Debugging: `gdb -ex 'set architecture arm' -ex 'target remote 127.0.0.1:1234'`. The ROM
-  symbol file gives addresses, for example `hbreak *0x80003130` for EKERN `_E32Startup`.
-  This has been tried and works.
+`tests/device-smoke.sh ID` checks a build end to end (boot to the home screen, an application,
+switch-off).
 
-## Layout
+## For agents
 
-```
-sources.lock          pinned git revisions + download URLs/sha256
-container/            Containerfile (squeeze i386) + uname shim
-scripts/              everything above; libgcc-shim/ for the toolchain fixup
-tools/                analysis helpers (DSO/DEF ordinal diff, exec-table numbering, BB5 FIASCO split,
-                      paged-ROM unpacker, XIP ROM reader, SWI-table recovery, XIP import census,
-                      XIP disassembler, ROM composer, DTB editor); tools/exec92/ = 9.2 exec map
-src/n95compat/        kernel-side stand-ins for N95 hardware drivers (option 1)
-rom/hybrid/           board configuration overrides for the hybrid ROM
-patches/              source patches applied by setup-epocroot.sh (kernel, Syborg baseport)
-docs/                 research, build log, architecture, N95 compatibility, evidence/
-external/ downloads/ cache/ build/    generated, git-ignored
-```
+Start with `CLAUDE.md`, then `docs/tools.md` (debugging tools), `docs/sydb.md` (the bridge and
+its MCP server, configured in `.mcp.json`), `docs/devices.md` and `docs/adding-a-device.md`
+(device model and how to add a phone), `docs/hacks.md` (every workaround) and `docs/roadmap.md`.
 
-## Documentation
+## Credits
 
-- [docs/research.md](docs/research.md): sources, branches, toolchains, dependency graph, what is and isn't available
-- [docs/build-log.md](docs/build-log.md): every build problem hit, its cause and its fix
-- [docs/architecture.md](docs/architecture.md): virtual board, ROM, boot sequence, build pipeline
-- [docs/emulator-options.md](docs/emulator-options.md): why QEMU-style full-system emulation, dynarmic/Unicorn trade-offs, measured QEMU 0.9.1 hot spots
-- [docs/roadmap.md](docs/roadmap.md): decided plan, option 1 (9.2 exec personality) then option A (OMAP2420 emulation), with step exit criteria
-- [docs/n95-firmware-inventory.md](docs/n95-firmware-inventory.md): what is in the RM-320 firmware, measured
-- [docs/n95-compatibility.md](docs/n95-compatibility.md): feasibility of running N95 userspace, approach comparison, next experiment
+- **Syborg**, the Symbian virtual platform: the QEMU board and devices were created by
+  CodeSourcery, and the Syborg board support package by Nokia and its contributors, both released
+  through the Symbian Foundation. qembian's board is a reimplementation of Syborg for current QEMU,
+  and its kernel side is built on the Syborg baseport. This project would not exist without that
+  work.
+- **Symbian Foundation and Nokia** for releasing the EKA2 kernel and platform sources under the
+  Eclipse Public License.
+- **QEMU** and its contributors.
+- **fedor4ever** for [elf2e32_next](https://github.com/fedor4ever/elf2e32_next), used as the
+  post-linker for GCC 14 output, and for [GCC4Symbian](https://github.com/fedor4ever/GCC4Symbian),
+  whose recipe showed how to build a current GCC for `arm-none-symbianelf`. The container applies
+  equivalent source changes written independently.
+- **EKA2L1** and its contributors, whose documentation of Symbian internals was a useful reference.
 
-## Licensing notes
+## License
 
-Symbian Foundation sources are EPL-1.0. QEMU is GPL-2.0. The GCC helper sources are
-GPL-3.0 with the GCC Runtime Library Exception. CodeSourcery Lite binaries are GPL and fetched
-from the Wayback Machine. The PDK is EPL-1.0 apart from some binary-only parts, and is fetched
-from archive.org. Nothing large or proprietary is committed here.
+qembian's own code is MIT licensed (`LICENSE`), except where a file or directory says otherwise:
+changes to and code built into Eclipse Public License projects (the kernel and board patches,
+personalities, stand-in drivers, the elf2e32_next patch) are under the EPL-1.0, and the QEMU board
+code and QEMU patches are under the GPL-2.0-or-later, like QEMU. Third-party sources are fetched
+at build time and keep their own licenses. Nokia firmware and SDKs are not part of this project.

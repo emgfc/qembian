@@ -25,7 +25,7 @@ static TAny* WritableBuffer()
 		if (r != KErrNone)
 			return NULL;
 		memclr((TAny*)WritableChunk->LinearAddress(), KWritableSize);
-		Kern::Printf("N95STUB: MdaifDriver writable buffer %d bytes at %08x", KWritableSize, WritableChunk->LinearAddress());
+		Kern::Printf("SYBSTUB: MdaifDriver writable buffer %d bytes at %08x", KWritableSize, WritableChunk->LinearAddress());
 		}
 	return (TAny*)WritableChunk->LinearAddress();
 	}

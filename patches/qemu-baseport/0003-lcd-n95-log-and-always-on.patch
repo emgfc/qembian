@@ -20,7 +20,7 @@
 +  TUint32 sum = 0, first = f[240], diff = 0;
 +  for (TInt i = 240; i < FbProbeWords; i += 3)
 +	{ sum = sum * 31 + f[i]; if (f[i] != first) ++diff; }
-+  Kern::Printf("N95LCD: fb probe hash %08x diff %d px(0,1)=%08x px(120,160)=%08x px(10,300)=%08x",
++  Kern::Printf("SYBLCD: fb probe hash %08x diff %d px(0,1)=%08x px(120,160)=%08x px(10,300)=%08x",
 +	sum, diff, first, f[160 * 240 + 120], f[300 * 240 + 10]);
 +  FbProbeTimer->OneShot(NKern::TimerTicks(60000));
 +}
@@ -44,7 +44,7 @@
 +#ifdef SYBORG_FB_N95
 +  // N95 hybrid hack H-lcd-alwayson (docs/hacks.md): log and keep the panel on, so that a
 +  // display-off request (screen saver, light/power policy) never freezes the picture.
-+  Kern::Printf("N95LCD: display off requested (ignored)");
++  Kern::Printf("SYBLCD: display off requested (ignored)");
 +  iDisplayOn = EFalse;
 +  return;
 +#endif
@@ -55,7 +55,7 @@
  void DLcdPowerHandler::SwitchDisplay(TBool aSecure)
   {
 +#ifdef SYBORG_FB_N95
-+   Kern::Printf("N95LCD: switch display secure=%d (was %d)", aSecure, iSecureDisplay);
++   Kern::Printf("SYBLCD: switch display secure=%d (was %d)", aSecure, iSecureDisplay);
 +#endif
     if(aSecure)
  	 {
@@ -65,7 +65,7 @@
  void DLcdPowerHandler::PowerUpLcd(TBool aSecure)
  {
 +#ifdef SYBORG_FB_N95
-+  Kern::Printf("N95LCD: power up secure=%d base %08x", aSecure, aSecure ? iSecurevRamPhys : ivRamPhys);
++  Kern::Printf("SYBLCD: power up secure=%d base %08x", aSecure, aSecure ? iSecurevRamPhys : ivRamPhys);
 +#endif
  
    WriteReg(iPortAddr, FB_ENABLED, 0);
@@ -102,7 +102,7 @@
  	iSecureVideoInfo = iVideoInfo;
  	iSecureVideoInfo.iVideoAddress = (TInt)pV2;
 +#ifdef SYBORG_FB_N95
-+	Kern::Printf("N95LCD: video lin %08x phys %08x, secure lin %08x phys %08x", pV, ivRamPhys, pV2, iSecurevRamPhys);
++	Kern::Printf("SYBLCD: video lin %08x phys %08x, secure lin %08x phys %08x", pV, ivRamPhys, pV2, iSecurevRamPhys);
 +	FbProbeStart((TUint32*)pV, width * height);
 +#endif
  	
@@ -113,7 +113,7 @@
  TInt DLcdPowerHandler::SetDisplayMode(TInt aMode)
  {
 +#ifdef SYBORG_FB_N95
-+  Kern::Printf("N95LCD: set display mode %d", aMode);
++  Kern::Printf("SYBLCD: set display mode %d", aMode);
 +#endif
    if(aMode < 0 || aMode >= KConfigLcdNumberOfDisplayModes)
  	return KErrArgument;

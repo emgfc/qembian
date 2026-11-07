@@ -1,6 +1,6 @@
 # Personality numbers: the ROM header's kernel config field (bits 25..28) that tells our kernel which
 # exec tables a ROM's user side expects (tools/romcompose.py --exec-personality NAME; the kernel's
-# Exec92Init / sexec92.cpp). 0 = our own numbering. Bit 29 is also set for sym92, the original flag,
+# Exec92Init / sexecpers.cpp). 0 = our own numbering. Bit 29 is also set for sym92, the original flag,
 # so ROMs and kernels from before the field still pair up.
 schema = 1
 [ids]

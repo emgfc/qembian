@@ -14,12 +14,17 @@ sys.path.insert(0, os.path.join(ROOT, 'tools'))
 import device as devmodel   # tools/device.py
 _DEV = devmodel.load()
 NAMES = os.path.join(ROOT, devmodel.get(_DEV, 'modem.names', 'platform/isi/names.txt'))   # shared BB5 names
-DB = devmodel.device_file(_DEV, devmodel.get(_DEV, 'modem.replies', 'isi-replies.txt'))     # this device's replies
+# reply tables, layered: [modem].replies is a file or a list of files (a path with a '/' is relative to
+# the repository, else to the device directory); a later file's reply for the same (resource, request)
+# replaces an earlier one, so a device file overrides the family's shared table
+_R = devmodel.get(_DEV, 'modem.replies', 'isi-replies.txt')
+DBS = [os.path.join(ROOT, r) if '/' in r else devmodel.device_file(_DEV, r) for r in (_R if isinstance(_R, list) else [_R])]
+DB = DBS[-1]
 
 
 def load():
     res, msg, replies = {}, {}, []
-    for ln in [l for p in (NAMES, DB) for l in open(p)]:
+    for ln in [l for p in [NAMES] + DBS for l in open(p)]:
         body, _, comment = ln.partition('#')
         f = body.split()
         if not f:
@@ -35,6 +40,7 @@ def load():
             if rest and rest[0].startswith('len='):
                 ln_ = int(rest[0][4:]); rest = rest[1:]
             data = [int(x, 16) for x in rest]
+            replies = [x for x in replies if (x[0], x[1]) != (r, q)]	# later layer wins
             replies.append((r, q, p, ln_ or len(data), data, comment.strip()))
     return res, msg, replies
 

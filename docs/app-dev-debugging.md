@@ -73,12 +73,12 @@ output, and make the host tool "app-aware". No TRK.
 ### Phase 1 (about 1 day): app-aware probes with what exists
 
 1. **Kernel trace line** (patch `patches/kernelhwsrv/platform/0007-debug-trace-codeseg-load.patch`, same
-   style as 0004 `N95PROP:`): in `DCodeSeg::Create` (scodeseg.cpp, after "Added By Address") print
-   `N95CODE: <filename> code=<iRunAddress> size=<iSize> data=<data run addr>` under an
+   style as 0004 `SYBPROP:`): in `DCodeSeg::Create` (scodeseg.cpp, after "Added By Address") print
+   `SYBCODE: <filename> code=<iRunAddress> size=<iSize> data=<data run addr>` under an
    always-on switch (or under `KPANIC` like the other N95 lines) so it costs nothing to
    enable. XIP segments can be skipped (their address is the ROM link address).
 2. **`tools/syb_gdb.py app`** sub-commands (host only, no new guest code):
-   - `app symbols NAME ELF`: wait for the `N95CODE:` line in the serial log, then
+   - `app symbols NAME ELF`: wait for the `SYBCODE:` line in the serial log, then
      `add-symbol-file ELF -s .text base [-s .data …]` and record the mapping in
      `build/runs/<label>/symbols.json`.
    - `app brk NAME 'fn(args)'` → breakpoint at the app symbol with `--when-thread NAME`, prints

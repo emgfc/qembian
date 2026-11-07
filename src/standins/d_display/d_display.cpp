@@ -1,7 +1,7 @@
 // N95 d_display.ldd stand-in (see nokiastub.h): channel "DisplayDriver" used by the N95's
 // r_display.dll (CDisplayDriver): scdv.dll (WSERV's screen driver) and, through
 // power_save_display_mode.dll, the screensaver. The real driver is documented in
-// docs/nokia-d_display.md (section 4 = what this stand-in follows). Geometry and the frame buffer
+// docs/devices/nokia-n95-8gb-rm320/nokia-d_display.md (section 4 = what this stand-in follows). Geometry and the frame buffer
 // come from HAL (our lcd_n95 driver); the Syborg frame buffer is always live, so screen updates
 // (ctl 8/9) need no copy.
 //
@@ -50,7 +50,7 @@ static void ReadDisplayConfig()
 		NativeLandscape = b[0] == 'l';
 	FbPitch = BoardConfigInt("disp_pitch", 1280);
 	PanelRows = BoardConfigInt("disp_rows", NativeLandscape ? 240 : 320);
-	Kern::Printf("N95STUB: DisplayDriver %s panel, %d caps words, stride %d, %d panel rows",
+	Kern::Printf("SYBSTUB: DisplayDriver %s panel, %d caps words, stride %d, %d panel rows",
 				 NativeLandscape ? "landscape" : "portrait", CapsWords, FbPitch, PanelRows);
 	}
 
@@ -148,10 +148,10 @@ static TInt GlReady()
 				r = DPlatChunkHw::New(GlChunk, GlPhys, 2 * KGlBufSize, EMapAttrSupRw | EMapAttrFullyBlocking);
 			NKern::ThreadLeaveCS();
 			GlState = r == KErrNone ? 1 : -1;
-			Kern::Printf("N95STUB: DisplayDriver host GL %s (%d)", GlState > 0 ? "ready" : "unavailable", r);
+			Kern::Printf("SYBSTUB: DisplayDriver host GL %s (%d)", GlState > 0 ? "ready" : "unavailable", r);
 			}
 		else
-			Kern::Printf("N95STUB: DisplayDriver no host GL device: software rendering");
+			Kern::Printf("SYBSTUB: DisplayDriver no host GL device: software rendering");
 		}
 	return GlState > 0;
 	}
@@ -201,7 +201,7 @@ static TInt DisplayCtl(DThread* aClient, TInt aFn, TAny* a1, TAny*, const TUint3
 		if (aWords[0] >= aWords[1] || aWords[1] >= PanelRows)
 			return KErrArgument;
 		SetPartial(ETrue, aWords[0], aWords[1], aWords[2] != 0);
-		Kern::Printf("N95STUB: DisplayDriver partial display panel rows %d..%d %s, rotation %d -> picture %s",
+		Kern::Printf("SYBSTUB: DisplayDriver partial display panel rows %d..%d %s, rotation %d -> picture %s",
 					 aWords[0], aWords[1], aWords[2] ? "full colour" : "8 colours", Rotation,
 					 (Rotation & 1) ? "columns" : "rows");
 		return KErrNone;
@@ -248,7 +248,7 @@ static const SStubCtl KCtl[] =
 	};
 
 // ---------------------------------------------------------------------------------------------
-// Direct screen bitmap (DSB): CDirectScreenBitmap in ScDv, through r_display (docs/nokia-d_display.md
+// Direct screen bitmap (DSB): CDirectScreenBitmap in ScDv, through r_display (docs/devices/nokia-n95-8gb-rm320/nokia-d_display.md
 // section 2, caps word 2 = 1). Games draw into a driver buffer and post it with EndUpdate, which
 // completes only after the frame went to the panel: that is the frame pacing games rely on.
 //   ctl 23 a1 -> {x | w<<16, y | h<<16}, a2 = 1 double buffer / 2 incremental (single buffer)
@@ -388,7 +388,7 @@ static void VsyncDfcFn(TAny*)
 	for (TInt y = 0; y < rh; ++y, src += pitch, dst += FbPitch)
 		memcpy(dst, src, rw * KBpp);
 	if (frames == 1 || (frames % 600) == 0)
-		Kern::Printf("N95DSB: frame %d presented at vsync %d (%d Hz)", frames,
+		Kern::Printf("SYBDSB: frame %d presented at vsync %d (%d Hz)", frames,
 					 ReadReg(KHwBaseClcd, KFbFrameCount), ReadReg(KHwBaseClcd, KFbRefreshRate));
 	CompleteAndRelease(t, s, KErrNone);
 	}
@@ -432,7 +432,7 @@ static TInt DsbRelease(TAny* aChannel)
 	Dsb.iChunk->Close(NULL);
 	Epoc::FreePhysicalRam(Dsb.iPhys, Dsb.iBufBytes * Dsb.iBuffers);
 	NKern::ThreadLeaveCS();
-	Kern::Printf("N95DSB: released after %d frames", Dsb.iFrames);
+	Kern::Printf("SYBDSB: released after %d frames", Dsb.iFrames);
 	memclr(&Dsb, sizeof(Dsb));
 	return KErrNone;
 	}
@@ -444,7 +444,7 @@ static TInt DsbCreate(DThread* aClient, TAny* aChannel, TAny* a1, TInt aFlags)
 	if (e != KErrNone)
 		return e;
 	TInt x = r[0] & 0xffff, w = r[0] >> 16, y = r[1] & 0xffff, h = r[1] >> 16;
-	Kern::Printf("N95DSB: create rect %d,%d %dx%d flags %d by %O", x, y, w, h, aFlags, aClient);
+	Kern::Printf("SYBDSB: create rect %d,%d %dx%d flags %d by %O", x, y, w, h, aFlags, aClient);
 	if ((aFlags != 1 && aFlags != 2) || w <= 0 || h <= 0 || x + w > KFbW || y + h > KFbH)
 		return KErrArgument;
 	if (Dsb.iChunk)
@@ -612,7 +612,7 @@ public:
 			if (r == KErrNone)
 				r = Interrupt::Enable(EIntFb);
 			bound = r == KErrNone;
-			Kern::Printf("N95DSB: vsync interrupt %d, refresh %d Hz", r, ReadReg(KHwBaseClcd, KFbRefreshRate));
+			Kern::Printf("SYBDSB: vsync interrupt %d, refresh %d Hz", r, ReadReg(KHwBaseClcd, KFbRefreshRate));
 			}
 		return DNokiaStubFactory::Install();
 		}

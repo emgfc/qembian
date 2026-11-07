@@ -2,7 +2,7 @@
 # Option 1 loop: (re)build our Syborg kernel side, compose it with the N95 user side
 # (9.2 exec personality on), boot headless and summarise serial output.
 #   scripts/hybrid-boot.sh [--no-build|--compose-only] [--secs N] [--trace MASK] [--out DIR] [--type CMD]...
-# Needs the device's core-flat.img (scripts/n95-inventory.sh); device: $SYBORG_DEVICE or devices/default.
+# Needs the device's core-flat.img (tools/fw/inventory.py); device: $SYBORG_DEVICE or devices/default.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"; cd "$ROOT"
 BUILD=1; COMPOSE_ONLY=0; SECS=60; TRACE=0x80000000; OUT=build/boot-test/hybrid; TYPE=()

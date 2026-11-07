@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Generate kernel/eka/kernel/exec92_map.h from personalities/sym92/exec.map (a personality's exec
+"""Generate kernel/eka/kernel/execpers_map.h from personalities/sym92/exec.map (a personality's exec
 numbering: the user side's SWI numbers -> our kernel's exec handlers).
 
   gen_exec_map.py execs.txt OUT.h sym92=personalities/sym92/exec.map sym91=personalities/sym91/exec.map
   (old form: gen_exec_map.py execs.txt personalities/sym92/exec.map OUT.h)
 
-The header defines, for the 9.2 personality tables built at boot by sexec92.cpp:
+The header defines, for the 9.2 personality tables built at boot by sexecpers.cpp:
   KExec92Fast[n]  n = 9.2 fast number;  >=0 our fast number, or EXEC92_SHIM(k), or EXEC92_INVALID
   KExec92Slow[n]  n = 9.2 slow number;  same encoding with our slow numbers
   EXEC92_SHIMS    X-macro list of shims: X(index, name, kind, base)  kind = FAST | SLOW,

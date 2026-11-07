@@ -3,7 +3,8 @@
 # [kernel.lcd]) against the Syborg variant, then the hybrid's kernel-side ROM: the Syborg text-shell
 # obey file plus those drivers, in profile order.
 #   scripts/build-standins.sh [udeb] [DEVICE-ID]      (device: $SYBORG_DEVICE or devices/default)
-# Output: build/rom-hybrid/<baseport>_hybrid_kernel_ARMV5_<var>.img (input for tools/romcompose.py);
+# Output: build/devices/<id>/kernel-side.img (input for tools/romcompose.py; one per device, so devices
+# sharing a baseport do not overwrite each other's); generated inputs in build/devices/<id>/gen/;
 # <baseport> = the profile's kernel.baseport (syborg: multiple memory model; syborgmv: moving).
 # kernel.place = "after-firmware": a pad file right after our ROM directory pushes our kernel-side
 # files past the end of the firmware's core image (ROMs whose user side starts among their own
@@ -15,8 +16,9 @@ if [ -z "${SYBORG_IN_CONTAINER:-}" ]; then
   # host side: the fake modem's reply table from the device's ISI database, and the generated
   # bld.inf / obey list (tools/device.py) for the container side
   export SYBORG_DEVICE="$DEVICE"
-  GEN="$ROOT/build/standins-gen"; mkdir -p "$GEN"
-  python3 -I "$ROOT/tools/isi.py" gen-header "$ROOT/src/standins/_shared/isireplies.h" >/dev/null
+  DEVDIR=$(python3 -I "$ROOT/tools/device.py" paths dir)
+  GEN="$DEVDIR/gen"; mkdir -p "$GEN"
+  python3 -I "$ROOT/tools/isi.py" gen-header "$GEN/isireplies.h" >/dev/null
   python3 -I "$ROOT/tools/device.py" gen standins-bldinf > "$GEN/bld.inf"
   python3 -I "$ROOT/tools/device.py" gen standins-oby > "$GEN/standins.oby.txt"
   python3 -I "$ROOT/tools/device.py" get kernel.lcd.target > "$GEN/lcd.txt" 2>/dev/null || echo "" > "$GEN/lcd.txt"
@@ -27,16 +29,18 @@ if [ -z "${SYBORG_IN_CONTAINER:-}" ]; then
     PAD=$(stat -c %s "$CORE")
   fi
   rm -f "$GEN/pad.bin"; [ "$PAD" -gt 0 ] && truncate -s "$PAD" "$GEN/pad.bin"
-  CONTAINER_ARGS="${CONTAINER_ARGS:-} -e SYBORG_BASEPORT=${BP:-syborg}" \
+  CONTAINER_ARGS="${CONTAINER_ARGS:-} -e SYBORG_BASEPORT=${BP:-syborg} -e SYBORG_DEVDIR=/work/${DEVDIR#$ROOT/}" \
     exec "$ROOT/scripts/in-container.sh" /work/scripts/build-standins.sh "$VAR"
 fi
 source /work/scripts/env.sh
 CFG="arm.v5.$VAR.gcce4_4_1.surge"
-GEN=/work/build/standins-gen
+DEVDIR=${SYBORG_DEVDIR:?device build dir}
+GEN=$DEVDIR/gen
 BP=${SYBORG_BASEPORT:-syborg}
 DST=${EPOCROOT}sf/adapt/qemu/baseport/$BP/standins
 rm -rf "$DST" "${EPOCROOT}sf/adapt/qemu/baseport/$BP/n95compat"; cp -r /work/src/standins "$DST"
 cp "$GEN/bld.inf" "$DST/bld.inf"
+cp "$GEN/isireplies.h" "$DST/_shared/isireplies.h"	# the device's canned modem replies (tools/isi.py)
 cd "$DST"
 sbs -b bld.inf -c "$CFG" -f "$LOGS/standins-$BP-$VAR.log" > "$LOGS/standins-$BP-$VAR.out" 2>&1 || true
 grep -E 'sbs : errors' "$LOGS/standins-$BP-$VAR.out" || true
@@ -65,3 +69,5 @@ awk -v name="$NAME" -v lcd="$LCD" -v bp="$BP" -v pad="$PAD" '
   /^device\[/ && !done { while ((getline l < "extra.oby") > 0) print l; done=1 }' "$OBY" > "$NAME.oby"
 rombuild "$NAME.oby" > "$NAME.rombuild.log" 2>&1 || { tail -20 "$NAME.rombuild.log"; exit 1; }
 ls -la "$OUT/$NAME.img"
+cp "$OUT/$NAME.img" "$DEVDIR/kernel-side.img"
+ls -la "$DEVDIR/kernel-side.img"

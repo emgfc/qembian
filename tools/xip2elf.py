@@ -20,7 +20,7 @@ B = 0x80000000
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('img'); ap.add_argument('json'); ap.add_argument('name'); ap.add_argument('out')
-    ap.add_argument('--sdk-lib', default=os.path.expanduser('~/work/S60_3rd_FP1/Epoc32/release/armv5/lib'))
+    ap.add_argument('--sdk-lib', default=os.environ.get('S60_SDK_LIB', os.path.expanduser('~/work/S60_3rd_FP1/Epoc32/release/armv5/lib')))
     a = ap.parse_args()
     d = open(a.img, 'rb').read()
     j = json.load(open(a.json))

@@ -1,7 +1,7 @@
---- a/kernel/eka/kernel/sexec92.cpp
-+++ b/kernel/eka/kernel/sexec92.cpp
+--- a/kernel/eka/kernel/sexecpers.cpp
++++ b/kernel/eka/kernel/sexecpers.cpp
 @@ -14,6 +14,11 @@
- #include "exec92_map.h"
+ #include "execpers_map.h"
  
  const TUint32 KKernelConfigExec92Personality = 1u<<29;
 +// syborg-pg: the personality number (personalities/registry.toml: 0 native, 1 sym92, 2 sym93, ...)

@@ -9,7 +9,7 @@
 +  TUint32 sum = 0, first = f[320], diff = 0;
 +  for (TInt i = 320; i < FbProbeWords; i += 3)
  	{ sum = sum * 31 + f[i]; if (f[i] != first) ++diff; }
-   Kern::Printf("N95LCD: fb probe hash %08x diff %d px(0,1)=%08x px(120,160)=%08x px(10,300)=%08x",
+   Kern::Printf("SYBLCD: fb probe hash %08x diff %d px(0,1)=%08x px(120,160)=%08x px(10,300)=%08x",
 -	sum, diff, first, f[160 * 240 + 120], f[300 * 240 + 10]);
 +	sum, diff, first, f[160 * 320 + 120], f[300 * 320 + 10]);
    FbProbeTimer->OneShot(NKern::TimerTicks(60000));
@@ -65,7 +65,7 @@
 @@ -337,7 +352,7 @@
  	iSecureVideoInfo.iVideoAddress = (TInt)pV2;
  #ifdef SYBORG_FB_N95
- 	Kern::Printf("N95LCD: video lin %08x phys %08x, secure lin %08x phys %08x", pV, ivRamPhys, pV2, iSecurevRamPhys);
+ 	Kern::Printf("SYBLCD: video lin %08x phys %08x, secure lin %08x phys %08x", pV, ivRamPhys, pV2, iSecurevRamPhys);
 -	FbProbeStart((TUint32*)pV, width * height);
 +	FbProbeStart((TUint32*)pV, n95Line * n95Line);
  #endif

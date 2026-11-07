@@ -4,7 +4,7 @@ adb-like bridge. Its main user is an LLM (through the MCP server); the CLI is th
 Design and roadmap: [devtools-bridge.md](devtools-bridge.md). Status 2026-11-06: phase 0/1 work, and
 phase 3's basic debugger works. Done: session daemon, agent (files, processes, apps, UI, keyguard,
 P&S), CLI, MCP server (43 tools), live agent update, persistent gdb with kernel DWARF and app ELF
-symbols placed from the kernel's `N95CODE:` line. IPC strace via the kernel's KIPC trace works. Not yet:
+symbols placed from the kernel's `SYBCODE:` line. IPC strace via the kernel's KIPC trace works. Not yet:
 exec-call strace (phase-2 LDD), XIP
 symbol ELFs for Nokia code in gdb backtraces, snapshots, SIS install.
 
@@ -91,6 +91,7 @@ sydb catch list | hits | show ID | rm [ID] | resume
 sydb snap save [NAME] [--stopped] | snap list | snap rm NAME
 sydb fork catch-1 [--into DIR] [--run]     # resume the snapshot as build/sydb-fork-catch-1, paused
 sydb start --fresh --paused                # QEMU stopped before the first instruction: arm catches/breaks, then sydb resume
+sydb start --fresh --catch-panics         # the same with a freeze+snapshot catch on the first panic, resumed; prints the hit on timeout
 sydb --session build/sydb-fork-catch-1 dbg attach    # ... the very moment, as often as needed
 sydb restore NAME                          # the same into this session
 sydb pause | resume
@@ -110,7 +111,7 @@ sydb pause | resume
 - **Dump** (`build/sydb/catches/NNN-thread.{txt,json,stack.bin}`, event `catch.hit`): registers, `at`
   and `caller` symbolised, and a call-stack scan. The scan takes the words on the user stack
   whose preceding instruction is a BL/BLX/`mov lr,pc` and symbolises them against ROM modules (syb_sym)
-  and RAM code segments (`N95CODE` lines), followed by the log tail.
+  and RAM code segments (`SYBCODE` lines), followed by the log tail.
 - **Snapshots** (`<session>/snaps/NAME/`): QMP `migrate` to `state.bin` (RAM + all device state,
   about 120 MB, under 1 s) plus copies of the drive images (reflinks on btrfs: instant, shared blocks) and the RTC offset. QEMU runs with
   `migration.store-global-state=off` so snapshots taken while gdb holds the machine can be
@@ -173,13 +174,13 @@ all-stop, so a stop freezes the whole phone; agent requests time out until `cont
 ```
 sydb dbg attach                          # stops the phone; stop record with kernel frames + thread
 sydb run 'C:\sys\bin\app.exe'           # (before or after attach)
-sydb dbg symbols app [build/n95apps/obj-app/app.elf]   # ELF at the run address from N95CODE
+sydb dbg symbols app [build/n95apps/obj-app/app.elf]   # ELF at the run address from SYBCODE
 sydb dbg break Name --thread app         # hw breakpoint; other threads hitting it are resumed
 sydb dbg continue --wait 20              # -> {"reason":"breakpoint-hit","at":"Name(...)","thread":...}
 sydb dbg bt | regs | mem 0x406ef4 32 | eval 'TheScheduler.iCurrentThread->iPriority'
 sydb dbg step | next | stepi | finish | interrupt | delete [N] | detach | cmd 'info breakpoints'
 ```
-- `N95CODE: <file> code=<run>+<size> data=... bss=... ep=...` is printed by our kernel for every
+- `SYBCODE: <file> code=<run>+<size> data=... bss=... ep=...` is printed by our kernel for every
   code segment loaded into RAM (C: apps and ROFS binaries; kernel patch
   `patches/kernelhwsrv/platform/0007-sydb-codeseg-load-trace.patch`). ROM XIP code is named by
   `tools/syb_sym.py` in stop records.

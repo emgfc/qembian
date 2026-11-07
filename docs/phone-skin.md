@@ -9,7 +9,7 @@
 - Reset, Pause/Resume, Shot (saves to `<session>/shots`) and Snapshot;
 - the slider (closed / keypad / media; media taps F13 = EKeyDeviceA, the phone's own landscape
   layout switch, and turns the view; built 2026-11-06 as the side toolbar's Landscape button).
-The phone now has Call/End/Power/volume keys (baseport patch 0014, docs/n95-controls.md). Still
+The phone now has Call/End/Power/volume keys (baseport patch 0014, docs/devices/nokia-n95-8gb-rm320/n95-controls.md). Still
 open: camera, Multimedia and media-key scan codes, and the slide and accelerometer stand-ins
 (steps 3–4).
 
@@ -21,7 +21,7 @@ keys open, with landscape). Status: analysis only. [V] = checked, [I] = inferred
 
 ## What we have today
 
-- QEMU's GTK window [V]: shows the 240×320 console, takes PC keys (docs/n95-controls.md), and its
+- QEMU's GTK window [V]: shows the 240×320 console, takes PC keys (docs/devices/nokia-n95-8gb-rm320/n95-controls.md), and its
   Machine menu has Pause / Reset / Power down / Quit. QEMU's own UI cannot get custom buttons
   without patching QEMU's GTK code, which we don't want to maintain.
 - Display backends in our QEMU 11.1.3 [V]: gtk, sdl, dbus, egl-headless, curses, none; VNC with

@@ -7,7 +7,7 @@ class DLightPdd : public DPhysicalDevice
 	{
 public:
 	DLightPdd() { iVersion = TVersion(255, 255, 0xffff); }
-	virtual TInt Install() { _LIT(KName, "LightDrv.pdd"); Kern::Printf("N95STUB: install LightDrv.pdd (PDD, load only)"); return SetName(&KName); }
+	virtual TInt Install() { _LIT(KName, "LightDrv.pdd"); Kern::Printf("SYBSTUB: install LightDrv.pdd (PDD, load only)"); return SetName(&KName); }
 	virtual void GetCaps(TDes8&) const {}
 	virtual TInt Create(DBase*& aChannel, TInt, const TDesC8*, const TVersion&) { aChannel = NULL; return KErrNotSupported; }
 	virtual TInt Validate(TInt, const TDesC8*, const TVersion&) { return KErrNone; }

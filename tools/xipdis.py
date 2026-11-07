@@ -19,7 +19,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('img'); ap.add_argument('json'); ap.add_argument('name')
     ap.add_argument('--arm', action='store_true')
-    ap.add_argument('--sdk-lib', default=os.path.expanduser('~/work/S60_3rd_FP1/Epoc32/release/armv5/lib'))
+    ap.add_argument('--sdk-lib', default=os.environ.get('S60_SDK_LIB', os.path.expanduser('~/work/S60_3rd_FP1/Epoc32/release/armv5/lib')))
     ap.add_argument('--strings', action='store_true', help='also dump UTF-16/ASCII strings in the code section')
     a = ap.parse_args()
     d = open(a.img, 'rb').read()

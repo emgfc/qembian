@@ -29,7 +29,7 @@ IMG = os.path.join(N95, 'core-flat.img')
 JSN = os.path.join(N95, 'core.json')
 IDX = os.path.join(N95, 'symindex.json')
 GHI = os.path.join(N95, 'ghidra')
-SDK = os.path.expanduser('~/work/S60_3rd_FP1/Epoc32/release/armv5/lib')
+SDK = os.environ.get('S60_SDK_LIB', os.path.expanduser('~/work/S60_3rd_FP1/Epoc32/release/armv5/lib'))
 B = 0x80000000
 
 

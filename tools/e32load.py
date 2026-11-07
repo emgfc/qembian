@@ -179,7 +179,7 @@ def main():
     ap.add_argument('--base', type=lambda s: int(s, 0))
     ap.add_argument('--rom', default='build/n95/core-flat.img')
     ap.add_argument('--rom-json', default='build/n95/core.json')
-    ap.add_argument('--sdk-lib', default=os.path.expanduser('~/work/S60_3rd_FP1/Epoc32/release/armv5/lib'))
+    ap.add_argument('--sdk-lib', default=os.environ.get('S60_SDK_LIB', os.path.expanduser('~/work/S60_3rd_FP1/Epoc32/release/armv5/lib')))
     a = ap.parse_args()
     h, img = parse(a.image)
     base = a.base if a.base is not None else h['codebase']

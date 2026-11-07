@@ -1,0 +1,26 @@
+# Fake-modem canned replies shared by every BB5 phone profiled so far (family bb5-s60):
+# only replies all members use with the same bytes (docs/devices.md "Families"). Device files
+# (devices/<id>/isi-replies.txt) come after this one and override the same (resource, request).
+# Format and names: platform/isi/names.txt, tools/isi.py.
+reply 1B 2E 2F len=16 00 01 F0 00 00 10                   # PP: product profile bits (nsb>=1)
+reply 0A 0B 0C 00 01 04 04 00 00                          # NET_RSSI_GET
+reply 0A 36 37 00 01 2C 04 01 00                          # NET_RAT
+reply 17 00 01 01 01 00 04 02 00                          # GSS (old id) op 0
+# 17 0A: SAEmService op 1 = battery bars (sb 0x16: [2]=7 max, [3]=1..7), op 2 = charger (sb 0x15:
+# [2]=1 not charging); NOKIATSY reads sb 0x16 too. Both sent (hack H-em).
+reply 17 0A 0B 01 02 16 04 07 07 15 04 01 00
+reply 17 08 09 01 01 13 04 01 00                          # SAEm op 0x08 (sb 0x13)
+reply 15 16 79 00 00                                      # MTC RF status: normal
+reply DB 01 02 00 01 00 01 00 00 00 00 00 31 00 33 00 00  # PNS_NAME_QUERY (GPDS)
+reply 09 19 1A 2F 24                                      # SIM read: data not available
+reply 23 04 05 len=18 00 01 01 10                         # PN_PERMANENT_DATA read
+reply 47 06 07 00 00                                      # light control set: status OK (SysAp->HWRM->SAServer waited on this)
+reply 35 02 03 00 00                                      # self-test steps 1/3: status 0 = passed (NokiaDSY 0x808bc3e2/0x808bc3a4 accept 0,10,11)
+reply 35 00 01 00 00                                      # self-test step 2: status 0 (0x808bc366)
+reply 59 42 43 00 00                                      # self-test final step: any payload accepted (0x808bc362)
+reply 0B 00 01 01 00                                      # audio server start (Aamm 0x8088113c: resp 01 -> observer OK); request data 01 00 echoed
+reply 0B 14 15 00 00                                      # audio setup (Aamm dispatch 0x8088108a: resp 15 -> observer(tid))
+reply 0B 19 1A 00 00                                      # audio setup (resp 1A -> observer OK)
+reply 77 01 09 00 00                                      # audio route ready: without it every play hangs (first) or gets KErrInUse (docs/nokia-dsp-playback.md)
+reply 08 01 02 00 00                                      # lock code state: [10]=0 -> lock status unlocked, setting disabled (NOKIATSY 0x808c8b7c); unanswered -> Autolock 'operation time-out'
+reply 19 0A 0B 01 01 04 04 01 00                          # RTC status (DosServer 0x130 via NokiaDSY ch 24; 0x808bbaa8: [10]==1, sb 04 (type 1), sb+2 1/3 = valid, 2 = invalid); unanswered -> CommonDSY timeout -2 -> Startup asks date/time every boot

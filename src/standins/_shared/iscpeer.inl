@@ -4,7 +4,7 @@
 // Built twice: nokiaiscdriver.ldd ("NokiaISCDriver", channels = units 0..31) and
 // nokiaiscdriverextension.ldd ("NokiaISCDriverExtension", channels 32..63, unit = channel - 32).
 //
-// Protocol: docs/n95-isc-isi-protocol.md and -2.md (IscApi controls, ISI framing, boot replies).
+// Protocol: docs/devices/nokia-n95-8gb-rm320/n95-isc-isi-protocol.md and -2.md (IscApi controls, ISI framing, boot replies).
 //   ctl 0  {status*}                     modem link init          -> complete KErrNone
 //   ctl 1  {status*, channel, TDesC8*}   open channel             -> complete KErrNone
 //   ctl 4  {status*, TDes8*, TPtr8*}     receive next message     -> deliver or park
@@ -77,6 +77,7 @@ private:
 	void Queue(const TUint8* aMsg, TInt aLen);
 	void Reply(TUint8 aRes, TUint8 aTid, TUint8 aMsgId, const TUint8* aData, TInt aLen);
 	void MtcStateInd();
+	void ProfileInds();
 	void TryDeliver();
 	void HandleSend(const TUint8* m, TInt aLen);
 	TBool Subscribed(TUint8 aRes, TUint8 aMsgId) const;
@@ -97,6 +98,7 @@ private:
 	TUint8 iSubs[KMaxSubs];
 	TInt iSubsLen;
 	TBool iMtcIndSent;
+	TUint32 iIndSent;		// [modem].indications already sent on this channel (bit per entry)
 	};
 
 TInt DIscPeerFactory::Create(DLogicalChannelBase*& aChannel)
@@ -260,6 +262,7 @@ TInt DIscPeerChannel::Control(TInt aFn, TAny* a1)
 			MtcStateInd();
 			iMtcIndSent = ETrue;
 			}
+		ProfileInds();
 		return KErrNone;
 		}
 	case 22:	// IscApi export 10: maximum data transfer size of this channel (return value).
@@ -345,6 +348,40 @@ static void ModemPowerLater(TInt aWhat)	// the timer is never freed: the machine
 		ModemPowerFn((TAny*)aWhat);
 	}
 
+// Unsolicited indications the device profile declares ([modem].indications -> board config
+// "modem.ind=RRMMDDDD..,RRMMDD..": resource, message, data in hex), each sent once on a channel when
+// it subscribes to that (resource, message). E.g. the 5730's SAServer start-up plugin waits for
+// PN_SIM SIM_IND {05, 06} = no SIM (docs/devices/nokia-5730-rm465/sim-state.md).
+static TInt HexNibble(char c) { return c >= '0' && c <= '9' ? c - '0' : (c | 0x20) >= 'a' && (c | 0x20) <= 'f' ? (c | 0x20) - 'a' + 10 : -1; }
+
+void DIscPeerChannel::ProfileInds()
+	{
+	char cfg[128];
+	TInt n = BoardConfig("modem.ind", cfg, sizeof(cfg));
+	TInt entry = 0;
+	for (TInt i = 0; i < n && entry < 32; ++entry)
+		{
+		TUint8 b[24];
+		TInt len = 0;
+		for (; i + 1 < n && cfg[i] != ','; i += 2)
+			{
+			TInt hi = HexNibble(cfg[i]), lo = HexNibble(cfg[i + 1]);
+			if (hi < 0 || lo < 0 || len == (TInt)sizeof(b))
+				break;
+			b[len++] = (TUint8)(hi << 4 | lo);
+			}
+		while (i < n && cfg[i] != ',')
+			++i;
+		++i;				// past the comma
+		if (len >= 2 && !(iIndSent & (1u << entry)) && Subscribed(b[0], b[1]))
+			{
+			iIndSent |= 1u << entry;
+			Reply(b[0], 0x00, b[1], b + 2, len - 2);
+			Kern::Printf("ISCPEER: ch %d profile indication %02x/%02x (%d bytes)", iChannel, b[0], b[1], len - 2);
+			}
+		}
+	}
+
 void DIscPeerChannel::MtcStateInd()
 	{
 	static const TUint8 KNormalStart[2] = { 0x01, 0x03 };	// MTC_STATE_INFO_IND: NORMAL, START
@@ -418,7 +455,7 @@ void DIscPeerChannel::HandleSend(const TUint8* m, TInt aLen)
 		Reply(res, tid, 0x06, K00, 2);
 		return;
 		}
-	// canned replies: src/n95compat/isi/isi-db.txt (generated isireplies.h, included at file scope)
+	// canned replies: platform/isi/replies-bb5.txt + devices/<id>/isi-replies.txt (generated isireplies.h, included at file scope)
 	if (res == 0x1B && id == 0x00)			// INFO_SERIAL_NUMBER_READ (IMEI) -- hack H-imei, docs/hacks.md
 		{
 		// [status INFO_OK][nsb 1][sb 0x41 IMEI_PLAIN, len 20][0][15 chars]["490154203237518"][NUL]

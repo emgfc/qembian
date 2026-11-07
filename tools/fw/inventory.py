@@ -146,7 +146,7 @@ def main():
                                                           os.path.relpath(os.path.join(out, 'kernel-drivers.txt'), ROOT)))
     # 5. ABI reports (need the SDK's euser.dso and our build)
     k = os.path.join(ROOT, 'build', 'epocroot', 'sf', 'os', 'kernelhwsrv', 'kernel', 'eka')
-    sdk = os.environ.get('SDK_EUSER', os.path.expanduser('~/work/S60_3rd_FP1/Epoc32/release/armv5/lib/euser.dso'))
+    sdk = os.environ.get('SDK_EUSER', os.path.join(os.environ.get('S60_SDK_LIB', os.path.expanduser('~/work/S60_3rd_FP1/Epoc32/release/armv5/lib')), 'euser.dso'))
     ours = os.path.join(ROOT, 'build', 'epocroot', 'epoc32', 'release', 'armv5', 'udeb', '_syborg_euser.dll.sym')
     if not a.no_abi and os.path.exists(sdk) and os.path.exists(ours):
         eu = [l.split()[0] for l in open(os.path.join(out, 'core-files.txt')) if l.rstrip().endswith('Sys/Bin/EUser.dll')][0]

@@ -42,6 +42,12 @@ class DeviceTest(unittest.TestCase):
         gen = '\n'.join(D.keymap_header(D.load('nokia-n95-8gb-rm320')))
         self.assertEqual(open(MAP).read().strip(), gen.strip())
 
+    def test_keymap_header_is_device_independent(self):
+        """with QEMU-side translation every device gets the same guest table (shared baseport builds)"""
+        heads = {'\n'.join(D.keymap_header(D.load(d))) for d in D.device_ids()
+                 if D.get(D.load(d), 'board.input.translation') == 'qemu'}
+        self.assertEqual(len(heads), 1)
+
     @unittest.skipUnless(os.path.exists(os.path.join(ROOT, 'build', 'n95', 'rofs1.img')), 'no extracted firmware')
     def test_identify(self):
         facts, matches = D.identify(D.paths(D.load('nokia-n95-8gb-rm320'))['dir'])

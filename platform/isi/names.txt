@@ -9,8 +9,8 @@
 #
 # Evidence: verified = seen in N95 code/logs; ref = name from public reference headers (names only,
 # no code copied); inferred = guessed from usage. Special-case replies (echoing request data, IMEI,
-# light, MTC state machine) stay in src/n95compat/stubs/iscpeer.inl.
-# tools/isi.py turns the reply lines into src/n95compat/stubs/isireplies.h (scripts/build-n95compat.sh).
+# light, MTC state machine) stay in src/standins/stubs/iscpeer.inl.
+# tools/isi.py turns the reply lines into build/devices/<id>/gen/isireplies.h (scripts/build-standins.sh).
 
 res 09 PN_SIM                 verified
 res 0A PN_NETWORK             verified
@@ -24,7 +24,7 @@ res 1C PN_ACCESSORY?          inferred  # SAServer subscribes 1C 37/42 (accessor
 res 23 PN_PERMANENT_DATA      inferred
 res 31 PN_GPDS                verified
 res 32 PN_NOKIA_32            verified  # unknown Nokia resource, NOKIATSY handles 1,2,10,11,13
-res 35 PN_SELFTEST?           inferred  # NokiaDSY start-up self-test (DOS event 1), docs/n95-startup-animation.md §5.3
+res 35 PN_SELFTEST?           inferred  # NokiaDSY start-up self-test (DOS event 1), docs/devices/nokia-n95-8gb-rm320/n95-startup-animation.md §5.3
 res 3A PN_LIGHT               inferred  # SALightsService targets KBD/KBD2/MMKEYS/DISPLAY/...
 res 47 PN_LIGHT_CTRL?         inferred  # SALightsService FUN_8091ee7e: req 06 [03][on/off], resp 07 [status], ind 08
 res 54 PN_UNKNOWN_54          inferred

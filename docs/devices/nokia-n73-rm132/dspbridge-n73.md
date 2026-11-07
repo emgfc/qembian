@@ -87,14 +87,14 @@ literal]. So `aMajor == 1` is true on both. Cheapest discriminators:
 			{	// nothing to keep, any non-zero result makes bridgeapi detach (dspbridge-n73.md)
 			TInt size = 0;
 			Kern::ThreadRawRead(aClient, a2, &size, 4);
-			Kern::Printf("N95STUB: Hwa image %d bytes inline -> 0", size);
+			Kern::Printf("SYBSTUB: Hwa image %d bytes inline -> 0", size);
 			return KErrNone;
 			}
 		// N95 (1.1.1540): a1 -> TInt size, returns the user handle of an upload chunk (unchanged)
 		TLinAddr base = 0;
 		TInt size = (TInt)w[0] > KLoadChunkSize ? (TInt)w[0] : KLoadChunkSize;
 		TInt h = NewChunk(aClient, size, LoadChunk, base);
-		Kern::Printf("N95STUB: Hwa image chunk %d bytes at %08x -> handle %08x", size, base, h);
+		Kern::Printf("SYBSTUB: Hwa image chunk %d bytes at %08x -> handle %08x", size, base, h);
 		return h;
 		}
 ```

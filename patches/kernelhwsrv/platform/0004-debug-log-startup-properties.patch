@@ -8,7 +8,7 @@
 +	// N95 hybrid debug (docs/hacks.md): log startup-category properties (KPSUidStartup)
 +	// startup (KPSUidStartup), system (KUidSystemCategory: SIM status etc.), phone/telephony
 +	if (iCategory == 0x101f8766 || iCategory == 0x101f75b6 || iCategory == 0x101f8789)
-+		Kern::Printf("N95PROP: %O sets %08x/%x = %d", TheCurrentThread, iCategory, iKey, aValue);
++		Kern::Printf("SYBPROP: %O sets %08x/%x = %d", TheCurrentThread, iCategory, iKey, aValue);
 +#endif
  	if (aProcess && !CheckSetRights(aProcess, __PLATSEC_DIAGNOSTIC_STRING("Checked whilst trying to Set a Publish and Subscribe Property")))
  		{

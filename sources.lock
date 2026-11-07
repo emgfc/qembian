@@ -31,3 +31,9 @@ file gcc-4.4.1-arm/longlong.h https://raw.githubusercontent.com/gcc-mirror/gcc/r
 # Modern QEMU for the Syborg board port (docs/qemu-migration-research.md). Signed by the QEMU
 # release key CEACC9E15534EBABB82D3FA03353C9CEF108B584 (Michael Roth); .sig checked 2026-11-05.
 file qemu-11.1.3.tar.xz https://download.qemu.org/qemu-11.1.3.tar.xz 5a8289c7940dc77d3873c81a6c29ba3afe1446fc9d36e77fa1658cdbecb84b22
+#
+# Modern container toolchain (container/Containerfile.modern ARGs; fetched and checked inside the image
+# build, listed here for reference only):
+#   binutils-2.29.1.tar.bz2  https://ftp.gnu.org/gnu/binutils/binutils-2.29.1.tar.bz2  1509dff41369fb70aed23682351b663b56db894034773e6dbf7d5d6071fc55cc
+#   gcc-14.2.0.tar.xz        https://ftp.gnu.org/gnu/gcc/gcc-14.2.0/gcc-14.2.0.tar.xz  a7b39bc69cbf9e25826c5a60ab26477001f7c08d85cec04bc0e29cabed6f3cc9
+#   elf2e32_next             https://github.com/fedor4ever/elf2e32_next.git  6a1d311f54098d2e41e43c2117bfbfe08ba00f11  (+ patches/elf2e32_next/)

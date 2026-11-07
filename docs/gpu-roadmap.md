@@ -108,7 +108,7 @@ romcompose.py header]. Proposal: a **prelinked XIP blob**:
    EGL state is per thread anyway.
 3. `tools/romcompose.py --blob ADDR FILE` places the raw `.text/.rodata` at ADDR (ours window after
    `oend`, checked against `ustart`), and `tools/gen-gles-patches.py` emits the 175 trampolines into
-   `rom/hybrid/code-patches.txt` from the ordinal map above (original bytes verified at compose
+   `devices/<id>/code-patches.txt` from the ordinal map above (original bytes verified at compose
    time, as today).
 4. The blob runs in the calling process with its capabilities; all it needs is EUser/Ws32/FbsCli/
    BitGdi exec paths, which every GL app already has.
@@ -170,7 +170,7 @@ command-stream executor), C2 later with the same front end.
 New hacks for `docs/hacks.md`: **H-gles-trampolines** (175 entry patches in libgles_cm.dll),
 **H-gles-blob** (our prelinked XIP code in the ours window, no loader), **H-vsync-wait**
 (d_display request outside the real set), **H-gles-dsa** (window surfaces presented by DSA, abort
-→ restart, no partial-update/TV-out). Patches also mean `rom/hybrid/code-patches.txt` grows by a
+→ restart, no partial-update/TV-out). Patches also mean `devices/<id>/code-patches.txt` grows by a
 generated section; keep it generated, not hand-edited.
 
 Rasterizer base: write the front end ourselves; for the rasterizer either our own (~3–5 k lines

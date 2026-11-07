@@ -64,7 +64,7 @@ TOOLS = [
      obj({'match': STR, 'on': BOOL})),
     ('dbg_attach', 'Attach the persistent gdb (stops the whole phone). Kernel DWARF is loaded; returns the stop record.', obj({})),
     ('dbg_detach', 'Detach gdb; the phone runs on.', obj({})),
-    ('dbg_symbols', 'Load our app ELF at its run address (from the kernel N95CODE line). name = exe base name.',
+    ('dbg_symbols', 'Load our app ELF at its run address (from the kernel SYBCODE line). name = exe base name.',
      obj({'name': STR, 'elf': STR}, ['name'])),
     ('dbg_break', 'Hardware breakpoint at a symbol, file:line or 0xADDR; thread = substring filter (other threads continue).',
      obj({'loc': STR, 'thread': STR, 'once': BOOL}, ['loc'])),

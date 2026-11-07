@@ -228,7 +228,7 @@ NOKIA_STUB_LDD_CTLHOOK("Hwa", KCtl, ETrue, HwaCtl)
 Notes:
 - `KChunkShiftBy1` (`u32std.h`) selects a 16-bit user descriptor for `ThreadDesRead/Write`.
   `Kern::ThreadDesWrite` with a `TPtrC8` of raw bytes writes `len/2` 16-bit characters [inferred
-  from the API; check the length the client sees in the `N95STUB` log].
+  from the API; check the length the client sees in the `SYBSTUB` log].
 - `Kern::MakeHandleAndOpen(DThread*, DObject*)` on a shared-kernel chunk adds it to the client
   process; the client's `RChunk::Base()` then works. The chunk is never freed by the client
   (it only closes the handle), so close it on channel destruction or on the next `0x4000002`.
@@ -326,7 +326,7 @@ static TUint32 ReplyWords[3];			// iRx words handed back by 0x8000015
 		TUint16 eapCmd = 0;
 		if (m[2] == 0x20000000 && m[3])
 			Kern::ThreadRawRead(aClient, (TAny*)m[3], &eapCmd, 2);	// payload u16[0]
-		Kern::Printf("N95STUB: Hwa send cmd %08x ptr %08x len %d eap %d", m[2], m[3], m[4], eapCmd);
+		Kern::Printf("SYBSTUB: Hwa send cmd %08x ptr %08x len %d eap %d", m[2], m[3], m[4], eapCmd);
 		ReplyWords[0] = (eapCmd == 4) ? 4 : 0;	// raw 12-byte payload: u16[0] = reply command (0 = ack)
 		ReplyWords[1] = 0; ReplyWords[2] = 0;
 		if (b[0])

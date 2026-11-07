@@ -11,7 +11,7 @@
 # the RTC rewrites whenever the phone's date/time is changed; delete the file to go back to host time.
 # Sound: host PipeWire by default (AUDIO=alsa or AUDIO=sdl to switch).
 # GLES: the host GPU by default (syborg-gl); GL=soft for the guest's software rasteriser.
-# Controls: docs/n95-controls.md (F5 left softkey / OK, F6 centre, F7 right softkey, arrows).
+# Controls: docs/devices/nokia-n95-8gb-rm320/n95-controls.md (F5 left softkey / OK, F6 centre, F7 right softkey, arrows).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # the device: $SYBORG_DEVICE or devices/default (tools/device.py); its build dir holds ROM, DTB, drives

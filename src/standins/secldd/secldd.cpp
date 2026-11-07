@@ -41,7 +41,7 @@ static TInt SecEnvHook(DThread* aClient, TInt aReq, const TUint32* aArgs, TInt)
 			return r;
 		st[4] = sizeof(KStubCertChain);
 		Kern::ThreadRawWrite(aClient, (TAny*)(aArgs[0] + 16), &st[4], 4);
-		Kern::Printf("N95STUB: SecEnv mode 3: returned dummy cert chain (%d bytes)", st[4]);
+		Kern::Printf("SYBSTUB: SecEnv mode 3: returned dummy cert chain (%d bytes)", st[4]);
 		return KErrNone;
 		}
 	TInt n = inLen < outMax ? inLen : outMax;
@@ -58,7 +58,7 @@ static TInt SecEnvHook(DThread* aClient, TInt aReq, const TUint32* aArgs, TInt)
 		}
 	st[4] = n;
 	Kern::ThreadRawWrite(aClient, (TAny*)(aArgs[0] + 16), &st[4], 4);
-	Kern::Printf("N95STUB: SecEnv process-data mode %d: %d bytes passed through (identity)", st[5] & 0xff, n);
+	Kern::Printf("SYBSTUB: SecEnv process-data mode %d: %d bytes passed through (identity)", st[5] & 0xff, n);
 	return KErrNone;
 	}
 NOKIA_STUB_LDD_HOOK("SecEnv", KCtl, SecEnvHook)

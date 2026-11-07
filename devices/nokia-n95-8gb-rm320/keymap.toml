@@ -1,7 +1,7 @@
 # N95 8GB physical keys -> Symbian scan codes (EStdKey*) -> host keys.
 # One source for: the guest EKEYB table (today patches/qemu-baseport 0005/0012/0014/0015/0016 edit
 # syborg_keyboard.h by hand), sydb key aliases (tools/sydb/daemon.py KEY_ALIASES), the phone window
-# (tools/sydb/phone.py HOST_KEYS and buttons), docs/n95-controls.md, and later the QEMU keymap file
+# (tools/sydb/phone.py HOST_KEYS and buttons), docs/devices/nokia-n95-8gb-rm320/n95-controls.md, and later the QEMU keymap file
 # (docs/devices.md §3.4). EStdKey numbers come from platform/symbian/stdkeys.toml (e32keys.h).
 #
 # Fields: key = our name; scancode = EStdKey name; host = QEMU qcodes that produce it;

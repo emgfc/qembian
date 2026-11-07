@@ -17,7 +17,7 @@ a rough cost.
   *2026-11-05: the AknIconServer crash was first seen as a kernel fault with a confusing "far".*
   Cost: small (kernel trace in the undef handler or a QEMU TCG plugin).
 - **DOS event log**: log every DosServer event raised (id, value, raising DSY) in the serial log, next
-  to the `N95PROP:` lines, so the ISI reply → DSY → DOS event → sae key chain shows in one run.
+  to the `SYBPROP:` lines, so the ISI reply → DSY → DOS event → sae key chain shows in one run.
   *2026-11-05: the "no SIM" fix needed reading NokiaDSY and sae by hand to see that our 0x1C meant
   "card present" and that SEC cause 0x16 is ignored.* Cost: small (a `syb_gdb brk` preset on
   DosSrv's raise function, or a kernel-side hook on the DosServer session).
@@ -34,7 +34,7 @@ a rough cost.
   (DisplayDriver ctl 9), so "screen frozen" vs "still locked" is decided from data, not from
   screenshots taken during a slow redraw. *2026-11-06: the keyguard investigation took 7 boots
   of key/screenshot guessing; the answer came from the code and the absence of ctl 9 lines.*
-  Cost: small (extend `N95PROP:` to the Avkon/SysAp categories + a `syb_report` section).
+  Cost: small (extend `SYBPROP:` to the Avkon/SysAp categories + a `syb_report` section).
 
 ## Done
 - `tools/syb_gdb.py` fixes (2026-11-05): stack reads clipped at the end of the supervisor stack (they
@@ -45,7 +45,7 @@ a rough cost.
   structured report incl. the "likely blocked" IPC wait list.
 - `tools/syb_gdb.py` (2026-11-05): leave tracer with module filter, breakpoints with kernel
   expressions (kernel DWARF loaded), current-thread names, symbolised sampling.
-- `tools/isi.py` + `src/n95compat/isi/isi-db.txt` (2026-11-05): ISI names, unanswered-request
+- `tools/isi.py` + `platform/isi/replies-bb5.txt + devices/<id>/isi-replies.txt` (2026-11-05): ISI names, unanswered-request
   summary, reply table as data.
 
 - `tools/syb_sym.py` (2026-11-05): address → module/export/function/literal, symbol search,
@@ -71,7 +71,7 @@ some timing) took many runs: every breakpoint or watchpoint changed the timing a
 away. Symbian has no fork(), but three things would give the same effect:
 1. **Freeze on panic/exception** (kernel side, fits the phase-2 debug LDD): a DKernelEventHandler
    for EEventKillThread / EEventHwExc that, for a watched process, suspends the thread before it
-   dies, prints registers, about 1 KB of stack with symbolised return addresses (N95CODE/XIP map)
+   dies, prints registers, about 1 KB of stack with symbolised return addresses (SYBCODE/XIP map)
    and the faulting module, and raises a sydb event. Then `sydb dbg attach` sees the live state.
    It also catches User::Panic / RaiseException (USER-EXEC 3) through EEventKillThread.
 2. **Snapshot on panic** (host side): the daemon sees `thread.panic` for the watched process,

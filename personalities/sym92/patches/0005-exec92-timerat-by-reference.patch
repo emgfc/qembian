@@ -1,5 +1,5 @@
---- a/kernel/eka/kernel/sexec92.cpp
-+++ b/kernel/eka/kernel/sexec92.cpp
+--- a/kernel/eka/kernel/sexecpers.cpp
++++ b/kernel/eka/kernel/sexecpers.cpp
 @@ -41,6 +41,17 @@
  	return ExecHandler::MutexWait(aMutex, 0);
  	}

@@ -11,7 +11,7 @@ ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, os.path.join(ROOT, 'tools'))
 import ksyms
 
-CODE_RE = re.compile(r'N95CODE: (\S+) code=([0-9a-f]+)\+([0-9a-f]+) data=([0-9a-f]+)\+([0-9a-f]+) bss=([0-9a-f]+)')
+CODE_RE = re.compile(r'SYBCODE: (\S+) code=([0-9a-f]+)\+([0-9a-f]+) data=([0-9a-f]+)\+([0-9a-f]+) bss=([0-9a-f]+)')
 THREAD_EXPR = ('((DThread*)((unsigned)TheScheduler.iCurrentThread - (unsigned)&((DThread*)0)->iNThread))')
 
 
@@ -362,10 +362,10 @@ class Debugger:
             return {'stopped': True, **rec}
 
     def load_symbols(self, name, elf=None):
-        """Place our ELF at the address the kernel loaded it (N95CODE line in the serial log)."""
-        r = self.sess.log_query(r'N95CODE: \S*%s' % re.escape(name), 0, 1)
+        """Place our ELF at the address the kernel loaded it (SYBCODE line in the serial log)."""
+        r = self.sess.log_query(r'SYBCODE: \S*%s' % re.escape(name), 0, 1)
         if not r['lines']:
-            raise DbgError('no N95CODE line for %s (not loaded yet?)' % name)
+            raise DbgError('no SYBCODE line for %s (not loaded yet?)' % name)
         m = CODE_RE.search(r['lines'][-1])
         code, data, bss = int(m.group(2), 16), int(m.group(4), 16), int(m.group(6), 16)
         if not elf:

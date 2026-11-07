@@ -7,6 +7,21 @@ running phone: apps, files, processes, UI keys/screenshots, keyguard, P&S, IPC s
 gdb with symbols. Use it instead of ad-hoc QEMU/gdb runs; the tools below are for scripted boot
 experiments, ROM work and offline analysis.
 
+## Build containers: `scripts/in-container.sh`
+
+```
+scripts/fetch.sh                                   # pinned inputs (sources.lock) into external/, downloads/
+scripts/in-container.sh CMD                        # legacy image: Symbian host tools, kernel, baseport, stand-ins
+CONTAINER=modern scripts/in-container.sh CMD       # modern image: QEMU deps, GCC 14 symbianelf, elf2e32_next, Python
+scripts/build-qemu-modern.sh --container           # QEMU in the modern image -> build/qemu-modern-ct/
+SYBORG_QEMU=container scripts/run-modern.sh ROM    # run that QEMU (automatic when there is no host build)
+S60SDK=/path/Epoc32 CONTAINER=modern scripts/in-container.sh src/sygl/build.sh   # guest code, SDK mounted ro
+```
+Podman by default, `ENGINE=docker` for Docker. Images build themselves on first use
+(`container/Containerfile`, `container/Containerfile.modern`; the modern one compiles the GCC 14
+toolchain once, about 10-20 min). Nothing proprietary goes into an image: the S60 SDK and firmware
+are mounted at run time. Details: `docs/adding-a-device.md` §8.
+
 ## Boot, observe, summarise: `tools/syb_run.py`
 
 ```
@@ -17,7 +32,7 @@ tools/syb_run.py --no-compose --keep-drives build/runs/D  # reuse C:/E:/RTC offs
 ```
 Writes `build/runs/<label>/` with `serial.log` (seconds-prefixed lines), `shot-*.png`,
 `report.txt`. The report (`tools/syb_report.py LOG [--full] [--ipc-errors]`, works on any serial
-log) lists: processes, exits/panics/kills, N95HACK and faults, caught kernel exceptions per thread,
+log) lists: processes, exits/panics/kills, SYBHACK and faults, caught kernel exceptions per thread,
 startup properties, stub driver activity, unanswered ISI requests, and **IPC requests still pending
 at the end**: "likely blocked" = the client issued nothing after that request (a synchronous wait);
 the rest are grouped async notifications. Use it first for any "UI does not advance" problem.
@@ -60,6 +75,17 @@ Boots the ROM as it is (`build/n95/hybrid.img`) with the gdbstub, loads the kern
 the current thread from `TheScheduler`; kills stray QEMUs first. Output also in
 `build/runs/gdb-<cmd>.log`. Hardware breakpoints have no practical limit under TCG.
 
+## Firmware facts: `tools/fw/probe.py`
+
+```
+tools/fw/probe.py --device ID header              # memory model, kernel limit, lowest user-side file, fixed processes
+tools/fw/probe.py --device ID stubs --vs n95-8gb  # EUSER SWI stub shape and ordered sequence vs a known device
+tools/fw/probe.py --device ID exec-sizes --vs n95-8gb   # slow exec handlers whose copy-in sizes differ
+tools/fw/probe.py --device ID rofs | display | estart | files REGEX | cat PATH
+```
+Reads `build/devices/<id>/` as written by `tools/fw/inventory.py`; prints only. Keypad matrices and
+the display driver's caps size still need a disassembler (`tools/xipdis.py`).
+
 ## Modem (ISI): `tools/isi.py`, `platform/isi/names.txt`, `devices/<id>/isi-replies.txt`
 
 ```
@@ -68,7 +94,10 @@ tools/isi.py log build/runs/X/serial.log [--all]   # unanswered requests, or eve
 ```
 `platform/isi/names.txt` holds the resource/message names of the BB5 modem (with evidence tags),
 shared by every BB5 device; each device's `isi-replies.txt` (profile `[modem].replies`) is its canned
-reply table. `scripts/build-standins.sh` regenerates `src/standins/_shared/isireplies.h` from them.
+reply table, layered on the family's shared table (`modem.replies = ["platform/isi/replies-bb5.txt",
+"isi-replies.txt"]`; the later file wins per (resource, request)). `scripts/build-standins.sh`
+regenerates `build/devices/<id>/gen/isireplies.h` from them. Unsolicited messages a phone waits for:
+`[modem].indications` (sent once per subscribing channel).
 Adding a simple modem answer = one `reply RES REQ RESP bytes...` line in the device file. Replies that
 depend on the request (echoes, IMEI, light, MTC state) stay in `src/standins/_shared/iscpeer.inl`;
 per-device values there come from the board config (`[modem].imei`, `power_off_delay_s`).

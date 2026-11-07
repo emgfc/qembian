@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """sydb: adb-like dev/debug bridge for the virtual N95 (see docs/sydb.md).
 
-  sydb start [--seed DIR] [--fresh] [--gui] [--rom ROM] [--audio wav|host|DRIVER] [--paused]   boot a session, wait for idle
+  sydb start [--seed DIR] [--fresh] [--gui] [--rom ROM] [--audio wav|host|DRIVER] [--paused | --catch-panics]
+                                              boot a session, wait for idle
   sydb stop | status | wait idle|agent|REGEX [--timeout S]
   sydb install | uninstall           agent on/off C: incl. its Starter startup-list record (session stopped)
   sydb ls PATH | push LOCAL REMOTE | pull REMOTE LOCAL | rm PATH | mkdir PATH
@@ -213,7 +214,8 @@ def cmd_start(sdir, a):
     log = open(os.path.join(sdir, 'daemon.log'), 'w')
     subprocess.Popen([sys.executable, os.path.abspath(__file__), '--session', sdir, '_daemon', rom, drives,
                       '--audio', getattr(a, 'audio', None) or 'wav', '--gl', getattr(a, 'gl', None) or 'host']
-                     + (['--gui'] if a.gui else []) + (['--paused'] if getattr(a, 'paused', False) else []),
+                     + (['--gui'] if a.gui else [])
+                     + (['--paused'] if getattr(a, 'paused', False) or getattr(a, 'catch_panics', False) else []),
                      stdout=log, stderr=log, stdin=subprocess.DEVNULL,
                      start_new_session=True, cwd=ROOT)
     for _ in range(100):
@@ -222,11 +224,25 @@ def cmd_start(sdir, a):
             break
     else:
         die('daemon did not come up, see %s' % os.path.join(sdir, 'daemon.log'))
+    if getattr(a, 'catch_panics', False) and not getattr(a, 'paused', False):
+        # the first-boot method (docs/adding-a-device.md): every panic from the first instruction on
+        # freezes the machine with a dump and a snapshot; sydb catch hits / catch show ID read them
+        need(c.call({'op': 'catch', 'sub': 'add', 'kind': 'panic', 'action': 'freeze', 'snapshot': True,
+                     'once': True}, timeout=120))
+        need(c.call({'op': 'vm', 'sub': 'resume'}))
     if a.no_wait or getattr(a, 'paused', False):
         print('started%s; session %s' % (' paused before the first instruction (arm catches/breakpoints, then '
                                           'sydb resume)' if getattr(a, 'paused', False) else '', sdir))
         return
-    r = need(c.call({'op': 'wait', 'what': 'idle', 'timeout': a.timeout}))
+    r = c.call({'op': 'wait', 'what': 'idle', 'timeout': a.timeout})
+    if getattr(a, 'catch_panics', False):
+        hits = c.call({'op': 'catch', 'sub': 'hits'}).get('hits', [])
+        for h in hits:
+            print('caught %s %s %s %s at %.1f s (frozen there; sydb catch resume goes on): %s' % (
+                h['thread'], h['kind'], h['category'], h['reason'], h['t'], h['files']['txt']))
+        if hits:
+            return
+    need(r)
     s = 'phone %s at %.1f s' % (r['state'], r['t'])
     r = c.call({'op': 'wait', 'what': 'agent', 'timeout': 30})
     s += '; agent ' + ('up (pid %s)' % r['hello'].get('pid') if r.get('agent') else 'not responding')
@@ -391,6 +407,8 @@ def main():
         ap.add_argument('--rom')
         ap.add_argument('--paused', action='store_true', help='QEMU starts stopped (-S): arm catches or '
                         'breakpoints for early boot, then sydb resume')
+        ap.add_argument('--catch-panics', action='store_true', help='start stopped, arm a freeze+snapshot catch '
+                        'on the first panic, resume, wait for idle; on a timeout print what was caught')
         a = ap.parse_args(rest)
         a.rom = a.rom or (DEVICE_ROM if a.device else DEVPATHS['rom'])
         (cmd_start if cmd == 'start' else cmd_install)(sdir, a)

@@ -141,7 +141,7 @@ def main():
     ap.add_argument('--keep-ours', action='append', default=[])
     ap.add_argument('--secondary', default='sys/bin/efile.exe')
     ap.add_argument('--file', action='append', default=[], metavar='ROMPATH=LOCAL',
-                    help='add or replace a ROM file (data only), e.g. Sys/Data/ESTARTCOMP.TXT=rom/hybrid/ESTARTCOMP.TXT')
+                    help='add or replace a ROM file (data only), e.g. Sys/Data/ESTARTCOMP.TXT=devices/<id>/ESTARTCOMP.TXT')
     ap.add_argument('--rofs', action='append', default=[], metavar='IMG',
                     help='ROFS image(s) for the N95 ROFS media (MEDROFS.PDD): first ROFS, then ROFx extension')
     ap.add_argument('--rofs-drives', help='comma list of local drives, one per --rofs image (header version 2, '
@@ -251,7 +251,7 @@ def main():
     out += struct.pack('<i', len(ents)) + struct.pack('<%dI' % (len(ents) + 1), *(ents + [fence]))
     # ROFS partition blob for MEDROFS.PDD: ROFS1 at 0, each following ROFx at the previous
     # image's iMaxImageSize (as on the N95 flash). It goes to the flash image <output>.rofs, not
-    # into the ROM (RAM): a 4 KB header page { "N95ROFS\0", size } and the blob at +0x1000, loaded
+    # into the ROM (RAM): a 4 KB header page { "SYBROFS\0", size } and the blob at +0x1000, loaded
     # by QEMU at the flash window 0x60000000 (scripts/run-modern.sh)
     rofs_at = rofs_len = 0
     if a.rofs and a.rofs_drives:
@@ -269,7 +269,7 @@ def main():
         if rofs_len + 0x1000 > 128 << 20:
             raise SystemExit('ROFS blob 0x%x does not fit the 128 MB flash window' % rofs_len)
         hdr = bytearray(0x1000)
-        struct.pack_into('<8sIII', hdr, 0, b'N95ROFS\0', rofs_len, 2, len(table))
+        struct.pack_into('<8sIII', hdr, 0, b'SYBROFS\0', rofs_len, 2, len(table))
         for i, t in enumerate(table):
             struct.pack_into('<III', hdr, 20 + 12 * i, *t)
         with open(a.out + '.rofs', 'wb') as f:
@@ -291,7 +291,7 @@ def main():
         if rofs_len + 0x1000 > 128 << 20:
             raise SystemExit('ROFS blob 0x%x does not fit the 128 MB flash window' % rofs_len)
         hdr = bytearray(0x1000)
-        struct.pack_into('<8sI', hdr, 0, b'N95ROFS\0', rofs_len)
+        struct.pack_into('<8sI', hdr, 0, b'SYBROFS\0', rofs_len)
         with open(a.out + '.rofs', 'wb') as f:
             f.write(hdr + blob)
         print('ROFS flash image: %d image(s), 0x%x bytes -> %s.rofs' % (len(a.rofs), rofs_len, a.out))

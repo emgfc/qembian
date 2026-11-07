@@ -1,0 +1,4 @@
+# build context of container/Containerfile.modern (repository root): only what the image needs
+*
+!container/
+!patches/elf2e32_next/

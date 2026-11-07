@@ -4,10 +4,10 @@ import argparse, os, signal, sys, time
 
 MILESTONES = [
     ('first-output', None),
-    ('wserv', 'N95STUB: install DisplayDriver'),
+    ('wserv', 'SYBSTUB: install DisplayDriver'),
     ('rightsserver-drm', 'SecEnv mode 3: returned dummy cert'),
     ('hwrm-light', 'ISCPEER: ch 35 send (60): 00 00 00 3a'),
-    ('startup-ui-phase', 'N95PROP: Startup::startup sets 101f8766/4'),
+    ('startup-ui-phase', 'SYBPROP: Startup::startup sets 101f8766/4'),
 ]
 
 

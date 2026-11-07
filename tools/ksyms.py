@@ -5,7 +5,7 @@ ELF), and .data/.bss at the kernel data address. Both depend on the kernel build
 ($SYBORG_DEVICE profile, kernel.baseport): the multiple-model build (syborg) has ekern code at
 0x80003000 and data at 0xC8000000; the moving-model one (syborgmv, N73) puts the ROM at 0xF8000000,
 kernel data at 0x64000000, and ekern after the firmware image. So the addresses are read from the
-device's kernel-side ROM (build/rom-hybrid/<baseport>_hybrid_kernel_ARMV5_udeb.img), whose files keep
+device's kernel-side ROM (build/devices/<id>/kernel-side.img), whose files keep
 their addresses in the composed ROM. Computed from the ELF so a rebuilt kernel needs no edits."""
 import os, re, subprocess, sys
 
@@ -28,11 +28,13 @@ def placement(bp=None):
     """(ELF, ekern code address, kernel data address) of the device's kernel build"""
     bp = bp or baseport()
     elf = os.path.join(REL, '_%s_ekern.exe.sym' % bp)
-    if bp == 'syborg':
-        return elf, CODE, DATA
     sys.path.insert(0, os.path.join(ROOT, 'tools'))
-    import romimg
-    img = os.path.join(ROOT, 'build', 'rom-hybrid', '%s_hybrid_kernel_ARMV5_udeb.img' % bp)
+    import romimg, device
+    img = os.path.join(device.paths(device.load(os.environ.get('SYBORG_DEVICE')))['dir'], 'kernel-side.img')
+    if not os.path.exists(img):			# not built yet: the multiple-model layout below the user side
+        if bp == 'syborg':
+            return elf, CODE, DATA
+        raise SystemExit('ksyms: %s not built (tools/device.py build)' % img)
     rom = romimg.Rom(open(img, 'rb').read())
     for f in rom.walk():
         if f['path'].lower().endswith('ekern.exe'):

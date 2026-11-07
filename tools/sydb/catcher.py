@@ -105,7 +105,9 @@ class Catcher:
         if not d.running and not self.frozen:
             d.mi('-exec-continue')
 
-    def disarm(self):
+    def disarm(self, hold=False):
+        """remove the breakpoints; continue unless `hold` (a freeze hit of the last, once-only rule
+        stays frozen until catch resume)"""
         d = self.dbg
         if not self.bps or not d.p:
             return
@@ -119,6 +121,8 @@ class Catcher:
             except Exception:
                 pass
         self.bps = {}
+        if hold:
+            return
         if was or self.frozen:
             self.frozen = None
             d.mi('-exec-continue')
@@ -187,7 +191,7 @@ class Catcher:
         else:
             self._go()
         if not self.rules:
-            self.disarm()
+            self.disarm(hold=bool(self.frozen))
 
     def _go(self):
         """continue, dropping stop reports queued while we held the machine (nothing real can
@@ -281,10 +285,10 @@ class Catcher:
         return regs, note
 
     def code_map(self):
-        """RAM-loaded code segments: N95CODE lines of this boot"""
+        """RAM-loaded code segments: SYBCODE lines of this boot"""
         segs = []
-        for l in self.sess.log_query(r'N95CODE: ', 0, 2000)['lines']:
-            m = re.search(r'N95CODE: (\S+) code=([0-9a-f]+)\+([0-9a-f]+)', l)
+        for l in self.sess.log_query(r'SYBCODE: ', 0, 2000)['lines']:
+            m = re.search(r'SYBCODE: (\S+) code=([0-9a-f]+)\+([0-9a-f]+)', l)
             if m:
                 segs.append((int(m.group(2), 16), int(m.group(3), 16), os.path.basename(m.group(1).replace('\\', '/'))))
         return segs

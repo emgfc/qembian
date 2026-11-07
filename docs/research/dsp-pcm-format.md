@@ -4,11 +4,11 @@
 > core-flat.img at 0x80a0f7cc): rate enum 1..9 -> code 11..3 (8000..48000 Hz, descending), 13 -> 14
 > (48 kHz), anything else -> 15. Checked live: AudioServer's stream struct for Crash Bandicoot was
 > {1 port, enum 5 = 22050 Hz} (breakpoint on eapcontrolmodule_ord1) and its EAP 0 carried code 7;
-> the startup jingle carries code 4 = 44100 Hz stereo. Implemented in src/n95compat/stubs/ehwa.cpp.
+> the startup jingle carries code 4 = 44100 Hz stereo. Implemented in src/standins/ehwa/ehwa.cpp.
 
 # Raw PCM node: where the stream format reaches the DSP
 
-Research note for `src/n95compat/stubs/ehwa.cpp` (raw PCM node `c36a3ebc`, kind 1). Goal: the
+Research note for `src/standins/ehwa/ehwa.cpp` (raw PCM node `c36a3ebc`, kind 1). Goal: the
 stand-in plays each stream at its real sample rate and channel count, not a fixed 44100/2.
 Tags: [verified] = read in code, [inferred] = best guess from code shape plus one log line.
 Sources: `build/n95/ghidra/{RawGwc,AudioServer,eapcontrolmodule}.dll.c`, disassembly from
@@ -112,7 +112,7 @@ if (eapCmd == 0 && m[4] == 16)
 		{
 		EapRate[id] = EapRateHz(pl[3]);
 		EapPorts[id] = pl[5];
-		Kern::Printf("N95STUB: Hwa eap stream %d rate enum %d -> %d Hz, %d ports", id, pl[3],
+		Kern::Printf("SYBSTUB: Hwa eap stream %d rate enum %d -> %d Hz, %d ports", id, pl[3],
 					 EapRate[id], EapPorts[id]);
 		}
 	}
@@ -129,7 +129,7 @@ if (m[2] == 7)
 	n->iChannels = m[4] == 1 ? 1 : 2;		// 3 (non-interleaved) not seen; treat as 2 for now
 	if (n->iEapId >= 0 && n->iEapId < KMaxEapStreams && EapRate[n->iEapId])
 		n->iRate = EapRate[n->iEapId];
-	Kern::Printf("N95STUB: Hwa raw node %d format: eap stream %d, mode %d -> %d Hz %d ch",
+	Kern::Printf("SYBSTUB: Hwa raw node %d format: eap stream %d, mode %d -> %d Hz %d ch",
 				 n - Nodes, n->iEapId, m[4], n->iRate, n->iChannels);
 	}
 ```

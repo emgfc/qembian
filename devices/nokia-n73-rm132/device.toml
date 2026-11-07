@@ -2,6 +2,7 @@
 # model one. Findings and method: docs/devices/nokia-n73-rm132/onboarding-log.md.
 # Schema: docs/devices.md. Evidence tags: [V] checked against the firmware or a run, [I] inferred.
 schema = 1
+family = "bb5-s60"                         # platform/families/bb5-s60.toml, merged under this file
 
 [device]
 id = "nokia-n73-rm132"
@@ -13,12 +14,10 @@ market = "global"
 notes = "RM-133 is the N73 Music Edition (same platform, own firmware)."
 
 [platform]
-os = "symbian"
 os_version = "9.1"
 ui = "s60-3.0"                             # S60 3rd Edition (no feature pack)
 personality = "sym91"                      # personalities/sym91: the 9.2 exec tables + 9.1 loader structures
 soc = "omap1710"                           # TI OMAP1710, ARM926EJ-S [I: spec sheet; ROM is ARMv5 moving model V]
-cellular = "bb5"                           # BB5 modem over ISC/ISI; IscApi protocol = the N95's [V]
 
 # ---------------------------------------------------------------------------------------------
 [firmware]
@@ -61,7 +60,6 @@ user_window_start = 0xF8093120             # IscApi.dll: the user side starts am
 
 # ---------------------------------------------------------------------------------------------
 [board]
-machine = "syborg"
 cpu = "arm926"                             # ARM926EJ-S (QEMU arm926 + patches/qemu-modern/0003 cache type)
 ram_mb = 68                                # 64 MB on the phone, which also held the 20 MB core: our ROM image
                                            # (21.6 MB with our kernel side after the firmware) is extra, so the
@@ -84,20 +82,8 @@ partial_mode = true
 touch = false
 rotation_caps = [1, 1, 1]                  # SCR_ROTATION2 90 (320x240 mode) exists [V wsini]; others [I]
 
-[board.timing]
-fast_counter_hz = 32768                    # [I: OMAP 32 kHz timer, as the N95's]
-nanokernel_tick_us = 1000                  # [I]
-rtc = "syborg-rtc"
-
 [board.audio]
-device = "syborg-audio"
-host_default = "pipewire"
 dsp = "ehwa"                               # TI DSP bridge stand-in; the N73 protocol differs only in the image load
-
-[board.flash]
-base = 0x60000000
-size_mb = 128
-content = "rofs"
 
 [[board.drives]]
 letter = "D"
@@ -128,10 +114,6 @@ local_drive = 8
 kind = "composite"
 flags = "FS_COMPOSITE"
 
-[board.input]
-keymap = "keymap.toml"                     # from the N73's ekeyp.dll matrix [V]
-translation = "qemu"
-
 # ---------------------------------------------------------------------------------------------
 [hardware]
 wlan = false
@@ -151,13 +133,8 @@ gpu = "none"
 # ---------------------------------------------------------------------------------------------
 [kernel]
 baseport = "syborgmv"                      # tools/baseport_variant.py: moving memory model, ARM926, no VFP
-variant = "udeb"
-trace_mask = 0x80000000
-secondary = "sys/bin/efile.exe"
-critical_thread_policy = "spare"
-user_memory_guards = false
 place = "after-firmware"                   # our kernel side after the firmware image (scripts/build-standins.sh pad)
-patchsets = ["platform", "sym92", "sym91", "n95"]
+patchsets = ["platform", "sym92", "sym91", "policy"]
 missing_drivers = ["ekeyp.dll", "camldd.ldd", "campdd.pdd", "camparifpdd.pdd", "bc02.ldd", "bc02_uart1.pdd", "usbisa.ldd", "eusbc.ldd", "stildd.ldd", "rebootdriver.ldd", "test.ldd", "ebridgeutil.ldd"]   # firmware kernel-side files with no stand-in (documented gaps)
 
 [kernel.lcd]
@@ -200,6 +177,7 @@ name = "custom"
 kind = "ldd"
 family = "nokia-bb5"
 role = "startup mode"
+config = { api = 1 }                       # interface 1.0: start-up handshake by requests 0/1 [V EStart]
 
 [[standins]]
 name = "sosadlserver"
@@ -223,7 +201,8 @@ role = "SecEnv"
 name = "ehwa"
 kind = "ldd"
 family = "nokia-omap2"
-role = "TI DSP bridge LDD (H-dspbridge); N73 image load by buffer (docs/devices/nokia-n73-rm132/dspbridge-n73.md)"
+role = "TI DSP bridge LDD (H-dspbridge)"
+config = { bridge = "omap1710" }           # image load by buffer, shared buffer ctl 0x400000A (docs/devices/nokia-n73-rm132/dspbridge-n73.md)
 
 [[standins]]
 name = "ehwaomap"
@@ -258,40 +237,21 @@ role = "second NVMemory (E:) on local drive 2"
 
 # ---------------------------------------------------------------------------------------------
 [modem]
-kind = "isi-fake-peer"
-names = "platform/isi/names.txt"
-replies = "isi-replies.txt"
 stateful = "iscdriver"
-device_id = 0x6C
-imei = "490154203237518"                   # documentation example, not a real IMEI (H-imei)
-sim = "absent"
-mtc_state = "normal"
-power_off_delay_s = 3
-battery_bars = 7
-charger = false
-rtc_valid = true
-phone_lock = "disabled"
 
 [rom]
 code_patches = []
 files = [{ rom = "Sys/Data/ESTARTCOMP.TXT", local = "ESTARTCOMP.TXT" }]
-manifest = "hybrid-manifest.txt"
 
 [gl]
 impl = "none"                              # no GPU on the N73
 
 [milestones]
 first_output = ""
-wserv = "N95STUB: install DisplayDriver"
-startup_ui = "N95PROP: Startup::startup sets 101f8766/4"
 idle = "SysAp::SysAp sets 101f8766/41 = 203"   # [V] as on the N95: Active Standby up
 expected_idle_s = 50                       # [V] first boot ~48 s, but only after the city/time/date queries are answered
-
-[props]
-startup = { category = 0x101F8766, state = 0x41, ui_phase = 0x4 }
-sim_status = { category = 0x101F75B6, key = 0x100052E9 }
 
 [status]
 level = "L1"                               # home screen and menu (Calendar opens); first-boot queries answered by hand
 updated = "2026-11-07"
-open = ["smoke test needs seeded drives (first-boot city/time/date/tutorial queries)", "FaxModem.exe panics KERN-EXEC 3", "RES_94 and PN_PHONE_INFO 0x15 unanswered", "H-stub-protocol-guess: declare the DSP bridge variant in the profile"]
+open = ["smoke test needs seeded drives (first-boot city/time/date/tutorial queries)", "FaxModem.exe panics KERN-EXEC 3", "RES_94 and PN_PHONE_INFO 0x15 unanswered"]

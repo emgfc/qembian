@@ -11,7 +11,7 @@
 +		extern TBool Exec92Enabled;
 +		if (Exec92Enabled && pT->iThreadType==EThreadUser && pT->iOwningProcess
 +			&& pT->iOwningProcess!=K::TheFileServerProcess)
-+			Kern::Printf("N95HACK: exception in system-critical thread %O pc %08x lr %08x far %08x; panicking it instead of faulting",
++			Kern::Printf("SYBHACK: exception in system-critical thread %O pc %08x lr %08x far %08x; panicking it instead of faulting",
 +				pT, pR->iR15, pR->iR14, pR->iFaultAddress);
 +		else
 +			Exc::Fault(aPtr);

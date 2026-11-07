@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generate the glue between the N95's libgles_cm.dll and our GLES/EGL blob (docs/gpu-roadmap.md).
 
-  gen-gles-glue.py --blob-addr 0x80320000 --patches rom/hybrid/gles-patches.txt --asm OUT.S --names OUT.c
+  gen-gles-glue.py --blob-addr 0x80320000 --patches devices/<id>/gl/gles-patches.txt --asm OUT.S --names OUT.c
 
 Inputs: src/sygl/libgles_cm.ordinals (ordinal -> name, from the SDK's libgles_cm.dso),
 build/n95/core-flat.img + build/n95/symindex.json (export addresses of the ROM's libgles_cm.dll).

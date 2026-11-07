@@ -1,7 +1,7 @@
 // N95 ehwa.ldd stand-in (see nokiastub.h). "Hwa" = TI DSP/BIOS bridge driver used by the audio
 // stack (Bal.dll -> bridgeapi.dll) in MmfAudioServer's resource-manager thread. Hack H-dspbridge
 // (docs/hacks.md). There is no DSP: the stand-in answers just enough for MmRmServerThread's init
-// (docs/nokia-dspbridge.md), so MmfAudioServer starts (Phone.exe and EikSrvs' key-sound server need
+// (docs/devices/nokia-n95-8gb-rm320/nokia-dspbridge.md), so MmfAudioServer starts (Phone.exe and EikSrvs' key-sound server need
 // it). No audio.
 //
 //   0x400001e  DCD create manager {mutex, out mgr, thread id, out char step}: mgr token, step 2
@@ -19,7 +19,7 @@
 //   0x8000014/0x8000005/0x8000015  node send / listener / receive: the fake DSP task acks every
 //              message (send completes 0, listener KErrCompletion, receive returns {cmd,0,0})
 //   0x8000006  cancel the listener: completes it with KErrCancel [inferred from the run]
-// Playback (raw PCM node, docs/nokia-dsp-playback.md): WAV, the startup tone and key tones arrive
+// Playback (raw PCM node, docs/devices/nokia-n95-8gb-rm320/nokia-dsp-playback.md): WAV, the startup tone and key tones arrive
 // as PCM blocks on 0x800000e; they are copied into a physically contiguous ring and played by the
 // syborg-audio device (src/qemu-syborg/hw/arm/syborg_audio.c). A 10 ms pump DFC paces the client
 // (a block's status completes once the device has room), and after the end-of-stream block has
@@ -27,6 +27,22 @@
 // 3 start, 4 pause, 1 stop, 2 record) get no reply; only the send status completes.
 //   others     return 0, write nothing (logged)
 #include "nokiastub.h"
+#include "boardconfig.h"
+
+// The bridge protocol variant this phone's bridgeapi.dll speaks, declared in the device profile:
+// [[standins]] ehwa config = { bridge = "omap1710" } -> board config "ehwa.bridge" (default "omap2420",
+// the N95's). The stand-in runs exactly that variant.
+static TBool Bridge1710()
+	{
+	static TInt v = -1;
+	if (v < 0)
+		{
+		char b[16];
+		v = BoardConfig("ehwa.bridge", b, sizeof(b)) > 0 && b[4] == '1' && b[5] == '7';	// "omap1710"
+		Kern::Printf("SYBSTUB: Hwa bridge variant %s", v ? "omap1710" : "omap2420");
+		}
+	return v;
+	}
 #include <memmodel/epoc/platform.h>
 #include "syborg.h"
 
@@ -54,7 +70,7 @@ struct SNode
 	TBool iRaw;					// raw PCM node (commands without the 0x20000000 shared form)
 	TInt iKind;					// ENodeOther / ENodeRaw / ENodeMp3 / ENodeAac / ENodeEaac
 	};
-// codec nodes by DSP node UUID (docs/nokia-dsp-playback.md sections 1 and 6)
+// codec nodes by DSP node UUID (docs/devices/nokia-n95-8gb-rm320/nokia-dsp-playback.md sections 1 and 6)
 enum { ENodeOther, ENodeRaw, ENodeMp3, ENodeAac, ENodeEaac };
 static TUint32 LastDefUuid;		// first UUID word of the last 0x400001f get-def (precedes node create)
 static TInt NodeKind(TUint32 aUuid0)
@@ -150,7 +166,7 @@ static void EapStreamSeen(const TUint16* aMsg)
 	EapStreams[slot].iId = id;
 	EapStreams[slot].iRate = rate;
 	EapStreams[slot].iChannels = ch;
-	Kern::Printf("N95STUB: Hwa EAP stream %d: rate code %d -> %d Hz, %s, %d port(s)", id, aMsg[3], rate,
+	Kern::Printf("SYBSTUB: Hwa EAP stream %d: rate code %d -> %d Hz, %s, %d port(s)", id, aMsg[3], rate,
 				 ch == 2 ? "stereo" : "mono", aMsg[5]);
 	}
 
@@ -211,7 +227,7 @@ static void Pump(TAny*)
 		}
 	if (StopNode)
 		{
-		Kern::Printf("N95STUB: Hwa play stopped");
+		Kern::Printf("SYBSTUB: Hwa play stopped");
 		DspMessage(StopNode, KindStoppedMsg(StopNode->iKind));	// stopped node: {8} raw/eAAC+, {4} MP3/AAC
 		StopNode = NULL;
 		}
@@ -225,7 +241,7 @@ static void Pump(TAny*)
 			Au(KAuChannels, r.iNode->iChannels);
 			Au(KAuCtrl, 1);
 			Playing = ETrue;
-			Kern::Printf("N95STUB: Hwa play kind %d format %d (%d Hz %d ch)", r.iNode->iKind,
+			Kern::Printf("SYBSTUB: Hwa play kind %d format %d (%d Hz %d ch)", r.iNode->iKind,
 						 KindFormat(r.iNode->iKind), r.iNode->iRate, r.iNode->iChannels);
 			}
 		while (r.iCopied < r.iLen && Inflight < KSlots)
@@ -250,7 +266,7 @@ static void Pump(TAny*)
 			{
 			Au(KAuCtrl, 4);				// end: report once everything queued has played
 			EosNode = r.iNode;
-			Kern::Printf("N95STUB: Hwa end of stream queued (inflight %d)", Inflight);
+			Kern::Printf("SYBSTUB: Hwa end of stream queued (inflight %d)", Inflight);
 			}
 		Kern::RequestComplete(r.iClient, r.iStatus, KErrNone);	// "buffer consumed"
 		ReqHead = (ReqHead + 1) % KMaxReq;
@@ -258,7 +274,7 @@ static void Pump(TAny*)
 		}
 	if (EosNode && (AuR(KAuStatus) & 2))
 		{
-		Kern::Printf("N95STUB: Hwa play complete");
+		Kern::Printf("SYBSTUB: Hwa play complete");
 		DspMessage(EosNode, KindStoppedMsg(EosNode->iKind));	// play complete: {8} raw/eAAC+, {4} MP3/AAC
 		EosNode = NULL;
 		Playing = EFalse;
@@ -285,14 +301,14 @@ static TInt PlaybackInit()
 	NKern::ThreadLeaveCS();
 	if (r != KErrNone)
 		{
-		Kern::Printf("N95STUB: Hwa playback init failed %d", r);
+		Kern::Printf("SYBSTUB: Hwa playback init failed %d", r);
 		Ring = NULL;
 		return r;
 		}
 	RingLin = (TUint8*)Ring->LinearAddress();
 	Au(KAuVolume, 200);
 	LastDone = AuR(KAuDone);
-	Kern::Printf("N95STUB: Hwa playback ring %d KB at phys %08x, audio device id %08x",
+	Kern::Printf("SYBSTUB: Hwa playback ring %d KB at phys %08x, audio device id %08x",
 				 KSlots * KSlotSize / 1024, RingPhys, AuR(0));
 	return KErrNone;
 	}
@@ -388,7 +404,7 @@ static TInt DcdRegister(DThread* aClient, TAny* a1)
 	NKern::ThreadEnterCS();
 	delete b;
 	NKern::ThreadLeaveCS();
-	Kern::Printf("N95STUB: Hwa DCD register %d objects -> %d (%d known)", n, r, DcdCount);
+	Kern::Printf("SYBSTUB: Hwa DCD register %d objects -> %d (%d known)", n, r, DcdCount);
 	return r;
 	}
 
@@ -440,21 +456,21 @@ static TInt HwaCtl(DThread* aClient, TInt aFn, TAny* a1, TAny* a2, const TUint32
 		}
 	case 0x4000002:	// PROC load: chunk for the base image
 		{
-		if (a2)		// N73 (older bridgeapi, OMAP1710): a1 = the whole baseimage.dof already in a user
-			{		// buffer, a2 = &size; PROC_Load takes any non-zero result as a failure
-					// (docs/devices/nokia-n73-rm132/dspbridge-n73.md). The N95 passes a2 = 0.
+		if (Bridge1710())	// declared variant (ehwa.bridge = "omap1710", N73): a1 = the whole baseimage.dof
+			{			// already in a user buffer, a2 = &size; PROC_Load takes any non-zero result as
+						// a failure (docs/devices/nokia-n73-rm132/dspbridge-n73.md)
 			TInt size = 0;
 			Kern::ThreadRawRead(aClient, a2, &size, sizeof(size));
-			Kern::Printf("N95STUB: Hwa base image %d bytes in the client's buffer %08x (loaded)", size, a1);
+			Kern::Printf("SYBSTUB: Hwa base image %d bytes in the client's buffer %08x (loaded)", size, a1);
 			return KErrNone;
 			}
 		TLinAddr base = 0;
 		TInt size = (TInt)w[0] > KLoadChunkSize ? (TInt)w[0] : KLoadChunkSize;
 		TInt h = NewChunk(aClient, size, LoadChunk, base);
-		Kern::Printf("N95STUB: Hwa image chunk %d bytes at %08x -> handle %08x", size, base, h);
+		Kern::Printf("SYBSTUB: Hwa image chunk %d bytes at %08x -> handle %08x", size, base, h);
 		return h;
 		}
-	case 0x400000a:	// the N73's number for it (older bridgeapi; never issued by the N95's), same layout
+	case 0x400000a:	// the OMAP1710 bridge's number for it (N73; the N95's never issues it), same layout
 	case 0x400000b:	// PROC shared buffer: a1 = TPtr8 out, a2 = TBuf8<4>{size}
 	case 0x4000016:
 		{
@@ -462,7 +478,7 @@ static TInt HwaCtl(DThread* aClient, TInt aFn, TAny* a1, TAny* a2, const TUint32
 		TLinAddr base = 0;
 		Kern::ThreadRawRead(aClient, (TUint8*)a2 + 8, &size, 4);	// TBuf8<4>: {typelen, maxlen, data}
 		TInt h = NewChunk(aClient, size > 0 ? size : 0x1000, BufChunk, base);
-		Kern::Printf("N95STUB: Hwa shared buffer %d bytes at %08x -> %d", size, base, h);
+		Kern::Printf("SYBSTUB: Hwa shared buffer %d bytes at %08x -> %d", size, base, h);
 		if (h < 0)
 			return h;
 		TUint32 ptr[3] = { 0x20000000u | (TUint32)size, (TUint32)size, (TUint32)base };	// TPtr8
@@ -489,9 +505,9 @@ static TInt HwaCtl(DThread* aClient, TInt aFn, TAny* a1, TAny* a2, const TUint32
 			Nodes[i].iRate = s ? s->iRate : 44100;
 			Nodes[i].iChannels = s ? s->iChannels : 2;
 			if (!s)
-				Kern::Printf("N95STUB: Hwa raw node %d: no EAP stream %d seen, assuming 44100 Hz stereo", i, c[2]);
+				Kern::Printf("SYBSTUB: Hwa raw node %d: no EAP stream %d seen, assuming 44100 Hz stereo", i, c[2]);
 			}
-		Kern::Printf("N95STUB: Hwa node %d kind %d (uuid %08x) config %08x %08x %08x %08x %08x -> %d Hz %d ch",
+		Kern::Printf("SYBSTUB: Hwa node %d kind %d (uuid %08x) config %08x %08x %08x %08x %08x -> %d Hz %d ch",
 					 i, Nodes[i].iKind, LastDefUuid, c[2], c[3], c[4], c[5], c[6], Nodes[i].iRate, Nodes[i].iChannels);
 		TInt tok = KNodeToken + (i << 8);
 		return Kern::ThreadRawWrite(aClient, a2, &tok, 4);
@@ -525,14 +541,14 @@ static TInt HwaCtl(DThread* aClient, TInt aFn, TAny* a1, TAny* a2, const TUint32
 		{
 		// The fake DSP task acks every message: send completes 0, the listener completes with
 		// KErrCompletion, and 0x8000015 hands back a raw 12-byte payload {reply cmd, 0, 0}
-		// (eapgwc wait loop FUN_80a0cd64; docs/nokia-dspbridge.md section 5)
+		// (eapgwc wait loop FUN_80a0cd64; docs/devices/nokia-n95-8gb-rm320/nokia-dspbridge.md section 5)
 		TUint32 b[2] = {0, 0}, m[5] = {0, 0, 0, 0, 0};
 		Kern::ThreadRawRead(aClient, a2, b, sizeof(b));
 		Kern::ThreadRawRead(aClient, (TAny*)b[1], m, sizeof(m));	// len, max, cmd, arg1, arg2
 		TUint16 eapCmd = 0;
 		if (m[2] == 0x20000000 && m[3])
 			Kern::ThreadRawRead(aClient, (TAny*)m[3], &eapCmd, 2);	// payload u16[0]
-		Kern::Printf("N95STUB: Hwa node send cmd %08x ptr %08x len %d eap %d", m[2], m[3], m[4], eapCmd);
+		Kern::Printf("SYBSTUB: Hwa node send cmd %08x ptr %08x len %d eap %d", m[2], m[3], m[4], eapCmd);
 		if (m[2] == 0x20000000 && m[3] && m[4] && eapCmd != 1)
 			{
 			TUint16 pl[40];
@@ -541,7 +557,7 @@ static TInt HwaCtl(DThread* aClient, TInt aFn, TAny* a1, TAny* a2, const TUint32
 			if (eapCmd == 0 && m[4] == 16)		// EAP 0 "create stream": the PCM format
 				EapStreamSeen(pl);
 			for (TInt j = 0; j < nb / 2; j += 10)
-				Kern::Printf("N95STUB: Hwa eap %d +%02d: %04x %04x %04x %04x %04x %04x %04x %04x %04x %04x", eapCmd, j * 2,
+				Kern::Printf("SYBSTUB: Hwa eap %d +%02d: %04x %04x %04x %04x %04x %04x %04x %04x %04x %04x", eapCmd, j * 2,
 							 pl[j], pl[j+1], pl[j+2], pl[j+3], pl[j+4], pl[j+5], pl[j+6], pl[j+7], pl[j+8], pl[j+9]);
 			}
 		SNode* n = Node(a1);
@@ -559,7 +575,7 @@ static TInt HwaCtl(DThread* aClient, TInt aFn, TAny* a1, TAny* a2, const TUint32
 				if (s)
 					n->iRate = s->iRate;
 				n->iChannels = m[4] == 1 ? 1 : 2;
-				Kern::Printf("N95STUB: Hwa raw node format: EAP stream %d, layout %d -> %d Hz %d ch%s", n->iEapStream,
+				Kern::Printf("SYBSTUB: Hwa raw node format: EAP stream %d, layout %d -> %d Hz %d ch%s", n->iEapStream,
 							 m[4], n->iRate, n->iChannels, m[4] == 3 ? " (non-interleaved: played as interleaved)" : "");
 				}
 			TRequestStatus* send = (TRequestStatus*)b[0];
@@ -623,7 +639,7 @@ static TInt HwaCtl(DThread* aClient, TInt aFn, TAny* a1, TAny* a2, const TUint32
 		if (n->iKind == ENodeAac && hdr[2] == 2)
 			r.iLen = 0;					// AAC concealment (header-only) block: nothing to play
 		if (r.iEos || len <= 4)
-			Kern::Printf("N95STUB: Hwa PCM block len %d hdr %02x %02x %02x %02x words %08x %08x %08x", len,
+			Kern::Printf("SYBSTUB: Hwa PCM block len %d hdr %02x %02x %02x %02x words %08x %08x %08x", len,
 						 hdr[0], hdr[1], hdr[2], hdr[3], b[4], b[5], b[6]);
 		r.iNode = n;
 		++ReqCount;

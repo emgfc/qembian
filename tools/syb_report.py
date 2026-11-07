@@ -3,9 +3,9 @@
 
   syb_report.py SERIAL.LOG [--full] [--ipc-errors]
 
-Sections: timeline milestones, processes (created / exited / panicked), N95HACK and faults,
-caught kernel exceptions per thread, startup properties (N95PROP), stub driver activity
-(N95STUB), ISI requests without reply (tools/isi.py names), and -- when the log has the IPC
+Sections: timeline milestones, processes (created / exited / panicked), SYBHACK and faults,
+caught kernel exceptions per thread, startup properties (SYBPROP), stub driver activity
+(SYBSTUB), ISI requests without reply (tools/isi.py names), and -- when the log has the IPC
 trace (trace bits 0xC00) -- IPC requests still pending at the end of the log, i.e. who is
 waiting on whom. Lines may carry a leading "<seconds> " timestamp (syb_run.py writes that).
 """
@@ -21,8 +21,8 @@ CREATE = re.compile(r'^>DMemModelProcess::DoCreate (\S+)')
 DIE = re.compile(r'^Process (\S+) Die: (\d+) (-?\d+) (\S*)')
 PANIC = re.compile(r'^Thread (\S+) Panic (\S+ ?-?\d*)')
 KILLED = re.compile(r'^Thread (\S+) Killed (-?\d+)')
-STUB = re.compile(r'^N95STUB: (\S+) u-?\d+ (ctl \d+|request 0x[0-9a-f]+)\b.*?(ignored|returned|wrote int|wrote block|completed|pending|hook)')
-STUBOPEN = re.compile(r'^N95STUB: (\S+) open unit .* by (\S+)')
+STUB = re.compile(r'^SYBSTUB: (\S+) u-?\d+ (ctl \d+|request 0x[0-9a-f]+)\b.*?(ignored|returned|wrote int|wrote block|completed|pending|hook)')
+STUBOPEN = re.compile(r'^SYBSTUB: (\S+) open unit .* by (\S+)')
 
 
 def read(path):
@@ -87,9 +87,9 @@ def main():
         m = KILLED.match(l)
         if m:
             panics.append((t, m.group(1), 'Killed ' + m.group(2))); continue
-        if l.startswith('N95HACK') or l.startswith('FAULT') or 'Fault(' in l:
+        if l.startswith('SYBHACK') or l.startswith('FAULT') or 'Fault(' in l:
             (faults if l.startswith('FAULT') else hacks).append((t, l)); continue
-        if l.startswith('N95PROP'):
+        if l.startswith('SYBPROP'):
             props.append((t, l[9:])); continue
         if l.startswith('Exc ') and 'Cpsr=' in l:
             cur_exc = True; continue
@@ -116,7 +116,7 @@ def main():
     normal = [p for _, p, typ, r, _ in died if typ == '0' and r == '0']
     if normal:
         print('  normal exits: ' + ', '.join(normal))
-    section('N95HACK / faults')
+    section('SYBHACK / faults')
     for t, l in hacks + faults:
         print('  %s %s' % (fmt_t(t), l))
     if exc:

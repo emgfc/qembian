@@ -1,0 +1,67 @@
+# Family bb5-s60: Nokia BB5 phones running S60 3rd Edition on our Syborg board (N95 8GB, N73, 5730).
+# Merged UNDER each member's device.toml (a device value always wins). Rules (docs/devices.md "Families"):
+# - Only values that are a fact of the family (BB5 ISI modem, S60 publish & subscribe keys) or of how
+#   we run every member (board machine, kernel set-up, fake-modem scenario). Not values that merely
+#   happen to be equal on the members so far (screen size, hardware list, firmware files): those stay
+#   in the device profiles even when three of them repeat them.
+# - When a new member differs from a value here, move the value out of this file into every member's
+#   profile (or drop it) in the same change. Do not override it in one device and keep it here
+#   "as the base". This file shrinks as the family grows; it never grows by default.
+schema = 1
+
+[platform]
+os = "symbian"
+cellular = "bb5"
+
+[board]
+machine = "syborg"
+
+[board.timing]
+fast_counter_hz = 32768                    # our board's counter [I for the phones]
+nanokernel_tick_us = 1000
+rtc = "syborg-rtc"
+
+[board.audio]
+device = "syborg-audio"
+host_default = "pipewire"
+
+[board.flash]
+base = 0x60000000                          # the board's flash window that medrofs reads the ROFS images from
+size_mb = 128
+content = "rofs"
+
+[board.input]
+keymap = "keymap.toml"
+translation = "qemu"                       # QEMU key codes; EKEYB's table comes from keymap.toml
+
+[kernel]
+variant = "udeb"
+trace_mask = 0x80000000
+secondary = "sys/bin/efile.exe"
+critical_thread_policy = "spare"           # docs/hacks.md H-critical-exit
+user_memory_guards = false
+
+[modem]
+kind = "isi-fake-peer"
+names = "platform/isi/names.txt"
+replies = ["platform/isi/replies-bb5.txt", "isi-replies.txt"]   # later files replace the same (resource, request)
+device_id = 0x6C                           # ISI device id of the CMT (BB5)
+imei = "490154203237518"                   # documentation example, not a real IMEI (H-imei)
+sim = "absent"
+mtc_state = "normal"
+power_off_delay_s = 3
+battery_bars = 7
+charger = false
+rtc_valid = true
+phone_lock = "disabled"
+
+[rom]
+manifest = "hybrid-manifest.txt"
+
+[milestones]
+wserv = "SYBSTUB: install DisplayDriver"                     # our display stand-in's log line
+startup_ui = "SYBPROP: Startup::startup sets 101f8766/4"     # S60 Startup's UI phase
+
+[props]                                    # S60 publish & subscribe keys
+startup = { category = 0x101F8766, state = 0x41, ui_phase = 0x4 }
+sim_status = { category = 0x101F75B6, key = 0x100052E9 }

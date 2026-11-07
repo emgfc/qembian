@@ -59,7 +59,7 @@ shortcut is in [hacks.md](hacks.md).
   other window is drawn yet: SplashScreen keeps being dismissed and restarted by Starter, i.e. the
   startup sequence (Startup.exe / SysAp) has not reached the idle state.
 - Next: find who sets `KPSUidStartup` (0x101F8766) key 0x301 and why the startup app does not
-  finish (kernel `N95PROP:` trace, patch 0004); then why AknIconServer renders SVG icons empty.
+  finish (kernel `SYBPROP:` trace, patch 0004); then why AknIconServer renders SVG icons empty.
 - Tooling added: `tools/pcsample.py` (guest PC sampling), `SYBORG_GDB=1|wait` for
   `scripts/hybrid-boot.sh`, `romcompose.py --patches` (verified byte patches), stub control hooks.
 
@@ -68,7 +68,7 @@ FFmpeg; `scripts/run-gui.sh` plays through PipeWire), DSP stand-in streams the r
 jingle works on `build/n95/hybrid-exp.img`, composed with the key-sound/startup-tone byte patches off by `scripts/compose-exp.sh`).
 Open: key tones (DevSound request refused; audio-route reply 77/01→09 added, unverified), AAC/MP3
 nodes untested (trigger: Profiles → ringing tone preview), working ROM still has the audio patches.
-Details: docs/nokia-dsp-playback.md, docs/hacks.md (H-dspbridge).
+Details: docs/devices/nokia-n95-8gb-rm320/nokia-dsp-playback.md, docs/hacks.md (H-dspbridge).
 
 **Queue (2026-11-05, from the project owner):**
 - Done (run 42): Startup "hands" animation, first-boot region/date/time queries and the idle screen (fake modem answers a definite "no SIM"). Done (run 44): Phone.exe comes up (DSP bridge + DVFS stand-ins let MmfAudioServer start), publishes 213, the phone-ready skip patch is gone and the full Active Standby idle screen stays up.

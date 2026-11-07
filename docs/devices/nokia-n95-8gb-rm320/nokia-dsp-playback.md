@@ -329,8 +329,8 @@ first Play of every stream hangs forever; every later Play on that stream → `K
 
 ### 6.3 Stub change (fake modem, not `ehwa.cpp`)
 
-Add to `src/n95compat/isi/isi-db.txt` and regenerate `src/n95compat/stubs/isireplies.h` with
-`scripts/build-n95compat.sh`:
+Add to `platform/isi/replies-bb5.txt + devices/<id>/isi-replies.txt` and regenerate `build/devices/<id>/gen/isireplies.h` with
+`scripts/build-standins.sh`:
 
 ```
 res 77 PN_AUDIO_ROUTING?       inferred  # Aamm 0x77 client (Aamm_ord69/71), used by Lac.DLL for play/stop/route

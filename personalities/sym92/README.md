@@ -6,7 +6,7 @@ like the 9.2 kernel to the phone's own binaries.
 
 | part | file | what |
 |---|---|---|
-| exec numbering | `exec.map` | 9.2 SWI numbers -> our exec handlers (+ shims); compiled into the kernel by `tools/personality/gen_exec_map.py` (kernel/exec92_map.h). Derived with `align.py` / `map-draft.txt` from the device's EUSER (docs/n95-swi-map.md) |
+| exec numbering | `exec.map` | 9.2 SWI numbers -> our exec handlers (+ shims); compiled into the kernel by `tools/personality/gen_exec_map.py` (kernel/execpers_map.h). Derived with `align.py` / `map-draft.txt` from the device's EUSER (docs/n95-swi-map.md) |
 | exec patches | `patches/0001`, `0005` | the 9.2 exec tables in the kernel, TimerAt by reference |
 | driver ABI | `patches/0008`, `0009`, `kabi.toml` | DObject/DLogicalChannel vtables equal to 9.2's; no user memory guards (H-kernel-abi-92) |
 

@@ -1,13 +1,24 @@
 #!/usr/bin/env bash
 # Build modern QEMU (pinned in sources.lock) with the Syborg board on the host.
-#   scripts/build-qemu-modern.sh [clean]
-# Source: downloads/qemu-<ver>.tar.xz (signature checked when fetched); our board lives in
-# src/qemu-syborg/ and is copied into the tree, with Kconfig/meson entries added (idempotent).
-# Output: build/qemu-modern/install/bin/qemu-system-arm.
+#   scripts/build-qemu-modern.sh [clean] [--container]
+# Source: downloads/qemu-<ver>.tar.xz (scripts/fetch.sh, sha256 pinned in sources.lock); our board
+# lives in src/qemu-syborg/ and is copied into the tree, with Kconfig/meson entries added (idempotent).
+# Output: build/qemu-modern/install/bin/qemu-system-arm (host build: needs the host's dev packages,
+# the list is container/Containerfile.modern), or with --container a build inside the modern image
+# into build/qemu-modern-ct/ (podman/docker only; run through scripts/qemu-container.sh, which
+# scripts/run-modern.sh picks by itself when there is no host build).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"; cd "$ROOT"
+ARGS=(); CT=0
+for x in "$@"; do [ "$x" = --container ] && CT=1 || ARGS+=("$x"); done
+if [ "$CT" = 1 ] && [ -z "${SYBORG_IN_MODERN:-}" ]; then
+  [ -f downloads/qemu-11.1.3.tar.xz ] || scripts/fetch.sh
+  CONTAINER=modern exec scripts/in-container.sh scripts/build-qemu-modern.sh "${ARGS[@]}"
+fi
+set -- "${ARGS[@]+"${ARGS[@]}"}"
 VER=11.1.3
 B=build/qemu-modern
+[ -n "${SYBORG_IN_MODERN:-}" ] && B=build/qemu-modern-ct		# links against the image's libraries
 SRC=$B/qemu-$VER
 INST=$ROOT/$B/install
 mkdir -p "$B" build/logs

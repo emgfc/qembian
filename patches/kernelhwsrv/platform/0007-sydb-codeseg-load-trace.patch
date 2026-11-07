@@ -12,7 +12,7 @@
 +		{
 +		TModuleMemoryInfo mi;
 +		if (GetMemoryInfo(mi, NULL) == KErrNone)
-+			Kern::Printf("N95CODE: %S code=%08x+%x data=%08x+%x bss=%08x+%x ep=%08x",
++			Kern::Printf("SYBCODE: %S code=%08x+%x data=%08x+%x bss=%08x+%x ep=%08x",
 +						 iFileName, mi.iCodeBase, mi.iCodeSize, mi.iInitialisedDataBase,
 +						 mi.iInitialisedDataSize, mi.iUninitialisedDataBase, mi.iUninitialisedDataSize,
 +						 iFileEntryPoint);

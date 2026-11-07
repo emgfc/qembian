@@ -5,7 +5,7 @@ This is a read-only analysis of the stock firmware set `RM-320_35.0.001_PR.C0R` 
 repository. To reproduce it:
 
 ```sh
-N95_FW_DIR=/path/to/RM-320 scripts/n95-inventory.sh   # about 12 s, outputs in build/n95/
+FW_DIR=/path/to/RM-320 tools/fw/inventory.py --device nokia-n95-8gb-rm320   # outputs in build/devices/<id>/
 ```
 
 Tools written for this:

@@ -22,7 +22,7 @@ import sydb as S
 from PyQt6 import QtCore, QtGui, QtWidgets
 Qt = QtCore.Qt
 
-# host keyboard -> phone keys (QMP qcodes); PC function keys as in docs/n95-controls.md
+# host keyboard -> phone keys (QMP qcodes); PC function keys as in docs/devices/nokia-n95-8gb-rm320/n95-controls.md
 HOST_KEYS = {
     Qt.Key.Key_Up: 'up', Qt.Key.Key_Down: 'down', Qt.Key.Key_Left: 'left', Qt.Key.Key_Right: 'right',
     Qt.Key.Key_Return: 'f6', Qt.Key.Key_Enter: 'f6', Qt.Key.Key_Backspace: 'backspace',

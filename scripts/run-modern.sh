@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run a Syborg ROM on modern QEMU (host-native, no container).
+# Run a Syborg ROM on modern QEMU (host build, or the container build through scripts/qemu-container.sh).
 #   scripts/run-modern.sh [--device ID] [--timeout N] [--gui] [--gdb|--gdb-wait] [--serial-log F]
 #                         [--fb WxH] [--dtb FILE] [--qmp SOCK] [--nvmem FILE] [--nvmem2 FILE] [--name NAME]
 #                         [--] ROM.img [extra qemu args]
@@ -13,7 +13,13 @@
 # framebuffer 240x320. ROM.rofs (next to the ROM) is loaded into the 0x60000000 flash window. --name sets the QEMU process name (tools use 'sybtool' and kill only those).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-QEMU="$ROOT/build/qemu-modern/install/bin/qemu-system-arm"
+# QEMU: $SYBORG_QEMU (a path, or "container" for scripts/qemu-container.sh), else the host build,
+# else the container build (scripts/build-qemu-modern.sh [--container])
+QEMU="${SYBORG_QEMU:-$ROOT/build/qemu-modern/install/bin/qemu-system-arm}"
+[ "$QEMU" = container ] && QEMU="$ROOT/scripts/qemu-container.sh"
+if [ ! -x "$QEMU" ] && [ -x "$ROOT/build/qemu-modern-ct/install/bin/qemu-system-arm" ]; then
+  QEMU="$ROOT/scripts/qemu-container.sh"
+fi
 TIMEOUT=""; DISPLAY_OPT=(-display none); GDB=(); SERIAL=(-serial stdio); FB=""
 DTB=""; QMP=""; ROM=""; NVMEM=""; NVMEM2=""; NAME=""; DEVICE="${SYBORG_DEVICE:-}"
 while [ $# -gt 0 ]; do
@@ -70,7 +76,7 @@ args=("${BOARD[@]}" -kernel "$ROM" "${DISPLAY_OPT[@]}" "${SERIAL[@]}" -monitor n
 args+=("$@")
 echo ">> $QEMU ${args[*]}" >&2
 if [ -n "$TIMEOUT" ]; then
-  timeout -s KILL "$TIMEOUT" "$QEMU" "${args[@]}"
+  timeout -k 10 "$TIMEOUT" "$QEMU" "${args[@]}"
 else
   "$QEMU" "${args[@]}"
 fi

@@ -1,0 +1,44 @@
+# Modern build/run environment (podman or docker), the counterpart of the legacy squeeze image
+# (container/Containerfile, Symbian kernel/baseport/stand-ins). Builds and runs:
+#   - modern QEMU with the Syborg board (scripts/build-qemu-modern.sh): GTK/SDL, epoxy/GBM, FFmpeg,
+#     ALSA/PulseAudio/PipeWire;
+#   - guest code built with GCC 14 (src/sygl, src/n95apps): arm-none-symbianelf GCC 14.2 +
+#     binutils 2.29.1 in /opt/symbianelf, elf2e32_next in /opt/elf2e32 (built in stage 1);
+#   - the Python tools (3.13: tomllib), mtools/dosfstools for drive images, gdb-multiarch for sydb.
+# Build context: the repository root (.containerignore keeps it to container/ and patches/elf2e32_next).
+#   podman build -t localhost/syborg-modern:trixie -f container/Containerfile.modern .
+# Proprietary inputs are never baked in: the S60 SDK and firmware are bind-mounted at run time.
+
+FROM docker.io/library/debian:trixie-slim AS toolchain
+RUN apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
+        build-essential curl ca-certificates xz-utils bzip2 texinfo bison flex python3 git patch \
+        libgmp-dev libmpfr-dev libmpc-dev libisl-dev zlib1g-dev \
+ && rm -rf /var/lib/apt/lists/*
+# Pins (also listed in sources.lock as reference lines)
+ARG BINUTILS_URL=https://ftp.gnu.org/gnu/binutils/binutils-2.29.1.tar.bz2
+ARG BINUTILS_SHA256=1509dff41369fb70aed23682351b663b56db894034773e6dbf7d5d6071fc55cc
+ARG GCC_URL=https://ftp.gnu.org/gnu/gcc/gcc-14.2.0/gcc-14.2.0.tar.xz
+ARG GCC_SHA256=a7b39bc69cbf9e25826c5a60ab26477001f7c08d85cec04bc0e29cabed6f3cc9
+ARG ELF2E32_URL=https://github.com/fedor4ever/elf2e32_next.git
+ARG ELF2E32_COMMIT=6a1d311f54098d2e41e43c2117bfbfe08ba00f11
+COPY container/build-symbian-toolchain.sh /src/
+RUN BINUTILS_URL=$BINUTILS_URL BINUTILS_SHA256=$BINUTILS_SHA256 GCC_URL=$GCC_URL GCC_SHA256=$GCC_SHA256 \
+    bash /src/build-symbian-toolchain.sh gcc
+COPY patches/elf2e32_next /src/patches/elf2e32_next
+RUN ELF2E32_URL=$ELF2E32_URL ELF2E32_COMMIT=$ELF2E32_COMMIT bash /src/build-symbian-toolchain.sh elf2e32
+
+FROM docker.io/library/debian:trixie-slim
+RUN apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
+        build-essential pkg-config ninja-build python3 python3-venv git curl ca-certificates \
+        xz-utils bzip2 flex bison patch file procps \
+        libglib2.0-dev libpixman-1-dev libsdl2-dev libgtk-3-dev libepoxy-dev libgbm-dev libdrm-dev \
+        libavcodec-dev libavutil-dev libswresample-dev \
+        libasound2-dev libpulse-dev libpipewire-0.3-dev libzstd-dev zlib1g-dev libfdt-dev \
+        mtools dosfstools gdb-multiarch \
+        mesa-utils libgl1-mesa-dri libegl1 libgles2 xvfb xauth \
+ && rm -rf /var/lib/apt/lists/*
+COPY --from=toolchain /opt/symbianelf /opt/symbianelf
+COPY --from=toolchain /opt/elf2e32 /opt/elf2e32
+# the guest build scripts read these (src/sygl/build.sh, src/n95apps/*/build.sh)
+ENV GCC14=/opt/symbianelf ELF2E32=/opt/elf2e32/bin/elf2e32_next SYBORG_IN_MODERN=1
+CMD ["bash"]

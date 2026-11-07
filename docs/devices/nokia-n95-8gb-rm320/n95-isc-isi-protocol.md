@@ -1,7 +1,7 @@
 # N95 8GB APE↔modem messaging at boot: IscApi channel interface and ISI protocol
 
 Specification for a *fake modem peer* inside the kernel-side `NokiaISCDriver` stand-in
-(`src/n95compat/stubs/nokiaiscdriver.cpp`). Everything below was derived from the RM-320 core
+(`src/standins/nokiaiscdriver/nokiaiscdriver.cpp`). Everything below was derived from the RM-320 core
 ROM (`build/n95/core-flat.img`, base `0x80000000`) with `tools/xipdis.py` and
 `tools/ghidra/decompile.sh` (outputs in `build/n95/ghidra/*.c`), from ROFS1, and from public
 ISI references (oFono `drivers/isimodem/*.h`, `plugins/n900.c`; Linux `phonet.h`).

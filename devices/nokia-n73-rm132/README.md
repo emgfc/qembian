@@ -35,15 +35,14 @@ tools/sydb/sydb.py --session build/sydb-n73 resume
 ## Hacks
 
 No byte patches on the firmware. Platform-wide ones in `docs/hacks.md` apply (fake modem, stub
-certificate, ...), in particular **H-stub-protocol-guess**: the DSP bridge and Custom stand-ins tell
-the N73 from the N95 by the client's arguments / interface version instead of a declared profile value.
+certificate, ...). The DSP bridge and Custom stand-ins run the variants this profile declares
+(`config = { bridge = "omap1710" }`, `config = { api = 1 }`).
 
 ## Open items
 
 1. Smoke test: needs seeded drives so the first-boot queries do not hold the idle milestone.
 2. FaxModem.exe panics KERN-EXEC 3 three times after idle (not needed for the UI).
-5. DSP bridge variant picked from the client's arguments (hack H-stub-protocol-guess); the start-up
-   tone node is created and fed, audio output not checked.
+5. Start-up tone: the DSP node is created and fed; audio output not checked.
 3. Camera lens-cover switch, landscape (camera) mode, twips of the 2.4" panel.
 4. Modem: `PN_PHONE_INFO` 0x15 (INFO_PRODUCT_INFO_READ, selector 0x0A, from EInfoServer) is the only
    unanswered ISI request of the boot so far; the N95 never sends it, so its reply layout is unknown

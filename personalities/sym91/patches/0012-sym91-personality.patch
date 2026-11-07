@@ -8,8 +8,8 @@ Personality sym91 (Symbian 9.1 user sides, N73) on our kernel (personalities/sym
   to user mode through "bx ip", so user-mode SWIs return to ip (Thumb if odd);
 - CodeSegReadExportDir from ordinal 1 (moving model): the 9.1 loader indexes buf[ordinal-1].
 
---- a/kernel/eka/kernel/sexec92.cpp
-+++ b/kernel/eka/kernel/sexec92.cpp
+--- a/kernel/eka/kernel/sexecpers.cpp
++++ b/kernel/eka/kernel/sexecpers.cpp
 @@ -19,26 +19,75 @@
  const TUint32 KKernelConfigPersonalityShift = 25;
  const TUint32 KKernelConfigPersonalityMask = 0xfu << KKernelConfigPersonalityShift;
@@ -86,10 +86,10 @@ Personality sym91 (Symbian 9.1 user sides, N73) on our kernel (personalities/sym
  
  // --- shims ------------------------------------------------------------------------------------
  
- extern TInt Exec92Shim_SafeInc32(TInt*);	// cexec92.cia
- extern TInt Exec92Shim_SafeDec32(TInt*);	// cexec92.cia
-+extern TInt Exec92Shim_LockedInc91(TInt*);	// cexec92.cia (9.1, ARMv5)
-+extern TInt Exec92Shim_LockedDec91(TInt*);	// cexec92.cia (9.1, ARMv5)
+ extern TInt Exec92Shim_SafeInc32(TInt*);	// cexecpers.cia
+ extern TInt Exec92Shim_SafeDec32(TInt*);	// cexecpers.cia
++extern TInt Exec92Shim_LockedInc91(TInt*);	// cexecpers.cia (9.1, ARMv5)
++extern TInt Exec92Shim_LockedDec91(TInt*);	// cexecpers.cia (9.1, ARMv5)
  
  // 9.2 RMutex::Wait() passes no timeout; r1 is whatever the caller left there.
  TInt Exec92Shim_MutexWait92(DMutex* aMutex)
@@ -232,8 +232,8 @@ Personality sym91 (Symbian 9.1 user sides, N73) on our kernel (personalities/sym
  #include "execs.h"
  
  extern void InvalidExecHandler();
--extern TInt Exec92ProcessCreateInfoShrink();	// sexec92.cpp
-+// sexec92.cpp: the loader structures as the ROM's own file server (its loader) lays them out, by
+-extern TInt Exec92ProcessCreateInfoShrink();	// sexecpers.cpp
++// sexecpers.cpp: the loader structures as the ROM's own file server (its loader) lays them out, by
 +// personality (9.1 TCodeSegCreateInfo has no demand-paging fields; 9.2 TProcessCreateInfo is shorter)
 +extern void PersGetCodeSegInfo(TCodeSegCreateInfo& aInfo, const TCodeSegCreateInfo& aUser);
 +extern void PersPutCodeSegInfo(TCodeSegCreateInfo& aUser, const TCodeSegCreateInfo& aInfo);
@@ -286,7 +286,7 @@ Personality sym91 (Symbian 9.1 user sides, N73) on our kernel (personalities/sym
 -	const TInt usize = sizeof(info) - Exec92ProcessCreateInfoShrink();
 -	memclr(&info, sizeof(info));
 -	kumemget32(&info, &aInfo, usize);
-+	PersGetProcessInfo(info, aInfo);	// the personality's layout (sexec92.cpp)
++	PersGetProcessInfo(info, aInfo);	// the personality's layout (sexecpers.cpp)
  	__KTRACE_OPT2(KEXEC,KDLL,Kern::Printf("Exec::ProcessCreate %S ver %08x", &info.iFileName, info.iModuleVersion));
  	__KTRACE_OPT(KDLL,DumpProcessCreateInfo(info));
  	K::CheckFileServerAccess();			// only F32 can use this exec function
@@ -307,7 +307,7 @@ Personality sym91 (Symbian 9.1 user sides, N73) on our kernel (personalities/sym
 -	const TInt usize = sizeof(info) - Exec92ProcessCreateInfoShrink();
 -	memclr(&info, sizeof(info));
 -	kumemget32(&info, &aInfo, usize);
-+	PersGetProcessInfo(info, aInfo);	// the personality's layout (sexec92.cpp)
++	PersGetProcessInfo(info, aInfo);	// the personality's layout (sexecpers.cpp)
  	__KTRACE_OPT2(KEXEC,KDLL,Kern::Printf("Exec::ProcessLoaded %S ver %08x", &info.iFileName, info.iModuleVersion));
  	__KTRACE_OPT(KDLL,DumpProcessCreateInfo(info));
  	K::CheckFileServerAccess();			// only F32 can use this exec function
@@ -320,8 +320,8 @@ Personality sym91 (Symbian 9.1 user sides, N73) on our kernel (personalities/sym
  	__KTRACE_OPT(KDLL,DumpProcessCreateInfo(info));
  	__KTRACE_OPT2(KEXEC,KDLL,Kern::Printf("Exec::ProcessLoaded returns %d",r));
  	return r;
---- a/kernel/eka/kernel/arm/cexec92.cia
-+++ b/kernel/eka/kernel/arm/cexec92.cia
+--- a/kernel/eka/kernel/arm/cexecpers.cia
++++ b/kernel/eka/kernel/arm/cexecpers.cia
 @@ -33,3 +33,30 @@
  	USER_MEMORY_GUARD_ON(,r12,r12);
  	__JUMP(,lr);
@@ -364,7 +364,7 @@ Personality sym91 (Symbian 9.1 user sides, N73) on our kernel (personalities/sym
 +	// syborg-pg, personality sym91: Symbian 9.1 user code enters with "mov ip, lr; swi n" (EUSER
 +	// stubs have no return instruction) and the 9.1 kernel returned to user mode through "bx ip". So
 +	// for user-mode SWIs the return address is ip, in Thumb state if ip is odd
-+	// (personalities/sym91/README.md). ExecReturnViaIp is set by Exec92Init (sexec92.cpp).
++	// (personalities/sym91/README.md). ExecReturnViaIp is set by Exec92Init (sexecpers.cpp).
 +	asm("ldr r11, __ExecReturnViaIp ");
 +	asm("ldr r11, [r11] ");
 +	asm("cmp r11, #0 ");
@@ -400,7 +400,7 @@ Personality sym91 (Symbian 9.1 user sides, N73) on our kernel (personalities/sym
  	}
  
  
-+// syborg-pg, personality sym91 (sexec92.cpp): a Symbian 9.1 loader wants the export table from
++// syborg-pg, personality sym91 (sexecpers.cpp): a Symbian 9.1 loader wants the export table from
 +// ordinal 1 (its import fixups index buf[ordinal-1]); 9.2 and later take the ordinal-0 word first
 +extern "C" TInt ExecExportDirFromOrdinal1;
 +

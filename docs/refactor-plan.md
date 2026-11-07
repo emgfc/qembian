@@ -18,7 +18,7 @@ plan below, on purpose:
 - Step 3: stand-in options (`[[standins]].options`) are not generated yet (the extension LDD keeps its
   #defines); variants omit patches by `[H-...]` tag in the patch line.
 - Step 4: no SWI-table comparison in `check.py` yet (driver ABI only).
-- Step 5: the phone window and docs/n95-controls.md are not generated from keymap.toml yet.
+- Step 5: the phone window and docs/devices/nokia-n95-8gb-rm320/n95-controls.md are not generated from keymap.toml yet.
 Owner's list additions: the phone window mirrors the host keyboard on its on-screen keys (pressed
 while held) - done 2026-11-06; it must keep doing so when step 5's skin generation builds the
 buttons from keymap.toml (one button per key, found by its host qcodes).
@@ -193,7 +193,7 @@ the extended-navigation entries as a `platform/symbian/pc-keys.toml` base layer)
 sydb-aliases` → read by the daemon at start (no more `KEY_ALIASES` literal); `gen skin` → the
 phone window builds its buttons from `keymap.toml` groups (`front`, `nav`, `keypad`, `side`,
 `media`) with `skin.toml` only for geometry overrides; `gen controls-doc` → the table in
-`docs/n95-controls.md` (now `docs/devices/nokia-n95-8gb-rm320/controls.md`).
+`docs/devices/nokia-n95-8gb-rm320/n95-controls.md` (now `docs/devices/nokia-n95-8gb-rm320/controls.md`).
 Test: generated header identical to the pre-step header (step 1 diff, now enforced in CI);
 `sydb key multimedia` opens Carousel, `landscape`/`portrait` switch the layout, phone window shows
 the same buttons; smoke.
@@ -204,7 +204,7 @@ Files: `scripts/n95-inventory.sh` → `tools/fw/inventory.py --device ID` (globs
 dir and SDK `.dso` path from the profile; `fiasco.py`, `rom_unpage.py`, `romimg.py`, `swi_map.py`,
 `xip_imports.py` move to `tools/fw/`), writes `firmware.sha256`, `[firmware.rom]` facts (printed
 for the human to paste, or `--write-profile`), and `build/devices/ID/kernel-drivers.txt` (the
-firmware's LDD/PDD/extension list: input for `[[standins]]`). `docs/n95-firmware-inventory.md` →
+firmware's LDD/PDD/extension list: input for `[[standins]]`). `docs/devices/nokia-n95-8gb-rm320/n95-firmware-inventory.md` →
 `docs/devices/nokia-n95-8gb-rm320/firmware-inventory.md` (content unchanged, paths updated).
 Test: re-running the inventory on the RM-320 set reproduces `core-flat.img`/`core.json` byte for
 byte and the same `abi/` reports; `kernel-drivers.txt` lists the 15 drivers we stand in for plus
@@ -240,7 +240,7 @@ identical between the N95 and the RM-321 profile; smoke.
 
 ## Step 9 [L] — personalities selected at run time
 
-Files: `sexec92.cpp` → `sexec_personality.cpp` with every personality's generated map compiled in
+Files: `sexecpers.cpp` → `sexec_personality.cpp` with every personality's generated map compiled in
 (`personalities/*/exec.map` → one header each); ROM header config bits 29–31 = personality number
 (`romcompose --exec-personality NAME`); `kabi` deltas that need code (`0008`) stay compile-time
 until a second personality needs a different vtable shape (then: proxy objects, hacks.md option 1).

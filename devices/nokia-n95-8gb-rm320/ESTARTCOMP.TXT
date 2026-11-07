@@ -4,8 +4,8 @@
 # The N95 file maps C: to local drive 6 (NAND), Y: to 7, Z: to the ROFS composite on 8 and E: to
 # the memory card on 1. The Syborg board exposes local drive 0 (internal RAM) and 1 (NVMemory),
 # so C:/D: are remapped here. Z: keeps the N95's own line: ROFS1+ROFx are served on local
-# drive 8 by MEDROFS.PDD (src/n95compat/medrofs). E: (the N95's memory card / mass memory) is the
-# second Syborg NVMemory on local drive 2 (MEDNVMEM2.PDD, src/n95compat/mednvmem2); formatted
+# drive 8 by MEDROFS.PDD (src/standins/medrofs). E: (the N95's memory card / mass memory) is the
+# second Syborg NVMemory on local drive 2 (MEDNVMEM2.PDD, src/standins/mednvmem2); formatted
 # by the phone if blank. Y: is not present.
 
 D: 0  ELOCAL FAT  0       FS_FORMAT_ALWAYS,FS_SYNC_DRIVE         # IRAM

@@ -108,7 +108,7 @@ Our networking stand-in today: **none on the user side**. The QEMU board has a `
 PDD/NIF (no `ethernet.pdd`, `ethint.nif`); its IP paths are packet data over the modem
 (`GPRSUMTSAgent.agt`, `psd.agt`, `spud.nif`, `rawip.nif`, `ppp.nif`, `DATAPORT.CSY`, through the ISC/ISI
 link our fake modem answers) and WLAN over Nokia's real-hardware `wlanldd.ldd`/`wlanpdd.pdd`
-(`wlanhwinit.dll`, "not analysed" in `docs/n95-isc-isi-protocol.md`). `docs/roadmap.md` and
+(`wlanhwinit.dll`, "not analysed" in `docs/devices/nokia-n95-8gb-rm320/n95-isc-isi-protocol.md`). `docs/roadmap.md` and
 `docs/hacks.md` have no network entry. So any HTTPS plan has a prerequisite: an IP path. Cheapest
 candidate [inferred]: teach the fake modem packet data (GPDS context activation + PN_PIPE + DATAPORT
 raw-IP frames) and bridge the frames to a QEMU `-netdev user` (slirp) backend, which NATs through the
@@ -177,7 +177,7 @@ and fold (a) in only as far as that patch's own CA bundle. Keep (c) as the fallb
 debugger. Do not start (d).
 
 1. Network first (blocking everything): research brief for packet data in the fake modem (GPDS +
-   PN_PIPE + DATAPORT raw IP) bridged to QEMU slirp; `docs/n95-isc-isi-protocol.md` has the ISI
+   PN_PIPE + DATAPORT raw IP) bridged to QEMU slirp; `docs/devices/nokia-n95-8gb-rm320/n95-isc-isi-protocol.md` has the ISI
    infrastructure. Deliverable: the browser resolves a name and fetches a plain `http://` page.
 2. Fetch nnproject `ssl.zip` and `mbedtls.sis`; unpack (SIS: `tools/` sis extractor or sydb install),
    inspect headers with `tools/e32load.py` (UIDs, caps, imports: must be only euser/esock/efsrv/mbedtls),

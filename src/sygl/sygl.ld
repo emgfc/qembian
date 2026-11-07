@@ -1,6 +1,6 @@
 /* sygl blob: fixed ROM address, read-only (docs/gpu-roadmap.md H-gles-blob).
    SYGL_BASE comes from build.sh (--defsym). The entry table must stay first: the libgles_cm
-   patches (rom/hybrid/gles-patches.txt) branch to SYGL_BASE + 4 * (ordinal - 1). */
+   patches (devices/<id>/gl/gles-patches.txt) branch to SYGL_BASE + 4 * (ordinal - 1). */
 ENTRY(sygl_entry_table)
 SECTIONS
 {

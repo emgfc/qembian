@@ -13,7 +13,7 @@ hand-made QEMU/gdb command lines:
 - `sydb start` boots a session from `build/sydb/drives` (`--seed build/runs/mtc-drives` = clean
   phone; `--gui` shows the window); `sydb stop` ends it.
 - `sydb dbg ...` is the persistent gdb: hw breakpoints (`dbg cmd 'condition N $r0 == -4'`),
-  bt/regs/mem/eval, app ELF symbols from `N95CODE:` lines. `sydb strace MATCH` traces IPC.
+  bt/regs/mem/eval, app ELF symbols from `SYBCODE:` lines. `sydb strace MATCH` traces IPC.
 - `sydb log --grep RE` / `events` read the session's serial log; logs live in `build/sydb/`.
 - Crashes and races: `sydb catch add ...` (freeze/dump/snapshot when a thread dies as described,
   call stack included), `sydb snap save` / `sydb fork SNAP` (resume a saved machine as a separate
@@ -34,6 +34,15 @@ One QEMU binary serves every phone; everything phone-specific is declared in
 - Compose a device ROM with `tools/device.py build [ID] [--variant V] [--kernel]` (hybrid-boot.sh /
   compose-exp.sh are wrappers). It refuses firmware whose `[firmware.identity]` (sw.txt, image hashes,
   hardware drivers) does not match; `tools/device.py identify DIR` tells which profile a firmware is.
+- Families (`family = "bb5-s60"` -> `platform/families/bb5-s60.toml`, merged under the profile) and
+  `platform/isi/replies-bb5.txt` hold only what is true of every member for a reason (BB5 modem, S60
+  keys, our board/kernel set-up). Never move a value there because the devices so far happen to
+  agree (screen, hardware, drives, stand-ins). When a new device differs from a family value, move
+  that value out of the family into each member's profile in the same change; do not override it
+  in one device and keep a false "base". Rules: `docs/devices.md` "Families".
+- A stand-in that must speak another phone's protocol variant gets it declared
+  (`[[standins]] config = { key = value }` -> `BoardConfig("<name>.<key>")`), never guessed from
+  the arguments a client passes.
 - Stand-ins: `src/standins/<driver>/` (shared headers in `_shared/`); the profile's `[[standins]]` picks
   them (bld.inf and ROM order generated). Keys: `keymap.toml` -> EKEYB table, sydb aliases.
 - Personalities (`personalities/sym92/`: exec map, kernel patches, `kabi.toml`) make our EPL kernel look

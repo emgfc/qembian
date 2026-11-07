@@ -7,7 +7,7 @@
 -_LIT(KNVMemPddName, "Media.MEDNVMEMORY");
 -_LIT(KNVMemDriveName,NVMEM1_DRIVENAME);
 +// Instance parameters, overridable so that a second NVMemory device (syborg-pg: the N95 E: drive,
-+// src/n95compat/mednvmem2) can be built from this source. Defaults = the original C: driver.
++// src/standins/mednvmem2) can be built from this source. Defaults = the original C: driver.
 +#ifndef NVMEM_HWBASE
 +#define NVMEM_HWBASE KHwNVMemoryDevice
 +#endif

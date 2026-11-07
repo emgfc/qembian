@@ -11,7 +11,7 @@
 +	TBool n95Spare = Exec92Enabled && iThreadType==EThreadUser && iOwningProcess
 +		&& iOwningProcess != K::TheFileServerProcess;
 +	if (n95Spare && (iFlags & (KThreadFlagSystemPermanent|KThreadFlagSystemCritical)))
-+		Kern::Printf("N95HACK: system-%s thread %O exited (type %d reason %d); not faulting",
++		Kern::Printf("SYBHACK: system-%s thread %O exited (type %d reason %d); not faulting",
 +			(iFlags & KThreadFlagSystemPermanent) ? "permanent" : "critical", this, iExitType, iExitReason);
 +	else
 +		{

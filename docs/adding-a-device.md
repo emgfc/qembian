@@ -36,7 +36,6 @@ Fill what you know without the firmware: `[device]`, `[platform]` (`personality`
 ```
 FW_DIR=firmware/nokia-e72-rm530 tools/fw/inventory.py --device nokia-e72-rm530
 ```
-[Today: `N95_FW_DIR=… scripts/n95-inventory.sh`, hard-wired to RM-320 globs and `build/n95`.]
 Outputs in `build/devices/<id>/`: `core-flat.img` (unpaged XIP core), `core.json`/`core-files.txt`
 (directory), `rofs*.img`, `symindex.json`, `abi/` (EUSER SWI map, vs ours; kabi report), and a
 **kernel-side driver list** (every LDD/PDD/extension in the firmware's ROM) which is the raw
@@ -49,19 +48,20 @@ FIASCO: plain `SOS+CORE`/`SOS+ROFS` (N95), compressed `SOS*CORE` with ROFS1 afte
 (`compression = "sos-deflate"`, partitions `core` + `rofs-after-core`: N73), partition-less files
 (`partitions = { rofs = "_pre" }`).
 
-**Then read the ROM header before anything else** (`tools/romimg.py core-flat.img | tail -2`):
+**Then read the ROM header before anything else** (`tools/fw/probe.py --device ID header`):
 `romBase` and `kernData` decide the kernel build. 0x80000000/0xC8000000 = multiple memory model
 (`kernel.baseport = "syborg"`); 0xF8000000/0x64000000 = moving model, ARMv5 (`syborgmv`, generated
 by `tools/baseport_variant.py`). Also check whether the firmware's kernel-side and user-side files
 are one block each or interleaved (`kernel.place = "after-firmware"` for the latter) and whether
-user EXEs have data in the kernel section (moving-model fixed processes).
+user EXEs have data in the kernel section (moving-model fixed processes). `probe.py header` prints
+the memory model, the last kernel-side file, the lowest user-side file (`user_window_start`) and the
+fixed processes.
 
 ## 3. Check the personality
 
 ```
 tools/personality/check.py --device nokia-e72-rm530
 ```
-[Today: read `build/n95/abi/swi-n95-vs-ours.txt` and run `tools/personality/kabi.py`.]
 - Zero unknown SWIs and zero vtable deltas: keep `platform.personality` as set.
 - A few: add them under `[personality.overrides]` in the profile (exec lines in `exec.map`
   syntax; class deltas in `kabi.toml` syntax) — the generator merges them.
@@ -69,7 +69,9 @@ tools/personality/check.py --device nokia-e72-rm530
   OS version, note the derivation in its README (which EUSER, which cross-check), and set
   `platform.personality` to it. This is a kernel rebuild (`scripts/build-kernel.sh`).
 
-Beyond the numbering, check (method in `personalities/sym91/README.md`):
+Beyond the numbering, check (method in `personalities/sym91/README.md`; the first two and the
+copy-in sizes are one command each: `tools/fw/probe.py --device ID stubs --vs <known device>` and
+`probe.py --device ID exec-sizes --vs <known device>`):
 - the **ordered stub sequence** of both EUser.dll (decisive; export pairing is noisy);
 - the **stub shape**: `swi; bx lr` (9.2+) or `mov ip, lr; swi` (9.1: the kernel returns via ip);
 - exports that **branch straight to a stub** without setting r1..r3 (fewer arguments than ours);
@@ -80,9 +82,9 @@ Beyond the numbering, check (method in `personalities/sym91/README.md`):
 ## 4. Describe the hardware from the firmware
 
 Where to look, with the tools in `docs/tools.md` (`syb_sym.py` works on any device's symindex):
-- **Display**: `Z:\system\data\wsini.ini` in the ROFS (`tools/rofs.py`) gives the UI size and
+- **Display**: `Z:\system\data\wsini.ini` in the ROFS (`tools/fw/probe.py --device ID display`) gives the UI size and
   rotation; the display driver's caps (decompile the firmware's `d_display`-like LDD once; the
-  N95 analysis is `docs/nokia-d_display.md`) give native orientation, pitch, modes. Fill
+  N95 analysis is `docs/devices/nokia-n95-8gb-rm320/nokia-d_display.md`) give native orientation, pitch, modes. Fill
   `[board.display]` and `[kernel.lcd]`.
 - **Keys**: the firmware's keypad driver matrix table (N95: `keypad.dll` at 0x8014f6d4) and
   `EKData.dll` list the EStdKey codes; the spec sheet names the keys. Write `keymap.toml`
@@ -90,7 +92,7 @@ Where to look, with the tools in `docs/tools.md` (`syb_sym.py` works on any devi
   just more codes at this stage.
 - **Timing**: the firmware's `hal.dll` reports `EFastCounterFrequency` and `ENanoTickPeriod`;
   the board must match (`[board.timing]`). The N95's are 32768 Hz / 1000 µs.
-- **Drives**: the firmware's `Z:\sys\data\ESTARTCOMP.TXT` (or `ESTART.TXT`) maps letters to local
+- **Drives**: the firmware's `Z:\sys\data\ESTARTCOMP.TXT` (or `ESTART.TXT`; `probe.py estart`) maps letters to local
   drives; write `[[board.drives]]` and the device's `ESTARTCOMP.TXT` with our local drive
   numbers (0 IRAM, 1 NVMemory, 2 second NVMemory, 8 composite ROFS). CR LF line endings.
 - **Stand-ins**: for each driver in the inventory's kernel-side list, look for an existing
@@ -101,9 +103,15 @@ Where to look, with the tools in `docs/tools.md` (`syb_sym.py` works on any devi
   caps 23 vs 26 words, Custom 1.0 vs 2.0, DSP bridge). A wrong mock is worse than a missing driver:
   unknown → leave it out and let the boot loop tell you whether anything misses it
   (`[standins.missing]`).
-- **Modem**: `[modem]` starts as a copy of the N95's; `isi-replies.txt` starts empty but for the
-  boot-critical replies the N95 needed (MTC, SIM status, security, self-test, RTC, light, energy
-  management: copy them, they are per ISI resource, not per phone).
+- **Modem**: a BB5 phone takes `family = "bb5-s60"` (`[modem]` knobs and the shared replies in
+  `platform/isi/replies-bb5.txt`: MTC, security, self-test, RTC, light, energy management); its own
+  `isi-replies.txt` starts empty. Answers this phone needs differently go into its file (the later
+  layer wins); if one of the shared replies is wrong for it, move that reply out of the shared file
+  into the other members' files (families rules, `docs/devices.md`). Unsolicited messages it waits
+  for go into `[modem].indications`; every channel subscribed to that message gets it, so check that
+  each subscriber (SAServer and the TSY may parse it differently) accepts the layout.
+- **Family values in general**: start from the family, but whatever this phone does differently
+  leaves the family for every member's profile. Never keep a false family value and override it.
 - **GL**: if the phone has a PowerVR/SGX GPU and a `libgles_cm.dll`, set `[gl]`: ordinals from the
   matching SDK `.dso` (names only), `imports` = the N95 list to start with (the tool resolves the
   addresses from this device's symindex and fails on missing exports), identity strings from
@@ -115,11 +123,12 @@ Where to look, with the tools in `docs/tools.md` (`syb_sym.py` works on any devi
 ```
 tools/device.py build nokia-e72-rm530 --kernel   # kernel side (the profile's baseport), stand-ins, compose, DTB
 export SYBORG_DEVICE=nokia-e72-rm530; S="--session build/sydb-e72"
-sydb $S start --fresh --paused                    # QEMU stopped before the first instruction
-sydb $S catch add --kind panic --action freeze --snapshot
-sydb $S resume; sydb $S wait 'FAULT|<idle milestone>' --timeout 120
+sydb $S start --fresh --catch-panics --timeout 120   # paused start + freeze/snapshot catch + resume + wait
 sydb $S catch hits                                # thread, PC, caller, stack scan of the first panic
 ```
+The long form, for more catches or breakpoints before the first instruction:
+`sydb $S start --fresh --paused; sydb $S catch add --kind panic --action freeze --snapshot;
+sydb $S dbg break ...; sydb $S resume; sydb $S wait 'FAULT|<idle milestone>' --timeout 120`.
 **Start every early boot paused with catches armed.** Early faults happen in the first second,
 before a catch can be added to a running session; the catch file (and `sydb dbg break` on the
 suspect exec stub or kernel function, with the device's own kernel symbols) replaces reading
@@ -172,8 +181,9 @@ These recur from phone to phone; check them before chasing symptoms.
   ones to research; many others are harmless (the N95 leaves 15 kinds unanswered).
 - **Driver protocols drift too.** The same stand-in name can serve a client that renumbers one
   control (DSP bridge shared buffer) or changes one call's contract (image load). The stand-in log's
-  `ignored` lines for a known driver are the hint; declare the variant in the profile instead of
-  guessing from arguments (hack H-stub-protocol-guess).
+  `ignored` lines for a known driver are the hint; declare the variant in the profile
+  (`[[standins]] ... config = { ... }`, read by the stand-in from the board config) instead of
+  guessing it from the client's arguments.
 - **Kernel "Exc 1" dumps from `K::USafeReadAndParseDesHeader` with tiny addresses are noise**:
   integers flagged as descriptors in IPC; the kernel handles them.
 - **First boot asks questions** (city, time, date, tutorial): the idle milestone comes only after
@@ -214,6 +224,68 @@ levels are logged in `[status].level` as they are reached.
 - A line in `docs/roadmap.md` under the device list; the smoke test added to the CI list.
 - Local commits only (project rule). The commit must not contain anything under `firmware/` or
   `build/`; `git status` before committing.
+
+## 8. Reference: build environment, ROM anatomy, code patches, drives
+
+Facts an agent needs while doing steps 2-6, in one place.
+
+**Build environment (containers, podman or docker; `ENGINE=docker` switches).**
+- Legacy image (`container/Containerfile`, Debian squeeze i386): Symbian host tools, our EKA2 kernel
+  (GCCE 4.4.1), the Syborg baseport and the stand-ins. Every script that needs it re-runs itself in
+  it (`scripts/build-kernel.sh`, `build-syborg.sh`, `build-standins.sh`, `tools/device.py build
+  --kernel`); first use builds the image. Inputs: `scripts/fetch.sh` (pinned in `sources.lock`).
+- Modern image (`container/Containerfile.modern`, Debian trixie): modern QEMU with the Syborg board,
+  GCC 14.2 `arm-none-symbianelf` + binutils 2.29.1 (`/opt/symbianelf`, `$GCC14`), elf2e32_next
+  with `patches/elf2e32_next/` (`$ELF2E32`), Python tools, mtools, gdb-multiarch.
+  `scripts/build-qemu-modern.sh --container` builds QEMU into `build/qemu-modern-ct/`;
+  `scripts/run-modern.sh` (and so sydb) runs it through `scripts/qemu-container.sh` when there is no
+  host build (or `SYBORG_QEMU=container`). Guest code with GCC 14:
+  `S60SDK=/path/to/S60_3rd_FP1/Epoc32 CONTAINER=modern scripts/in-container.sh src/sygl/build.sh`
+  (the SDK is proprietary: mounted read-only, never in an image).
+- Host builds still work when the host has the packages listed in `Containerfile.modern`.
+
+**ROM anatomy** (`tools/romcompose.py`, driven by `tools/device.py build`). One XIP image at the
+firmware's ROM base:
+1. our ROM header, bootstrap and kernel side (`build/devices/<id>/kernel-side.img`: EKA2 kernel,
+   Syborg baseport, the profile's `[[standins]]`), below the firmware's user side
+   (`kernel.place = "below-user-side"`) or after the firmware image (`"after-firmware"`);
+2. the firmware's own core image bytes, verbatim at their original addresses (every import thunk
+   and DLL reference stays valid);
+3. a new root directory and exception search table; header fields patched (secondary = the
+   firmware's `efile.exe`, the personality number, trace mask);
+4. `[rom] files` replace or add data files (`Sys/Data/ESTARTCOMP.TXT` = our drive map);
+5. `[rom] code_patches` byte patches, then the GL blob if `gl.impl = "sygl"`.
+The ROFS images do not go into the ROM: they go into `<rom>.rofs`, loaded at the board's flash
+window and served by `medrofs` (`docs/devices.md` §2.3). `hybrid-manifest.txt` lists every file
+with its source (ours / firmware).
+
+**Code patches** (`devices/<id>/code-patches.txt`, last resort after stand-ins and kernel fixes):
+```
+# H-<hack-id>: why, what the original code does, what the patch makes it do
+82f0e366  01f0a2eb  0020c046   # module and function  [H-hack-id]
+```
+Columns: ROM address, the original bytes (memory order; Thumb halfwords little-endian), the new
+bytes. The composer refuses an entry whose original bytes do not match, so a patch never applies to
+the wrong firmware. Every entry is a hack in `devices/<id>/hacks.md` (device) or `docs/hacks.md`
+(platform). `[rom.variants.<name>] omit_patches = ["H-id"]` builds a ROM without some of them
+(`tools/device.py build ID --variant NAME`). Find the address with `tools/syb_sym.py`, the bytes
+with `tools/xipdis.py`.
+
+**Drives.** `[[board.drives]]` + the device's `ESTARTCOMP.TXT`: C: and E: are FAT images on the
+Syborg NVMemory devices (`nvmem`, `nvmem2`), D: is RAM, Z: is the ROM + ROFS composite.
+- Images are plain FAT files, created sparse when missing; the phone formats them on its first
+  boot. `scripts/run-modern.sh` uses throw-away images unless given `--nvmem/--nvmem2`; a sydb
+  session keeps its own in `<session>/drives/nvmemory.img` (C:) and `nvmemory2.img` (E:);
+  `sydb start --seed DIR` copies a prepared set (e.g. a phone past its first-boot questions).
+- Copy files with the phone running: `sydb push LOCAL 'C:\data\x'`, `sydb pull`, `sydb ls`
+  (through the agent on the phone, `docs/sydb.md`).
+- With the phone off: mtools on the image. `DRIVE_C=<image> scripts/n95-drive.sh put c FILE DIR`
+  (also `ls`, `get`, `mkdir`, `rm`; `e` with `DRIVE_E=`), or directly
+  `MTOOLS_SKIP_CHECK=1 mcopy -i nvmemory.img FILE ::/data/`. Never while a QEMU has the image open
+  (two writers corrupt the FAT; the scripts refuse).
+- `sydb install` puts the sydb agent and its start-up record on C: (mtools, phone off).
+- Never use the owner's personal phone images for tests: make a session (`sydb --session
+  build/sydb-<name> start --fresh`).
 
 ## Checklist (copy into the device README and tick)
 

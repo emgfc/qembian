@@ -213,7 +213,7 @@ trace and the Starter resource parse; their key addresses were re-checked where 
 ### 5.1 Global system state (KPSUidStartup 0x101F8766 / key 0x41)
 
 `SysStartup::SetState`/`State()` (sysutil.dll 0x838e4be0 / 0x838e4bf0) are plain
-`RProperty::Set/Get(0x101F8766, 0x41)` **[verified]**, so the kernel `N95PROP` trace shows every
+`RProperty::Set/Get(0x101F8766, 0x41)` **[verified]**, so the kernel `SYBPROP` trace shows every
 state change. Observed transition graph (writer → value) **[verified unless marked]**:
 
 | value | written by | when |
@@ -287,7 +287,7 @@ Charging/alarm lists (resources 6/7) wait for 211 instead.
 ### 5.5 Fix proposals
 
 **(a) Fake-modem replies (preferred; the real mechanism, no code patch).** Add canned replies to
-`src/n95compat/isi/isi-db.txt` (regenerates `src/n95compat/stubs/isireplies.h`); the table matches on
+`platform/isi/replies-bb5.txt + devices/<id>/isi-replies.txt` (regenerates `build/devices/<id>/gen/isireplies.h`); the table matches on
 (resource, request id) regardless of the request data, which is fine because steps 1 and 3 accept
 the same answer:
 

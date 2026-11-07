@@ -257,7 +257,7 @@ word 13/12 for 64K/4K devices; `FUN_80878a38` stores word 0 and `!word2`.
 
 ## 3. What our boot actually uses
 
-Observed in every run (`N95STUB: DisplayDriver` lines, e.g. `build/runs/skipphone/serial.log`):
+Observed in every run (`SYBSTUB: DisplayDriver` lines, e.g. `build/runs/skipphone/serial.log`):
 open ×4 by `EwSrv.exe::Wserv` (ScDv probes `CFbsDrawDevice::NewScreenDeviceL` for several
 modes + the DSB object), ctl 10 (0), ctl 11 (×16+), ctl 31, req 0x8002 (a1 = 1 → 16MU),
 req 0x8003 (a1 = 3 → 270°), ctl 9 (dirty rects, portrait coordinates), ctl 0x2c (unfreeze, 3×).
@@ -275,7 +275,7 @@ Other clients in the ROM (V, by import census):
 | radio_freqs.dll | | ord4 only (caps) |
 | accel2d.dll | | does not import r_display (goes through ScDv) |
 
-## 4. Stand-in corrections (`src/n95compat/stubs/d_display.cpp`)
+## 4. Stand-in corrections (`src/standins/d_display/d_display.cpp`)
 
 Our board: QEMU Syborg frame buffer, always live, 32 bpp, portrait memory 240×320 with
 960-byte lines, HAL native 320×240. Priorities: **now** = affects the current boot path,

@@ -7,7 +7,7 @@
 //       EComplete   complete the TRequestStatus* found in the first word at a1 with value
 //       EReturn     return value
 //     anything not in the table returns KErrNone and touches nothing
-// Every channel open and control is logged on the debug port ("N95STUB:"), which is the
+// Every channel open and control is logged on the debug port ("SYBSTUB:"), which is the
 // specification for proper fakes later.
 
 #include <kernel/kernel.h>
@@ -43,7 +43,7 @@ public:
 		}
 	virtual TInt Install()
 		{
-		Kern::Printf("N95STUB: install %S%s", &iName, iChannels ? "" : " (load only)");
+		Kern::Printf("SYBSTUB: install %S%s", &iName, iChannels ? "" : " (load only)");
 		return SetName(&iName);
 		}
 	virtual void GetCaps(TDes8&) const {}
@@ -66,7 +66,7 @@ public:
 		{
 		iUnit = aUnit;
 		iMajor = aVer.iMajor;
-		Kern::Printf("N95STUB: %S open unit %d ver %d.%d.%d by %O", &iF->iName, aUnit,
+		Kern::Printf("SYBSTUB: %S open unit %d ver %d.%d.%d by %O", &iF->iName, aUnit,
 					 aVer.iMajor, aVer.iMinor, aVer.iBuild, &Kern::CurrentThread());
 		return KErrNone;
 		}
@@ -92,7 +92,7 @@ public:
 					}
 			if (hr != KStubNotHandled)
 				{ pend = EFalse; result = hr; }
-			Kern::Printf("N95STUB: %S u%d request 0x%x args %08x %08x %s %d by %O", &iF->iName, iUnit, ~aFn,
+			Kern::Printf("SYBSTUB: %S u%d request 0x%x args %08x %08x %s %d by %O", &iF->iName, iUnit, ~aFn,
 						 args[0], args[1], pend ? "pending" : "completed", result, &Kern::CurrentThread());
 			if (!pend && s)
 				Kern::RequestComplete(s, result);
@@ -100,7 +100,7 @@ public:
 			}
 		if (aFn == (TInt)KMaxTInt)
 			{
-			Kern::Printf("N95STUB: %S u%d cancel mask %08x", &iF->iName, iUnit, a1);
+			Kern::Printf("SYBSTUB: %S u%d cancel mask %08x", &iF->iName, iUnit, a1);
 			return KErrNone;
 			}
 		TUint32 w[4] = {0, 0, 0, 0};
@@ -112,7 +112,7 @@ public:
 			TInt hr = iF->iCtlHook(&Kern::CurrentThread(), aFn, a1, a2, w);
 			if (hr != KStubNotHandled)
 				{
-				Kern::Printf("N95STUB: %S u%d ctl %d a1=%08x a2=%08x [%08x %08x %08x %08x] hook %d",
+				Kern::Printf("SYBSTUB: %S u%d ctl %d a1=%08x a2=%08x [%08x %08x %08x %08x] hook %d",
 							 &iF->iName, iUnit, aFn, a1, a2, w[0], w[1], w[2], w[3], hr);
 				return hr;
 				}
@@ -144,7 +144,7 @@ public:
 			r = c->iValue;
 			what = "returned";
 			}
-		Kern::Printf("N95STUB: %S u%d ctl %d a1=%08x a2=%08x [%08x %08x %08x %08x] %s %d",
+		Kern::Printf("SYBSTUB: %S u%d ctl %d a1=%08x a2=%08x [%08x %08x %08x %08x] %s %d",
 					 &iF->iName, iUnit, aFn, a1, a2, w[0], w[1], w[2], w[3], what, c ? c->iValue : 0);
 		return r;
 		}

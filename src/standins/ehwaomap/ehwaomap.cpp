@@ -7,7 +7,7 @@ class DHwaOmapPdd : public DPhysicalDevice
 	{
 public:
 	DHwaOmapPdd() { iVersion = TVersion(255, 255, 0xffff); }
-	virtual TInt Install() { _LIT(KName, "Hwa.Omap"); Kern::Printf("N95STUB: install Hwa.Omap (PDD, load only)"); return SetName(&KName); }
+	virtual TInt Install() { _LIT(KName, "Hwa.Omap"); Kern::Printf("SYBSTUB: install Hwa.Omap (PDD, load only)"); return SetName(&KName); }
 	virtual void GetCaps(TDes8&) const {}
 	virtual TInt Create(DBase*& aChannel, TInt, const TDesC8*, const TVersion&) { aChannel = NULL; return KErrNotSupported; }
 	virtual TInt Validate(TInt, const TDesC8*, const TVersion&) { return KErrNone; }

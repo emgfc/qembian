@@ -2,30 +2,29 @@
 # Every value below is what the repository uses today; the comment names the file it comes from.
 # Schema: docs/devices.md. Evidence tags: [V] checked against code/firmware, [I] inferred.
 schema = 1
+family = "bb5-s60"                         # platform/families/bb5-s60.toml, merged under this file
 
 [device]
 id = "nokia-n95-8gb-rm320"
 vendor = "Nokia"
 model = "N95 8GB"
-type_code = "RM-320"                       # Nokia type designation (docs/n95-firmware-inventory.md)
+type_code = "RM-320"                       # Nokia type designation (docs/devices/nokia-n95-8gb-rm320/n95-firmware-inventory.md)
 aliases = ["n95-8gb", "n95"]
 market = "global"
 notes = "The RM-321 is the China variant without WLAN: devices/nokia-n95-8gb-rm321 extends this one."
 
 [platform]
-os = "symbian"
 os_version = "9.2"                         # Symbian OS 9.2 (docs/roadmap.md)
 ui = "s60-3.1"                             # S60 3rd Edition Feature Pack 1
 personality = "sym92"                      # exec numbering + driver ABI: personalities/sym92 (today personalities/sym92, tools/personality/kabi.py)
 soc = "omap2420"                           # TI OMAP2420, ARM1136 r0p2 (docs/hacks.md H-cpu-arm1136)
-cellular = "bb5"                           # Nokia BB5 modem over ISC/ISI (docs/n95-isc-isi-protocol.md)
 
 # ---------------------------------------------------------------------------------------------
 # Firmware: what to obtain and how it is taken apart. No bytes from it are committed.
 [firmware]
-version = "35.0.001"                       # RM-320_35.0.001_PR.C0R (docs/n95-firmware-inventory.md)
+version = "35.0.001"                       # RM-320_35.0.001_PR.C0R (docs/devices/nokia-n95-8gb-rm320/n95-firmware-inventory.md)
 container = "fiasco-bb5"                   # tools/fiasco.py
-checksums = "firmware.sha256"              # sha256 of the input files (today docs/evidence/n95/firmware.sha256)
+checksums = "firmware.sha256"              # sha256 of the input files (devices/<id>/firmware.sha256)
 obtain = """
 Flash files of your own phone's software version (the files a Nokia Software Updater / Phoenix
 install left on disk, or an archive copy). Needed: the main C0R image and the language pack (.v1x).
@@ -35,7 +34,7 @@ Put them in firmware/nokia-n95-8gb-rm320/ (git-ignored) or point FW_DIR at them.
 [[firmware.files]]
 role = "core"                              # SOS+CORE (demand-paged XIP ROM) + SOS+ROFS inside the same container
 glob = "RM-320_*.C0R"
-partitions = { core = "SOS_CORE", rofs = "SOS_ROFS" }   # scripts/n95-inventory.sh
+partitions = { core = "SOS_CORE", rofs = "SOS_ROFS" }
 
 [[firmware.files]]
 role = "rofx"                              # ROFS2 (language/variant pack)
@@ -57,7 +56,7 @@ drivers = ["wlanldd.ldd", "wlanpdd.pdd"]                                        
 
 [firmware.rom]
 base = 0x80000000                          # TRomHeader romBase; same as our Syborg ROM [V]
-kernel_data = 0xC8000000                   # [V] docs/n95-firmware-inventory.md
+kernel_data = 0xC8000000                   # [V] docs/devices/nokia-n95-8gb-rm320/n95-firmware-inventory.md
 memory_model = "multiple"
 paged = true                               # flattened by tools/rom_unpage.py -> core-flat.img
 user_window_start = 0x80320000             # [V] blob gap below the N95 user side (src/sygl/build.sh SYGL_BASE)
@@ -65,7 +64,6 @@ user_window_start = 0x80320000             # [V] blob gap below the N95 user sid
 # ---------------------------------------------------------------------------------------------
 # Board: what the one QEMU binary is told at run time (tools/device.py qemu-args).
 [board]
-machine = "syborg"
 cpu = "arm1136-r2"                         # mc->default_cpu_type (src/qemu-syborg/hw/arm/syborg.c), patch qemu-baseport 0011
 ram_mb = 168                               # H-ram-168: 128 MB on the phone + unpaged core image (patch qemu-baseport 0010)
 ram_mb_real = 128                          # the phone's own RAM, for the record
@@ -75,35 +73,22 @@ width = 240                                # UI size (wsini.ini; -global syborg-
 height = 320
 native_orientation = "landscape"           # panel is 320x240, rotated by the display controller (H-lcd-native-landscape)
 line_pitch = 1280                          # bytes per line at every rotation, as on the device (patch qemu-baseport 0013)
-bpp = 32                                   # lcd_n95: SYBORG_FB_REPORTED_BPP (src/n95compat/lcd/lcd_n95.mmp)
+bpp = 32                                   # lcd_n95: SYBORG_FB_REPORTED_BPP (src/standins/lcd/lcd_n95.mmp)
 hal_modes = ["EColor64K", "EColor16MU"]    # N95 numbering; current mode 1 (patch qemu-baseport 0001)
 hal_mode = 1
 refresh_hz = 60                            # H-vsync: -global syborg-fb.refresh-rate (assumed, not measured)
 blank_dim_percent = 25                     # -global syborg-fb.blank-dim
 partial_mode = true                        # screensaver band: d_display ctl 3/4/5 -> fb PARTIAL_* registers
 touch = false                              # S60 3rd: -global syborg-pointer.input=off
-rotation_caps = [0, 1, 1]                  # d_display caps +36/+40/+44 (docs/nokia-d_display.md)
-
-[board.timing]
-fast_counter_hz = 32768                    # H-fastcounter-32k (patch qemu-baseport 0008)
-nanokernel_tick_us = 1000                  # H-tick-1ms (patch qemu-baseport 0009)
-rtc = "syborg-rtc"                         # H-rtc: -global syborg-rtc.offset-file=<drives>/rtc-offset
+rotation_caps = [0, 1, 1]                  # d_display caps +36/+40/+44 (docs/devices/nokia-n95-8gb-rm320/nokia-d_display.md)
 
 [board.audio]
-device = "syborg-audio"                    # src/qemu-syborg/hw/arm/syborg_audio.c; -machine audiodev=snd0
-host_default = "pipewire"                  # scripts/run-gui.sh AUDIO=, sydb --audio
 dsp = "ehwa"                               # DSP bridge stand-in feeds it (H-dspbridge)
 
 [board.gl]
 device = "syborg-gl"                       # 0xc000f000, host EGL/GLES 2 backend (H-gles-host)
 backend = "host"                           # -global syborg-gl.backend=host|off; sydb --gl soft
 
-[board.flash]
-base = 0x60000000                          # H-rofs-flash: ROFS partition in a read-only window (-device loader)
-size_mb = 128
-content = "rofs"
-
-# Local drives the file server sees (rom/hybrid/ESTARTCOMP.TXT). Images live in <session>/drives/.
 [[board.drives]]
 letter = "D"
 local_drive = 0
@@ -133,10 +118,6 @@ local_drive = 8
 kind = "composite"                         # ROFS1 + ROFx served by medrofs.pdd
 flags = "FS_COMPOSITE"
 
-[board.input]
-keymap = "keymap.toml"                     # physical keys -> EStdKey scan codes -> host keys (patches qemu-baseport 0005/0012/0014/0015/0016)
-translation = "qemu"                       # QEMU translates mapped keys (keymap.qemu, generated); unmapped keys use the guest set-1 table
-
 # ---------------------------------------------------------------------------------------------
 # Hardware the phone has (presence drives the skin, the stand-in list and the "done" levels).
 [hardware]
@@ -158,20 +139,15 @@ gpu = "powervr-mbx"                        # replaced by sygl (H-gles-trampoline
 # Guest side: what is built per device.
 [kernel]
 baseport = "syborg"                        # patches/qemu-baseport (common) + the macros below
-variant = "udeb"
-trace_mask = 0x80000000                    # romcompose --trace (scripts/hybrid-boot.sh TRACE)
-secondary = "sys/bin/efile.exe"            # romcompose --secondary: the phone's own file server
-critical_thread_policy = "spare"           # H-critical-exit (kernel patches 0003/0006)
-user_memory_guards = false                 # kernel patch 0009 (release-kernel behaviour the 9.2 drivers rely on)
-patchsets = ["platform", "sym92", "n95"]   # see docs/devices.md §4.2 for the split of patches/kernelhwsrv
+patchsets = ["platform", "sym92", "policy"]   # see docs/devices.md §4.2 for the split of patches/kernelhwsrv
 missing_drivers = ["keypad.dll", "accelerometerldd.ldd", "accelerometerpdd.pdd", "mobilecrashdriver.ldd", "services.ldd", "omaplcd.ldd"]   # firmware kernel-side files with no stand-in (documented gaps)
 
-[kernel.lcd]                               # macros of the LCD HAL extension (src/n95compat/lcd/lcd_n95.mmp)
+[kernel.lcd]                               # macros of the LCD HAL extension (src/standins/lcd/lcd_n95.mmp)
 target = "lcd_n95"
 macros = ["__PORTRAIT_DISPLAY__", "SYBORG_FB_REPORTED_BPP=32", "SYBORG_FB_DISPLAY_MODE=1", "SYBORG_FB_NUM_MODES=2", "SYBORG_FB_N95"]
 
-# Kernel-side stand-ins composed into the ROM below the user-side window (src/n95compat/bld.inf,
-# scripts/build-n95compat.sh). Order matters: rombuild lays files out in obey order.
+# Kernel-side stand-ins composed into the ROM below the user-side window (generated bld.inf,
+# scripts/build-standins.sh). Order matters: rombuild lays files out in obey order.
 [[standins]]
 name = "nokiaiscdriver"
 kind = "ldd"
@@ -267,26 +243,13 @@ role = "second NVMemory (E:) on local drive 2 (patch qemu-baseport 0006)"
 # ---------------------------------------------------------------------------------------------
 # Fake modem (ISI over ISC). Simple replies are a table; stateful ones are code in the stand-in.
 [modem]
-kind = "isi-fake-peer"
-names = "platform/isi/names.txt"           # resource/message names, shared by BB5 devices
-replies = "isi-replies.txt"                # this device's canned replies -> generated isireplies.h
 stateful = "nokiaiscdriver"                # H-modem-power, H-light, H-em, H-imei, MTC state machine (iscpeer.inl)
-device_id = 0x6C                           # PN_DEV_SOS
-imei = "490154203237518"                   # documentation example, not a real IMEI (H-imei)
-sim = "absent"                             # SIM_STATUS_RESP 0x06 SIM_SERV_SIM_DISCONNECTED; phone runs Offline
-mtc_state = "normal"
-power_off_delay_s = 3                      # H-modem-power
-battery_bars = 7                           # H-em
-charger = false
-rtc_valid = true                           # 19 0B reply
-phone_lock = "disabled"                    # 08 02 reply
 
 # ---------------------------------------------------------------------------------------------
 # ROM composition (tools/romcompose.py; driven today by scripts/hybrid-boot.sh).
 [rom]
-code_patches = ["code-patches.txt"]        # rom/hybrid/code-patches.txt (H-keysound-nommf, H-splash-behind, H-startuptone-nommf)
-files = [{ rom = "Sys/Data/ESTARTCOMP.TXT", local = "ESTARTCOMP.TXT" }]   # rom/hybrid/ESTARTCOMP.TXT (CR LF!)
-manifest = "hybrid-manifest.txt"
+code_patches = ["code-patches.txt"]        # (H-keysound-nommf, H-splash-behind, H-startuptone-nommf)
+files = [{ rom = "Sys/Data/ESTARTCOMP.TXT", local = "ESTARTCOMP.TXT" }]   # CR LF!
 
 # Named variants of the composed ROM (scripts/compose-exp.sh): same device, different patch set.
 [rom.variants.audio-exp]
@@ -302,7 +265,7 @@ target_dll = "libgles_cm.dll"
 ordinals = "gl/libgles_cm.ordinals"        # devices/nokia-n95-8gb-rm320/gl/libgles_cm.ordinals (from the SDK .dso: names only)
 imports = "gl/n95imports.txt"              # devices/nokia-n95-8gb-rm320/gl/n95imports.txt: ROM exports the blob calls
 blob_addr = 0x80320000                     # SYGL_BASE: gap between our files and the user side
-entry_patches = "gl/gles-patches.txt"      # generated by tools/gen-gles-glue.py (rom/hybrid/gles-patches.txt)
+entry_patches = "gl/gles-patches.txt"      # generated by tools/gen-gles-glue.py
 surface_model = "wsegl-strict"             # H-gles-window-fixed: size/position fixed at creation like libpvrTechviewWSEGL
 present = "dsa"                            # H-gles-present
 vsync_request = 0x7f01                     # d_display request completing at the next vsync
@@ -318,16 +281,11 @@ egl_version = "1.1 build 3.3.33.750.2"
 # What the tools watch for (sydb daemon, tools/boot_milestones.py, syb_report).
 [milestones]
 first_output = ""
-wserv = "N95STUB: install DisplayDriver"
 drm = "SecEnv mode 3: returned dummy cert"
 hwrm_light = "ISCPEER: ch 35 send (60): 00 00 00 3a"
-startup_ui = "N95PROP: Startup::startup sets 101f8766/4"
 idle = "sets 101f8766/41 = 203"            # tools/sydb/daemon.py IDLE_RE: SysAp self-test OK = Active Standby up
 expected_idle_s = 26                       # memory: boots to Active Standby in ~26 s (first boot asks region/date/time)
 
-[props]                                    # P&S keys the tools read (sydb prop get)
-startup = { category = 0x101F8766, state = 0x41, ui_phase = 0x4 }
-sim_status = { category = 0x101F75B6, key = 0x100052E9 }
 
 # ---------------------------------------------------------------------------------------------
 # Phone window (tools/sydb/phone.py). Geometry only; key names refer to keymap.toml.

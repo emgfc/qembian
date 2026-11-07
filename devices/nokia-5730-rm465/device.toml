@@ -1,6 +1,7 @@
 # Nokia 5730 XpressMusic (RM-465): Symbian 9.3 / S60 3rd Edition FP2, BB5 RAPIDO platform, QWERTY
 # slide. Third device; flow and lessons: docs/adding-a-device.md. Evidence: [V] firmware/run, [I] inferred.
 schema = 1
+family = "bb5-s60"                         # platform/families/bb5-s60.toml, merged under this file
 
 [device]
 id = "nokia-5730-rm465"
@@ -11,13 +12,11 @@ aliases = ["5730"]
 market = "global"
 
 [platform]
-os = "symbian"
 os_version = "9.3"
 ui = "s60-3.2"                             # S60 3rd Edition Feature Pack 2
 personality = "sym92"                      # [V] 9.3's EUSER stub sequence and shape equal the N95's 9.2 ones, the
                                            # kernels' exec handlers copy the same sizes (exec_sizes.py): no own map needed
 soc = "rapido"                             # karap.dll, RAP3NAND partition [V names]; ARM11 [I]
-cellular = "bb5"
 
 [firmware]
 version = "101.48.128"
@@ -62,7 +61,6 @@ user_window_start = 0x80274B50             # ecomp.fsy; kernel side is one block
 
 # ---------------------------------------------------------------------------------------------
 [board]
-machine = "syborg"
 cpu = "arm1136-r2"
 ram_mb = 172                               # 128 MB on the phone [I: spec sheet] + the unpaged 43.9 MB core image
 ram_mb_real = 128
@@ -83,20 +81,8 @@ partial_mode = true
 touch = false
 rotation_caps = [1, 1, 1]
 
-[board.timing]
-fast_counter_hz = 32768                    # [I]
-nanokernel_tick_us = 1000                  # [I]
-rtc = "syborg-rtc"
-
 [board.audio]
-device = "syborg-audio"
-host_default = "pipewire"
 dsp = "none"                               # RAPIDO audio (AAMdaifDriver.ldd, minkda.ldd, esound.ldd): no stand-in yet
-
-[board.flash]
-base = 0x60000000
-size_mb = 128
-content = "rofs"
 
 [[board.drives]]
 letter = "D"
@@ -139,10 +125,6 @@ local_drive = 11                           # ROFS3
 kind = "composite"
 flags = "FS_COMPOSITE"
 
-[board.input]
-keymap = "keymap.toml"                     # keypad_exp.dll matrix [V]
-translation = "qemu"
-
 # ---------------------------------------------------------------------------------------------
 [hardware]
 wlan = true                                # wlanldd/wlanpdd in the core [V]
@@ -162,13 +144,8 @@ gpu = "none"
 # ---------------------------------------------------------------------------------------------
 [kernel]
 baseport = "syborg"
-variant = "udeb"
-trace_mask = 0x80000000
-secondary = "sys/bin/efile.exe"
-critical_thread_policy = "spare"
-user_memory_guards = false
 place = "after-firmware"                   # our kernel side (to 0x8031xxxx) does not fit below the user side (0x80274B50)
-patchsets = ["platform", "sym92", "n95"]
+patchsets = ["platform", "sym92", "policy"]
 missing_drivers = ["karap.dll", "keypad_exp.dll", "minkda.ldd", "esound.ldd", "accelerometerldd.ldd",
                    "accelerometerpdd.pdd", "magnetometerldd.ldd", "magnetometerpdd.pdd", "camldd.ldd", "campdd.pdd",
                    "camsecondarypdd.pdd", "wlanldd.ldd", "wlanpdd.pdd", "pltwlanpdd.pdd", "bc02.ldd", "bc02_uart1.pdd",
@@ -252,40 +229,23 @@ role = "second NVMemory (E:) on local drive 2"
 
 # ---------------------------------------------------------------------------------------------
 [modem]
-kind = "isi-fake-peer"
-names = "platform/isi/names.txt"
-replies = "isi-replies.txt"
 stateful = "nokiaiscdriver"
-device_id = 0x6C
-imei = "490154203237518"                   # documentation example, not a real IMEI (H-imei)
-sim = "absent"
-mtc_state = "normal"
-power_off_delay_s = 3
-battery_bars = 7
-charger = false
-rtc_valid = true
-phone_lock = "disabled"
+# SIM_IND 09 EF {05 06} for SAStartupService (channel 35) via `indications` was tried and is off: the
+# TSY (channel 7) panics on it, and the reset at state 117 stays (docs/devices/nokia-5730-rm465/sim-state.md)
 
 [rom]
 code_patches = []
 files = [{ rom = "Sys/Data/ESTARTCOMP.TXT", local = "ESTARTCOMP.TXT" }]
-manifest = "hybrid-manifest.txt"
 
 [gl]
 impl = "none"
 
 [milestones]
 first_output = ""
-wserv = "N95STUB: install DisplayDriver"
-startup_ui = "N95PROP: Startup::startup sets 101f8766/4"
 idle = "SysAp::SysAp sets 101f8766/41 = 203"
 expected_idle_s = 60                       # [I] until measured
-
-[props]
-startup = { category = 0x101F8766, state = 0x41, ui_phase = 0x4 }
-sim_status = { category = 0x101F75B6, key = 0x100052E9 }
 
 [status]
 level = "L0-pending"
 updated = "2026-11-07"
-open = ["first boot"]
+open = ["start-up resets after system state 117 (SIM state, sim-state.md)"]

@@ -24,5 +24,5 @@ emulator (`epoc.ini`) setting. Sources:
 [UTrace overview](https://docs.huihoo.com/symbian/s60-5th-edition-cpp-developers-library-v2.1/GUID-35228542-8C95-4849-A73F-2B4F082F0C44/sdk/doc_source/ToolsAndUtilities94/UTraceSolution/utrace.overview.html),
 [TraceViewer thesis (Nokia/Carbide trace tooling)](https://trepo.tuni.fi/handle/10024/78164).
 
-Our own instrumentation (`N95PROP`, `ISCPEER`, `N95STUB`, IPC trace, `syb_gdb`) gives more than the
+Our own instrumentation (`SYBPROP`, `ISCPEER`, `SYBSTUB`, IPC trace, `syb_gdb`) gives more than the
 firmware could. The only cheap extra is MobileCrash, after fixing its `KERN-EXEC 0`.

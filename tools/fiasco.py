@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Nokia BB5 firmware container (.C0R / .v13 / .fpsx, "B2" FIASCO) splitter.
 
-Layout (reverse-engineered on RM-320 35.0.001; see docs/n95-firmware-inventory.md):
+Layout (reverse-engineered on RM-320 35.0.001; see docs/devices/nokia-n95-8gb-rm320/n95-firmware-inventory.md):
   B2 <u32be hdrlen> ... header ...  then a chain of blocks:
   <marker 0x54|0x5D> <nsub=1> <tag> <len> <desc[len]> <ck8> <data[size]>
     tag 0x27 (marker 0x5D, len 45): partition record

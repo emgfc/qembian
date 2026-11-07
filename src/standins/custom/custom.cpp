@@ -1,5 +1,6 @@
 // custom.ldd stand-in (see nokiastub.h): EStart's start-up handshake with Nokia's Custom driver.
-// Two interfaces, told apart by the version the client opens with:
+// Two interfaces; the device profile declares which one ([[standins]] custom config = { api = 1 } ->
+// board config "custom.api", default 2):
 //   2.0 (N95, 9.2): controls. DoControl 32 must give 0/1, 2 a flag, 1 the startup mode
 //                   (4/5 = reset path).
 //   1.0 (N73, 9.1): requests (the driver is an ISA client and gets the answers from the modem):
@@ -16,9 +17,11 @@ static const SStubCtl KCtl[] =
 	{ 1, EWriteInt, 0, 0, 0 },	// EStart: startup mode (2.0) / flag (1.0); 4 or 5 would take the reset path
 	};
 
-static TInt CustomReq(DThread* aClient, TInt aReq, const TUint32* aArgs, TInt aMajor)
+#include "boardconfig.h"
+
+static TInt CustomReq(DThread* aClient, TInt aReq, const TUint32* aArgs, TInt)
 	{
-	if (aMajor != 1)
+	if (BoardConfigInt("custom.api", 2) != 1)
 		return KStubNotHandled;			// 2.0: requests stay pending as before
 	if (aReq == 0)
 		return KErrNone;

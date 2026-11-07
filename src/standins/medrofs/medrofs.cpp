@@ -3,9 +3,9 @@
 // MEDROFS.PDD: read-only "NAND" media serving the N95 ROFS partition (ROFS1 + ROFx extension
 // at ROFS1's iMaxImageSize, as on the phone's flash) from the board's read-only flash window at
 // physical 0x60000000 (stands for the N95's NAND; not RAM). tools/romcompose.py --rofs writes the
-// flash image <rom>.rofs = header page { "N95ROFS\0", TUint32 size } + blob at +0x1000;
+// flash image <rom>.rofs = header page { "SYBROFS\0", TUint32 size } + blob at +0x1000;
 // scripts/run-modern.sh loads it there.
-// Registered as local drive N95ROFS_DRIVE (8, the N95's own ESTARTCOMP.TXT number).
+// Registered as local drive SYBROFS_DRIVE (8, the N95's own ESTARTCOMP.TXT number).
 //
 // Header version 2 (words 3.. = { 2, count, then count x {local drive, offset, size} }): phones whose
 // composite Z: mounts several ROFS images on their own local drives (9.3 RAPIDO: ROFS1/2/3 on
@@ -18,11 +18,11 @@
 #include <e32rom.h>
 #include <partitions.h>
 
-#define N95ROFS_DRIVE 8
-_LIT(KPddName, "Media.N95Rofs");
-_LIT(KDriveName, "N95Rofs");
+#define SYBROFS_DRIVE 8
+_LIT(KPddName, "Media.SybRofs");
+_LIT(KDriveName, "SybRofs");
 const TInt KMaxRofs = 4;
-static TInt KDriveNumbers[KMaxRofs] = { N95ROFS_DRIVE };
+static TInt KDriveNumbers[KMaxRofs] = { SYBROFS_DRIVE };
 static TInt RofsCount = 1;						// partitions (= drives)
 static TInt RofsOffset[KMaxRofs], RofsLen[KMaxRofs];
 
@@ -39,7 +39,7 @@ static TInt FindRofs()
 	if (r != KErrNone)
 		return r;
 	const TUint32* t = (const TUint32*)hdr->LinearAddress();
-	TBool ok = t[0] == 0x5235394e /*"N95R"*/ && t[1] == 0x0053464f /*"OFS\0"*/ && t[2] > 0
+	TBool ok = t[0] == 0x52425953 /*"SYBR"*/ && t[1] == 0x0053464f /*"OFS\0"*/ && t[2] > 0
 			   && t[2] <= (TUint32)(KFlashWindow - 0x1000);
 	RofsSize = ok ? (TInt)t[2] : 0;
 	RofsCount = 1;
@@ -172,7 +172,7 @@ DECLARE_EXTENSION_PDD()
 DECLARE_STANDARD_EXTENSION()
 	{
 	TInt r = FindRofs();
-	Kern::Printf("N95ROFS: %s base %08x size %08x -> %d image(s), local drive %d..", r == KErrNone ? "flash" : "NO ROFS in flash",
+	Kern::Printf("SYBROFS: %s base %08x size %08x -> %d image(s), local drive %d..", r == KErrNone ? "flash" : "NO ROFS in flash",
 				 RofsBase, RofsSize, RofsCount, KDriveNumbers[0]);
 	if (r != KErrNone)
 		return KErrNone;	// nothing to serve; don't fail the boot
