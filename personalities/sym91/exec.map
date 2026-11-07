@@ -14,8 +14,8 @@ F06  SetActiveScheduler                   # eka2l1
 F07  LockPeriod                           # export
 F08  TrapHandler                          # eka2l1
 F09  SetTrapHandler                       # eka2l1
-F0a  !invalid                             # manual: no caller in N95 EUSER
-F0b  !invalid                             # manual: no caller in N95 EUSER
+F0a  @LockedInc91                         # 9.1: User::LockedInc on ARMv5 (no LDREX; the N95 EUSER uses LDREX)
+F0b  @LockedDec91                         # 9.1: User::LockedDec (RFastLock/RCriticalSection); a stub here deadlocked FbServ/Wserv
 F0c  DebugMask                            # manual: UserSvr::DebugMask calls it
 F0d  DebugMaskIndex                       # manual: sequence (export match)
 F0e  SetDebugMask                         # manual: sequence (export match)
@@ -31,7 +31,7 @@ F17  SetReentryPoint                      # manual: only caller loads eka1_entry
 F18  KernelConfigFlags                    # export
 F19  UTCOffset                            # export+eka2l1
 F1a  GetGlobalUserData                    # export+eka2l1
-S00  ObjectNext                           # export+eka2l1
+S00  @ObjectNext91:ObjectNext               # 9.1: find handle is a TInt (ours: 16-byte TFindHandle)
 S01  ChunkBase                            # export+eka2l1
 S02  ChunkSize                            # export+eka2l1
 S03  ChunkMaxSize                         # export+eka2l1
@@ -135,7 +135,7 @@ S64  ChunkBottom                          # export
 S65  ChunkTop                             # export+eka2l1
 S66  ThreadContext                        # export
 S67  ThreadCreate                         # eka2l1
-S68  FindHandleOpen                       # export
+S68  @FindHandleOpen91:FindHandleOpen       # 9.1: find handle passed by value (RHandleBase::Open does ldr r1,[r1])
 S69  HandleClose                          # eka2l1
 S6a  ChunkCreate                          # eka2l1
 S6b  ChunkAdjust                          # export+eka2l1

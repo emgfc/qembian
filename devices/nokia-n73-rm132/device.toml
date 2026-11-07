@@ -92,9 +92,7 @@ rtc = "syborg-rtc"
 [board.audio]
 device = "syborg-audio"
 host_default = "pipewire"
-dsp = "none"                               # ehwa.ldd/ehwaomap.pdd exist, but the N95's DSP bridge stand-in (OMAP2420)
-                                           # answered the N73's bridgeapi.dll wrongly (garbage RMutex in
-                                           # MmfAudioServer): left out until the OMAP1710 bridge is researched
+dsp = "ehwa"                               # TI DSP bridge stand-in; the N73 protocol differs only in the image load
 
 [board.flash]
 base = 0x60000000
@@ -160,7 +158,7 @@ critical_thread_policy = "spare"
 user_memory_guards = false
 place = "after-firmware"                   # our kernel side after the firmware image (scripts/build-standins.sh pad)
 patchsets = ["platform", "sym92", "sym91", "n95"]
-missing_drivers = ["ekeyp.dll", "ehwa.ldd", "ehwaomap.pdd", "camldd.ldd", "campdd.pdd", "camparifpdd.pdd", "bc02.ldd", "bc02_uart1.pdd", "usbisa.ldd", "eusbc.ldd", "stildd.ldd", "rebootdriver.ldd", "test.ldd", "ebridgeutil.ldd"]   # firmware kernel-side files with no stand-in (documented gaps)
+missing_drivers = ["ekeyp.dll", "camldd.ldd", "campdd.pdd", "camparifpdd.pdd", "bc02.ldd", "bc02_uart1.pdd", "usbisa.ldd", "eusbc.ldd", "stildd.ldd", "rebootdriver.ldd", "test.ldd", "ebridgeutil.ldd"]   # firmware kernel-side files with no stand-in (documented gaps)
 
 [kernel.lcd]
 target = "lcd_portrait"                    # src/standins/lcd/lcd_portrait.mmp
@@ -220,6 +218,18 @@ name = "secldd"
 kind = "ldd"
 family = "nokia-bb5"
 role = "SecEnv"
+
+[[standins]]
+name = "ehwa"
+kind = "ldd"
+family = "nokia-omap2"
+role = "TI DSP bridge LDD (H-dspbridge); N73 image load by buffer (docs/devices/nokia-n73-rm132/dspbridge-n73.md)"
+
+[[standins]]
+name = "ehwaomap"
+kind = "pdd"
+family = "nokia-omap2"
+role = "TI DSP bridge PDD"
 
 [[standins]]
 name = "lightldd"
@@ -284,4 +294,4 @@ sim_status = { category = 0x101F75B6, key = 0x100052E9 }
 [status]
 level = "L0"
 updated = "2026-11-07"
-open = ["first boot", "DSP bridge (OMAP1710) for audio"]
+open = ["first boot"]

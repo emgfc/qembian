@@ -1,5 +1,6 @@
 Personality sym91 (Symbian 9.1 user sides, N73) on our kernel (personalities/sym91/README.md):
-- its exec tables (personalities/sym91/exec.map: 9.2's numbering cut to 9.1's range, two TLS shims),
+- its exec tables (personalities/sym91/exec.map: 9.2's numbering cut to 9.1's range; shims for the TLS
+  calls, the TInt find handle and LockedInc/LockedDec as fast execs on ARMv5),
   next to 9.2's in the kernel, chosen at boot from the ROM header's personality number;
 - the 9.1 loader structure layout (TCodeSegCreateInfo without the demand-paging fields), measured in
   the N73's own ekern: per-personality copy-in/out replaces the 9.2-only TProcessCreateInfo shrink;
@@ -9,7 +10,7 @@ Personality sym91 (Symbian 9.1 user sides, N73) on our kernel (personalities/sym
 
 --- a/kernel/eka/kernel/sexec92.cpp
 +++ b/kernel/eka/kernel/sexec92.cpp
-@@ -19,20 +19,67 @@
+@@ -19,26 +19,75 @@
  const TUint32 KKernelConfigPersonalityShift = 25;
  const TUint32 KKernelConfigPersonalityMask = 0xfu << KKernelConfigPersonalityShift;
  const TInt KPersonalitySym92 = 1;
@@ -84,7 +85,15 @@ Personality sym91 (Symbian 9.1 user sides, N73) on our kernel (personalities/sym
  	}
  
  // --- shims ------------------------------------------------------------------------------------
-@@ -90,6 +137,18 @@
+ 
+ extern TInt Exec92Shim_SafeInc32(TInt*);	// cexec92.cia
+ extern TInt Exec92Shim_SafeDec32(TInt*);	// cexec92.cia
++extern TInt Exec92Shim_LockedInc91(TInt*);	// cexec92.cia (9.1, ARMv5)
++extern TInt Exec92Shim_LockedDec91(TInt*);	// cexec92.cia (9.1, ARMv5)
+ 
+ // 9.2 RMutex::Wait() passes no timeout; r1 is whatever the caller left there.
+ TInt Exec92Shim_MutexWait92(DMutex* aMutex)
+@@ -90,6 +139,72 @@
  	return r==KErrNone ? h : r;
  	}
  
@@ -100,10 +109,64 @@ Personality sym91 (Symbian 9.1 user sides, N73) on our kernel (personalities/sym
 +	return ExecHandler::DllSetTls(aHandle, KDllUid_Default, aPtr);
 +	}
 +
++// 9.1 (personalities/sym91/exec.map): a find handle is one TInt (container unique id << 16 | index),
++// passed by value to FindHandleOpen and by reference to ObjectNext. Newer kernels keep a 16-byte
++// TFindHandle with the object's 64-bit id; that id is recovered from the container entry.
++static void FindHandleFrom91(TFindHandle& aFh, TInt aValue, TUint64 aObjectId)
++	{
++	memclr(&aFh, sizeof(aFh));
++	if (aValue)
++		aFh.Set(aValue & KFindHandleIndexMask, (aValue >> KFindHandleUniqueIdShift) & KFindHandleUniqueIdMask, aObjectId);
++	}
++
++TInt Exec92Shim_ObjectNext91(TObjectType aType, TBuf8<KMaxFullName>& aName, TInt& aFindHandle)
++	{
++	if (aType < 0 || aType >= ENumObjectTypes)
++		K::PanicKernExec(EBadObjectType);
++	DObjectCon* pC = K::Containers[aType];
++	TFullName fn;
++	TFullName match;
++	TInt v;
++	Kern::KUDesGet(match, aName);
++	kumemget32(&v, &aFindHandle, sizeof(v));
++	TFindHandle h;
++	FindHandleFrom91(h, v, (TUint64)KMaxTInt64);	// 9.1 semantics: continue after that index
++	NKern::ThreadEnterCS();
++	TInt r = pC->FindByFullName(h, match, fn);
++	NKern::ThreadLeaveCS();
++	Kern::KUDesPut(aName, fn);
++	v = h.Handle();
++	kumemput32(&aFindHandle, &v, sizeof(v));
++	return r;
++	}
++
++TInt Exec92Shim_FindHandleOpen91(TOwnerType aType, TInt aFindHandle)
++	{
++	TFindHandle fh;
++	FindHandleFrom91(fh, aFindHandle, 0);
++	DObjectCon* pC = K::ContainerFromFindHandle(fh);
++	if (!pC)
++		K::PanicKernExec(EBadHandle);
++	NKern::ThreadEnterCS();
++	pC->Wait();
++	TInt i = fh.Index();
++	TUint64 id = i < pC->Count() ? (*pC)[i]->ObjectId() : 0;
++	pC->Signal();
++	FindHandleFrom91(fh, aFindHandle, id);
++	TInt h;
++	TInt r = TheCurrentThread->OpenFindHandle(aType, fh, h);
++	if (r == KErrNone)
++		r = h;
++	NKern::ThreadLeaveCS();
++	if (r == KErrBadHandle)
++		K::PanicKernExec(EBadHandle);
++	return r;
++	}
++
  // flags for slow shims: same handle preprocessing / system lock usage as the native call
  static TUint32 SlowFlagsOf(TInt aOurSlowNumber)
  	{
-@@ -153,7 +212,16 @@
+@@ -153,7 +268,16 @@
  	TheSuperPage().SetKernelConfigFlags(cfg & ~(KKernelConfigExec92Personality | KKernelConfigPersonalityMask));
  	if (!pers)
  		return;
@@ -121,7 +184,7 @@ Personality sym91 (Symbian 9.1 user sides, N73) on our kernel (personalities/sym
  		{
  		// a personality this kernel was not built with: our own exec numbering (the ROM's user side
  		// will not run, but the kernel says why)
-@@ -161,10 +229,14 @@
+@@ -161,10 +285,14 @@
  		return;
  		}
  
@@ -139,7 +202,7 @@ Personality sym91 (Symbian 9.1 user sides, N73) on our kernel (personalities/sym
  		TLinAddr f;
  		if (m >= 0)
  			f = EpocFastExecTable[m];
-@@ -176,12 +248,12 @@
+@@ -176,12 +304,12 @@
  		EpocFastExecTable92[n] = f;
  		}
  
@@ -155,7 +218,7 @@ Personality sym91 (Symbian 9.1 user sides, N73) on our kernel (personalities/sym
  		TUint32 flags;
  		TLinAddr f;
  		if (m >= 0)
-@@ -204,5 +276,6 @@
+@@ -204,5 +332,6 @@
  		EpocSlowExecTable92[4 + 2*n] = f;
  		}
  	Exec92Enabled = ETrue;
@@ -257,6 +320,39 @@ Personality sym91 (Symbian 9.1 user sides, N73) on our kernel (personalities/sym
  	__KTRACE_OPT(KDLL,DumpProcessCreateInfo(info));
  	__KTRACE_OPT2(KEXEC,KDLL,Kern::Printf("Exec::ProcessLoaded returns %d",r));
  	return r;
+--- a/kernel/eka/kernel/arm/cexec92.cia
++++ b/kernel/eka/kernel/arm/cexec92.cia
+@@ -33,3 +33,30 @@
+ 	USER_MEMORY_GUARD_ON(,r12,r12);
+ 	__JUMP(,lr);
+ 	}
++
++// Symbian 9.1 on ARMv5 (no LDREX): User::LockedInc / User::LockedDec are fast execs F0A/F0B
++// (personalities/sym91/exec.map). Unconditional, return the original value; RFastLock and
++// RCriticalSection are built on them.
++// TInt User::LockedInc(TInt& a): ++a; return original a
++__NAKED__ TInt Exec92Shim_LockedInc91(TInt* /*a*/)
++	{
++	USER_MEMORY_GUARD_OFF(,r12,r12);
++	asm("ldrt r1, [r0] ");
++	asm("add r2, r1, #1 ");
++	asm("strt r2, [r0] ");
++	asm("mov r0, r1 ");
++	USER_MEMORY_GUARD_ON(,r12,r12);
++	__JUMP(,lr);
++	}
++
++// TInt User::LockedDec(TInt& a): --a; return original a
++__NAKED__ TInt Exec92Shim_LockedDec91(TInt* /*a*/)
++	{
++	USER_MEMORY_GUARD_OFF(,r12,r12);
++	asm("ldrt r1, [r0] ");
++	asm("sub r2, r1, #1 ");
++	asm("strt r2, [r0] ");
++	asm("mov r0, r1 ");
++	USER_MEMORY_GUARD_ON(,r12,r12);
++	__JUMP(,lr);
++	}
 --- a/kernel/eka/nkern/arm/vectors.cia
 +++ b/kernel/eka/nkern/arm/vectors.cia
 @@ -136,8 +136,17 @@

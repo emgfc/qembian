@@ -33,8 +33,9 @@ tools/sydb/sydb.py --session build/sydb-n73 resume
 
 ## Hacks
 
-None specific to this device (no byte patches on the firmware). Platform-wide ones in `docs/hacks.md`
-apply (fake modem, stub certificate, ...).
+No byte patches on the firmware. Platform-wide ones in `docs/hacks.md` apply (fake modem, stub
+certificate, ...), in particular **H-stub-protocol-guess**: the DSP bridge and Custom stand-ins tell
+the N73 from the N95 by the client's arguments / interface version instead of a declared profile value.
 
 ## Open items
 

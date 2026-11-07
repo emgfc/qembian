@@ -9,7 +9,8 @@
 //   0x4000021  DCD unregister
 //   0x4000022  DCD enumerate {index, out uuid, type}
 //   0x400001f  DCD get object def {uuid, type, TBuf16<256> out path}
-//   0x4000002  PROC load: returns a user handle of a chunk >= the base image size (client reads the
+//   0x4000002  PROC load, N73 (a2 = &size): the image is in the client's buffer at a1 -> 0
+//   0x4000002  PROC load, N95 (a2 = 0): returns a user handle of a chunk >= the base image size (client reads the
 //              image into it and closes the handle)
 //   0x400000b  PROC shared buffer: a1 = TPtr8 out, a2 = TBuf8<4>{size} (seen from eapgwc.dll; the
 //              static analysis guessed 0x4000016, kept as an alias) -> chunk-backed TPtr8
@@ -439,6 +440,14 @@ static TInt HwaCtl(DThread* aClient, TInt aFn, TAny* a1, TAny* a2, const TUint32
 		}
 	case 0x4000002:	// PROC load: chunk for the base image
 		{
+		if (a2)		// N73 (older bridgeapi, OMAP1710): a1 = the whole baseimage.dof already in a user
+			{		// buffer, a2 = &size; PROC_Load takes any non-zero result as a failure
+					// (docs/devices/nokia-n73-rm132/dspbridge-n73.md). The N95 passes a2 = 0.
+			TInt size = 0;
+			Kern::ThreadRawRead(aClient, a2, &size, sizeof(size));
+			Kern::Printf("N95STUB: Hwa base image %d bytes in the client's buffer %08x (loaded)", size, a1);
+			return KErrNone;
+			}
 		TLinAddr base = 0;
 		TInt size = (TInt)w[0] > KLoadChunkSize ? (TInt)w[0] : KLoadChunkSize;
 		TInt h = NewChunk(aClient, size, LoadChunk, base);

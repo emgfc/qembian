@@ -52,6 +52,12 @@ stand-ins below can be checked against their code (decompile with `tools/syb_sym
 The N95 8GB's hardware stand-ins, ROM configuration and user-side code patches moved to
 [devices/nokia-n95-8gb-rm320/hacks.md](../devices/nokia-n95-8gb-rm320/hacks.md) (same hack ids).
 
+## Stand-ins shared between devices (src/standins)
+
+| Hack | Where | Real implementation |
+|---|---|---|
+| **H-stub-protocol-guess** (2026-11-07): a stand-in serving several phones picks the phone's protocol variant from what the client happens to pass, not from a declared fact. `ehwa` ctl 0x4000002 (DSP image load): a2 != 0 is taken as the N73's older bridge (image already in the client's buffer, must return 0), a2 == 0 as the N95's (chunk handle as the return value). `custom` uses the interface version the client opens with (1.0 N73 / 2.0 N95): closer to what the real driver negotiates, still an inference. Works for exactly these two firmwares | `src/standins/ehwa/ehwa.cpp`, `src/standins/custom/custom.cpp`, `src/standins/_shared/nokiastub.h` | the device profile declares the variant (e.g. `[board.dsp] bridge = "omap1710"` read by the stand-in from the board config, or per-target stand-in builds) and the stand-in runs that one protocol, refusing the other |
+
 ## sydb dev bridge (tools/sydb, src/n95apps/devagent)
 
 | Hack | Real implementation |

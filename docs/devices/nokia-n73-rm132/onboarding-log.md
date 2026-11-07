@@ -95,7 +95,21 @@ did not help, so the flow gets better with each phone. [V] = checked in the firm
 - **Not a fault**: kernel "Exc 1" dumps from `K::USafeReadAndParseDesHeader` with tiny addresses: ECom
   sends an IPC with an integer flagged as a descriptor; the kernel marks the argument undefined and
   the server reads the raw value. Debug-kernel noise.
-- **Open: DSP bridge [V]**: the N95's TI DSP bridge stand-in (ehwa/ehwaomap, OMAP2420) answers the
+- **Find handles [V]**: 9.1 passes a find handle as one TInt (by value to FindHandleOpen, by reference to
+  ObjectNext); ours is a 16-byte TFindHandle. ObjectNext wrote 16 bytes into a 4-byte field and
+  FindHandleOpen read through the value as a pointer (alignment fault in MmfAudioServer). Shims
+  `ObjectNext91`/`FindHandleOpen91`; the object id is recovered from the container. A diff of every
+  exec handler's copy sizes between the N73 and N95 kernels found no other structure change.
+- **LockedInc/LockedDec [V]**: on ARMv5 (no LDREX) 9.1's User::LockedInc/LockedDec are fast execs
+  F0A/F0B, `!invalid` in the 9.2 map (the N95 EUser uses LDREX). RCriticalSection::Wait always blocked:
+  FbServ and the window server deadlocked, the screen stayed white. Shims `LockedInc91`/`LockedDec91`;
+  the start-up splash renders after it.
+- **DSP bridge [V]**: the N73's bridge is the N95 protocol except the image load (ctl 0x4000002: image
+  in the client's buffer, return 0; docs/devices/nokia-n73-rm132/dspbridge-n73.md). Picked by the
+  client's argument: hack **H-stub-protocol-guess** (docs/hacks.md).
+- **Open: SIM [V]**: after SIM_STATUS (disconnected) the N73's DosServer sends PN_SIM 0x3B "fa 00"
+  and waits; the SIM state stays 1 and start-up stays at system state 202.
+- **Was open: DSP bridge [V]**: the N95's TI DSP bridge stand-in (ehwa/ehwaomap, OMAP2420) answers the
   N73's bridgeapi.dll wrongly (it calls RMutex::Wait on a garbage object after ctl 0x4000002). Left
   out; but then MmfAudioServer's resource thread dies, and when MmfAudioServer exits 30 s later EikSrvs
   crashes (null + 4). The OMAP1710 bridge needs its own mock before the N73 reaches idle.
