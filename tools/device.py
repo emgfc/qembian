@@ -138,10 +138,8 @@ def device_file(prof, name):
 
 
 def paths(prof):
-    """build and firmware locations (build/n95 is the N95's historical name, kept as is)"""
+    """build and firmware locations"""
     bdir = os.path.join(ROOT, 'build', 'devices', prof['_id'])
-    if not os.path.exists(bdir) and prof['_id'] == 'nokia-n95-8gb-rm320':
-        bdir = os.path.join(ROOT, 'build', 'n95')
     return {
         'dir': bdir,
         'core_flat': os.path.join(bdir, 'core-flat.img'),

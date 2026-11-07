@@ -172,7 +172,7 @@ DEVICE_ROM = os.path.join(DEVPATHS['dir'], 'hybrid-exp.img')   # the owner's run
 
 
 def use_device(drives):
-    # --device: the session runs on scripts/run-gui.sh's phone in place (build/n95/drive-c.img,
+    # --device: the session runs on scripts/run-gui.sh's phone in place (build/devices/<id>/drive-c.img,
     # drive-e.img, rtc-offset), as links in <session>/drives
     os.makedirs(drives, exist_ok=True)
     for link, f in DEVICE.items():
@@ -400,8 +400,8 @@ def main():
         ap.add_argument('--gui', action='store_true'); ap.add_argument('--install', action='store_true')
         ap.add_argument('--no-wait', action='store_true'); ap.add_argument('--timeout', type=float, default=180)
         ap.add_argument('--gl', choices=['host', 'soft'], default='host', help='GLES on the host GPU (syborg-gl, default) or the software rasteriser')
-        ap.add_argument('--device', action='store_true', help="run on scripts/run-gui.sh's phone (build/n95/drive-c.img, "
-                        'drive-e.img, rtc-offset) in place; ROM default build/n95/hybrid-exp.img')
+        ap.add_argument('--device', action='store_true', help="run on scripts/run-gui.sh's phone (build/devices/<id>/drive-c.img, "
+                        'drive-e.img, rtc-offset) in place; ROM default build/devices/<id>/hybrid-exp.img')
         ap.add_argument('--audio', default='wav', help='wav (<session>/audio.wav, default), host (speakers: '
                         '$AUDIO or pipewire, like run-gui) or any QEMU audiodev driver (pa, alsa, sdl, none)')
         ap.add_argument('--rom')

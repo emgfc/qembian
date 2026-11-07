@@ -10,11 +10,11 @@
   syb_sym.py lit ADDR                   decode a TLitC16/TLitC8 at ADDR (or pointed to by ADDR)
   syb_sym.py fn MODULE ADDR|NAME        print one decompiled function (runs Ghidra if needed)
   syb_sym.py mod MODULE                 module summary (range, entry, exports, imports)
-  syb_sym.py reindex                    rebuild the cache (build/n95/symindex.json)
+  syb_sym.py reindex                    rebuild the cache (build/devices/<id>/symindex.json)
 
 ADDR is hex (0x prefix optional). Module names are file names (case-insensitive).
-The index is built from build/n95/core.json + core-flat.img + the S60 SDK import libraries; Ghidra
-function starts are taken from build/n95/ghidra/*.c when present.
+The index is built from build/devices/<id>/core.json + core-flat.img + the S60 SDK import libraries; Ghidra
+function starts are taken from build/devices/<id>/ghidra/*.c when present.
 """
 import bisect, json, os, re, struct, subprocess, sys
 
@@ -63,7 +63,7 @@ class Rom:
 
     def _ours(self):
         """Our kernel-side files sit below the N95 user window in the hybrid ROM: resolve them from
-        our own image (build/n95/ours.json) and ekern's ELF symbols, not from the N95 index."""
+        our own image (build/devices/<id>/ours.json) and ekern's ELF symbols, not from the N95 index."""
         self.ours_end, self.ours, self.ksyms = 0, [], []
         man = os.path.join(N95, 'hybrid-manifest.txt')
         oj = os.path.join(N95, 'ours.json')

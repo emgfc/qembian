@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """kabi (personality sym92): compare the kernel ABI that third-party drivers see on the N95 (its own 9.2 ekern.exe in
-build/n95/core-flat.img) with our kernel's (ekern.exe in build/n95/hybrid.img).
+build/devices/<id>/core-flat.img) with our kernel's (ekern.exe in build/devices/<id>/hybrid.img).
 
 Drivers import ekern by ordinal; the ordinals match (eabi/ekernu.def), so each exported vtable
 (_ZTV...) can be read from both ROMs slot by slot and every entry named through the export tables

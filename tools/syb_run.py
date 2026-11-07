@@ -31,7 +31,7 @@ def main():
     ap.add_argument('--secs', type=float, default=30)
     ap.add_argument('--trace', default='0x80000C40')
     ap.add_argument('--rom', default=DEVPATHS['rom'],
-                    help='ROM image to compose into and boot (default: the working build/n95/hybrid.img)')
+                    help='ROM image to compose into and boot (default: the working build/devices/<id>/hybrid.img)')
     ap.add_argument('--patches', help='byte-patch file for the compose (default: the profile's rom.code_patches)')
     ap.add_argument('--no-compose', action='store_true')
     ap.add_argument('--shot', type=float, action='append', default=[])

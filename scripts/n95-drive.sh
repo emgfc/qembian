@@ -5,7 +5,7 @@
 #   scripts/n95-drive.sh get c|e PATH [DEST]    copy a file out
 #   scripts/n95-drive.sh mkdir c|e DIR
 #   scripts/n95-drive.sh rm c|e PATH
-# Images: build/n95/drive-c.img (C:, 64 MB FAT16) and build/n95/drive-e.img (E:, the memory card,
+# Images: build/devices/<id>/drive-c.img (C:, 64 MB FAT16) and build/devices/<id>/drive-e.img (E:, the memory card,
 # 1 GB FAT32); override with DRIVE_C= / DRIVE_E=. The phone formats them on first boot, so boot
 # once before copying. The emulator must not be running (two writers corrupt the FAT).
 # To install: put the .sis/.sisx on E: (or C:\data\Installs), boot, open it in File manager.

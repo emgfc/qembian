@@ -47,6 +47,14 @@ class Bits:
         return v
 
 
+
+def _dev_path(key):
+    """a file of the current device ($SYBORG_DEVICE / devices/default): tools/device.py paths"""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('device', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'device.py'))
+    d = importlib.util.module_from_spec(spec); spec.loader.exec_module(d)
+    return d.paths(d.load(os.environ.get('SYBORG_DEVICE')))[key]
+
 def table_from_encoding(enc):
     """{(len, code): symbol} from Symbian encode-table entries (len<<27 | code<<(27-len))."""
     t = {}
@@ -177,8 +185,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('image'); ap.add_argument('out')
     ap.add_argument('--base', type=lambda s: int(s, 0))
-    ap.add_argument('--rom', default='build/n95/core-flat.img')
-    ap.add_argument('--rom-json', default='build/n95/core.json')
+    ap.add_argument('--rom', default=_dev_path('core_flat'))
+    ap.add_argument('--rom-json', default=_dev_path('core_json'))
     ap.add_argument('--sdk-lib', default=os.environ.get('S60_SDK_LIB', os.path.expanduser('~/work/S60_3rd_FP1/Epoc32/release/armv5/lib')))
     a = ap.parse_args()
     h, img = parse(a.image)

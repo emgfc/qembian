@@ -4,7 +4,7 @@
   gen-gles-glue.py --blob-addr 0x80320000 --patches devices/<id>/gl/gles-patches.txt --asm OUT.S --names OUT.c
 
 Inputs: src/sygl/libgles_cm.ordinals (ordinal -> name, from the SDK's libgles_cm.dso),
-build/n95/core-flat.img + build/n95/symindex.json (export addresses of the ROM's libgles_cm.dll).
+build/devices/<id>/core-flat.img + build/devices/<id>/symindex.json (export addresses of the ROM's libgles_cm.dll).
 
   patches  one ARM "b BLOB+4*(ord-1)" over the first word of each of the 175 libgles_cm entry points
            (romcompose.py --patches format; the original word is verified at compose time). The

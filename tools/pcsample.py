@@ -1,24 +1,32 @@
 #!/usr/bin/env python3
 """Sample the guest PC through QEMU's gdbstub and map samples to ROM images.
 
-  pcsample.py [--n 40] [--interval 2] [--port 1234] [--json build/n95/core.json] [--hybrid build/n95/hybrid-manifest.txt]
+  pcsample.py [--n 40] [--interval 2] [--port 1234] [--json build/devices/<id>/core.json] [--hybrid build/devices/<id>/hybrid-manifest.txt]
 
 Each sample attaches gdb in batch mode, reads pc/cpsr/lr, and detaches (the guest resumes).
 Addresses inside the N95 core ROM are mapped to "<image>+off" via core.json; addresses below
 0x80000000 are user RAM (RAM-loaded code or data); CPU mode from cpsr (0x10 usr, 0x13 svc, 0x12 irq).
 Run while a boot started with SYBORG_GDB=1 (scripts/hybrid-boot.sh) is going.
 """
-import argparse, bisect, collections, json, re, subprocess, time
+import argparse, bisect, collections, json, os, re, subprocess, time
 
 MODES = {0x10: 'usr', 0x11: 'fiq', 0x12: 'irq', 0x13: 'svc', 0x17: 'abt', 0x1b: 'und', 0x1f: 'sys'}
 
+
+
+def _dev_path(key):
+    """a file of the current device ($SYBORG_DEVICE / devices/default): tools/device.py paths"""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('device', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'device.py'))
+    d = importlib.util.module_from_spec(spec); spec.loader.exec_module(d)
+    return d.paths(d.load(os.environ.get('SYBORG_DEVICE')))[key]
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--n', type=int, default=40)
     ap.add_argument('--interval', type=float, default=2)
     ap.add_argument('--port', type=int, default=1234)
-    ap.add_argument('--json', default='build/n95/core.json')
+    ap.add_argument('--json', default=_dev_path('core_json'))
     a = ap.parse_args()
     j = json.load(open(a.json))
     spans = sorted((f['image']['code'], f['image']['code'] + f['image']['codesize'], f['path'].split('/')[-1])

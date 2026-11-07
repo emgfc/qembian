@@ -11,7 +11,7 @@
         PC samples after T seconds: mode, current thread, PC/LR and stack chain, symbolised
   syb_gdb.py thread [--at T]       name of the thread running at T seconds
 
-Options common to all: --no-compose (default: reuse build/n95/hybrid.img as is), --keep (leave
+Options common to all: --no-compose (default: reuse build/devices/<id>/hybrid.img as is), --keep (leave
 QEMU running), --keep-drives DIR (boot with DIR/nvmemory.img, nvmemory2.img and rtc-offset, as
 written by syb_run.py --keep-drives; default: fresh drives, RTC = host time). The kernel's DWARF (_syborg_ekern.exe.sym) is loaded at its ROM/data addresses,
 so kernel expressions work in --print (e.g. TheScheduler.iCurrentThread->iPriority).

@@ -25,6 +25,10 @@ DEVDIR="$("${DPY[@]}" paths dir)"; DEVSRC="$ROOT/devices/$("${DPY[@]}" get devic
 SYGL_BASE=$(printf '0x%x' "$("${DPY[@]}" get gl.blob_addr)")   # free gap in the ROM window, see romcompose --blob
 OUT="$DEVDIR/sygl"; GEN="$OUT/gen"
 mkdir -p "$GEN"
+# the ROM's export addresses (tools/syb_sym.py builds the index once, from the SDK's import libraries)
+if [ ! -f "$DEVDIR/symindex.json" ]; then
+  S60_SDK_LIB="${S60_SDK_LIB:-$SDK/release/armv5/lib}" python3 -I "$ROOT/tools/syb_sym.py" reindex
+fi
 # the device's driver identity (apps choose their GL path by these strings: H-gles-identity)
 "${DPY[@]}" get gl.identity | python3 -c "
 import json, sys
