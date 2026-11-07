@@ -198,8 +198,8 @@ def main():
         struct.pack_into('<I', data, off, (v + (0 if is_data else cdelta)) & 0xffffffff)
 
     # core ROM exports for import resolution
-    B = 0x80000000
     rom = open(a.rom, 'rb').read() if os.path.exists(a.rom) else None
+    B = struct.unpack_from('<I', rom, 0x8c)[0] if rom else 0x80000000	# TRomHeader.iRomBase (N73: 0xF8000000)
     files = {}
     if rom:
         for f in json.load(open(a.rom_json))['files']:

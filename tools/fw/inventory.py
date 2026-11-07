@@ -9,7 +9,7 @@ Nothing from the firmware is committed: everything goes to build/devices/<id>/ (
   tools/fw/inventory.py [--device ID] [--fw-dir DIR] [--out DIR] [--no-abi]
 FW_DIR / N95_FW_DIR or firmware/<id>/ hold the flash files when --fw-dir is not given.
 """
-import argparse, glob, hashlib, json, os, shutil, subprocess, sys
+import argparse, glob, hashlib, json, os, shutil, struct, subprocess, sys, zlib
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(ROOT, 'tools'))
 import device as devmodel
@@ -21,6 +21,49 @@ def sha256(p):
         for b in iter(lambda: f.read(1 << 20), b''):
             h.update(b)
     return h.hexdigest()
+
+
+def sos_inflate(pdir, pname):
+    """A compressed SOS* partition (N73 SOS*CORE): the partition image header (the FIASCO record's
+    payload, flashed at the record location) holds the length of a raw prefix at +0x1C; the raw
+    deflate stream starts right after it and runs into the chunks (the SOS_XZIP loader copies the
+    prefix and inflates the rest into RAM). Returns (image, rest): the ROM image (from the end of the
+    record payload) and the partition bytes after the stream (N73: ROFS1 follows uncompressed)."""
+    hdrs = sorted(glob.glob(os.path.join(pdir, glob.escape(pname) + '@*.hdr')))
+    bins = sorted(glob.glob(os.path.join(pdir, glob.escape(pname) + '@*.bin')))
+    if not hdrs or not bins:
+        raise SystemExit('%s: no record payload/chunks for %s in %s' % ('inventory', pname, pdir))
+    hdr, body = open(hdrs[0], 'rb').read(), open(bins[0], 'rb').read()
+    hloc, bloc = int(hdrs[0].rsplit('@', 1)[1][:-4], 16), int(bins[0].rsplit('@', 1)[1][:-4], 16)
+    if hloc + len(hdr) != bloc or hdr[:4] != b'\xa3\x95\x97\x80':
+        raise SystemExit('%s: unexpected SOS header layout (hdr @%x+%x, data @%x)' % (pname, hloc, len(hdr), bloc))
+    raw = struct.unpack_from('<I', hdr, 0x1c)[0]
+    d = hdr + body
+    z = zlib.decompressobj(-15)
+    out = z.decompress(d[raw:]) + z.flush()
+    if not z.eof:
+        raise SystemExit('%s: deflate stream does not end' % pname)
+    img = out[len(hdr) - raw:]           # the image starts where the record payload ends
+    base = struct.unpack_from('<I', img, 0x8c)[0]
+    if base not in (0x80000000, 0xF8000000):
+        raise SystemExit('%s: no ROM header at the expected place (iRomBase 0x%08x)' % (pname, base))
+    print('%s: raw prefix 0x%x, inflated 0x%x -> ROM image 0x%x bytes (base 0x%08x)' % (pname, raw, len(out), len(img), base))
+    return img, z.unused_data
+
+
+def rofs_slice(data, what):
+    """the first ROFS/ROFx image in data (sector aligned), cut to its iImageSize"""
+    off = 0
+    while True:
+        cand = [i for i in (data.find(b'ROFS', off), data.find(b'ROFx', off)) if i >= 0]
+        if not cand:
+            break
+        off = min(cand)
+        size = struct.unpack_from('<I', data, off + 0x24)[0]
+        if 0 < size <= len(data) - off:		# a header, not the four bytes inside some file
+            return data[off:off + size]
+        off += 4
+    raise SystemExit('%s: no ROFS image found' % what)
 
 
 def run(cmd, out=None):
@@ -65,14 +108,24 @@ def main():
         pdir = os.path.join(out, role)
         run(py + [os.path.join(ROOT, 'tools', 'fiasco.py'), p, '--out', pdir], os.path.join(out, '%s-partitions.txt' % role))
         parts = f.get('partitions', {})
+        rest = None
         for kind, pname in parts.items():
-            src = sorted(glob.glob(os.path.join(pdir, pname + '@*.bin')))
+            src = sorted(glob.glob(os.path.join(pdir, glob.escape(pname) + '@*.bin')))
             if not src:
                 raise SystemExit('%s: partition %s not in %s' % (dev, pname, p))
-            if kind == 'core':
+            if kind == 'core' and f.get('compression') == 'sos-deflate':
+                img, rest = sos_inflate(pdir, pname)
+                open(os.path.join(out, 'core-flat.img'), 'wb').write(img)
+            elif kind == 'core' and not devmodel.get(prof, 'firmware.rom.paged', True):
+                shutil.copyfile(src[0], os.path.join(out, 'core-flat.img'))
+            elif kind == 'core':
                 run(py + [os.path.join(ROOT, 'tools', 'rom_unpage.py'), src[0], os.path.join(out, 'core-flat.img')])
             elif kind == 'rofs':
                 shutil.copyfile(src[0], os.path.join(out, 'rofs1.img' if role == 'core' else 'rofs2.img'))
+            elif kind == 'rofs-after-core':		# ROFS1 in the same partition, after the compressed core
+                if rest is None:
+                    raise SystemExit('%s: rofs-after-core needs a compressed core partition first' % dev)
+                open(os.path.join(out, 'rofs1.img'), 'wb').write(rofs_slice(rest, pname))
     core = os.path.join(out, 'core-flat.img')
     run(py + [os.path.join(ROOT, 'tools', 'romimg.py'), core, '--images', '--json', os.path.join(out, 'core.json')],
         os.path.join(out, 'core-files.txt'))

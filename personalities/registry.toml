@@ -9,3 +9,4 @@ sym92 = 1        # Symbian OS 9.2  (S60 3rd Edition FP1)      personalities/sym9
 sym93 = 2        # Symbian OS 9.3  (S60 3rd Edition FP2)      not yet
 sym94 = 3        # Symbian OS 9.4  (S60 5th Edition)          not yet
 symbian3 = 4     # Symbian^3 / Anna / Belle                   not yet
+sym91 = 5        # Symbian OS 9.1  (S60 3rd Edition)          personalities/sym91 (9.2 tables, 9.1 loader layout)

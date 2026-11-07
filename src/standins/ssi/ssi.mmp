@@ -1,0 +1,12 @@
+// ssi.pdd stand-in (N73 ISC data transmission PDD, load only)
+#include "../../variant.mmh"
+#include <kernel/kern_ext.mmh>
+target			VariantTarget(ssi,pdd)
+linkas			ssi.pdd
+targettype		pdd
+sourcepath		.
+source			ssi.cpp
+noexportlibrary
+vendorid		0x70000001
+capability		all
+userinclude		../_shared	// src/standins/_shared: nokiastub.h, iscpeer.inl, isireplies.h, stubcert.h

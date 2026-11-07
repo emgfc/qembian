@@ -1,0 +1,40 @@
+GCCE DLL entry (kernel d_entry.cpp, user uc_dll.cpp): AddressIsInCodeSegment's two data words were
+executed as instructions. At ROM base 0x80000000 they decode as harmless conditional ops; at 0xF8000000
+(moving-model ROMs, N73) they fault, so detaching a kernel DLL crashed. Branch over them.
+
+--- a/kernel/eka/kernel/arm/d_entry.cpp
++++ b/kernel/eka/kernel/arm/d_entry.cpp
+@@ -59,10 +59,15 @@
+ 	void * code_seg_limit;
+ 	asm(".extern Image$$ER_RO$$Base");
+ 	asm(".extern Image$$ER_RO$$Limit");
++	// syborg-pg: the two words sit in the instruction stream, so branch over them; executed, they
++	// decode as whatever the code addresses happen to be (harmless "HI" ops at 0x80000000, a fault
++	// in the unconditional space for a ROM at 0xF8000000: kernel DLL detach crashed on the N73)
++	asm("b 1f");
+ 	asm("code_seg_limit:");
+ 	asm(".word Image$$ER_RO$$Limit");
+ 	asm("code_seg_base:");
+ 	asm(".word Image$$ER_RO$$Base");
++	asm("1:");
+ 	asm("ldr %[result], code_seg_base" : [result] "=r" (code_seg_base));
+ 	asm("ldr %[result], code_seg_limit" : [result] "=r" (code_seg_limit));
+ 	return addr >= code_seg_base && addr < code_seg_limit;		
+--- a/kernel/eka/euser/epoc/arm/uc_dll.cpp
++++ b/kernel/eka/euser/epoc/arm/uc_dll.cpp
+@@ -54,10 +54,15 @@
+ 	void * code_seg_limit;
+ 	asm(".extern Image$$ER_RO$$Base");
+ 	asm(".extern Image$$ER_RO$$Limit");
++	// syborg-pg: the two words sit in the instruction stream, so branch over them; executed, they
++	// decode as whatever the code addresses happen to be (harmless "HI" ops at 0x80000000, a fault
++	// in the unconditional space for a ROM at 0xF8000000: kernel DLL detach crashed on the N73)
++	asm("b 1f");
+ 	asm("code_seg_limit:");
+ 	asm(".word Image$$ER_RO$$Limit");
+ 	asm("code_seg_base:");
+ 	asm(".word Image$$ER_RO$$Base");
++	asm("1:");
+ 	asm("ldr %[result], code_seg_base" : [result] "=r" (code_seg_base));
+ 	asm("ldr %[result], code_seg_limit" : [result] "=r" (code_seg_limit));
+ 	return addr >= code_seg_base && addr < code_seg_limit;		

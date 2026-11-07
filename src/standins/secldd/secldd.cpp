@@ -23,7 +23,7 @@ static const SStubCtl KCtl[] =
 // which killed DRMHelperServer, which blocked AknSkinSrv -> EikSrvs -> AknCapServer -> Starter.
 #include "stubcert.h"
 
-static TInt SecEnvHook(DThread* aClient, TInt aReq, const TUint32* aArgs)
+static TInt SecEnvHook(DThread* aClient, TInt aReq, const TUint32* aArgs, TInt)
 	{
 	if (aReq != 6 || !aArgs[0])
 		return KStubNotHandled;

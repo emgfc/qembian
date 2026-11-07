@@ -1,0 +1,12 @@
+// iscdriverextension.ldd stand-in (Symbian 9.1 / older ISC naming: N73) (see nokiastub.h)
+#include "../../variant.mmh"
+#include <kernel/kern_ext.mmh>
+target			VariantTarget(iscdriverextension,ldd)
+linkas			iscdriverextension.ldd
+targettype		ldd
+sourcepath		.
+source			iscdriverextension.cpp
+noexportlibrary
+vendorid		0x70000001
+capability		all
+userinclude		../_shared	// src/standins/_shared: nokiastub.h, iscpeer.inl, isireplies.h, stubcert.h

@@ -15,7 +15,11 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 if [ -z "${SYBORG_IN_CONTAINER:-}" ]; then
-  exec "$ROOT/scripts/in-container.sh" /work/scripts/setup-epocroot.sh "$@"
+  "$ROOT/scripts/in-container.sh" /work/scripts/setup-epocroot.sh "$@"
+  # derived baseport variants (one kernel build per memory model, docs/devices.md §4), regenerated
+  # from the patched syborg baseport every time so they never drift from it (host python3)
+  python3 -I "$ROOT/tools/baseport_variant.py" syborgmv --memmodel moving --cpu arm926
+  exit 0
 fi
 cd /work
 E=/work/build/epocroot

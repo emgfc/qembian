@@ -1,0 +1,324 @@
+Personality sym91 (Symbian 9.1 user sides, N73) on our kernel (personalities/sym91/README.md):
+- its exec tables (personalities/sym91/exec.map: 9.2's numbering cut to 9.1's range, two TLS shims),
+  next to 9.2's in the kernel, chosen at boot from the ROM header's personality number;
+- the 9.1 loader structure layout (TCodeSegCreateInfo without the demand-paging fields), measured in
+  the N73's own ekern: per-personality copy-in/out replaces the 9.2-only TProcessCreateInfo shrink;
+- the 9.1 SWI return convention: EUSER stubs are "mov ip, lr; swi n" and the 9.1 kernel returned
+  to user mode through "bx ip", so user-mode SWIs return to ip (Thumb if odd);
+- CodeSegReadExportDir from ordinal 1 (moving model): the 9.1 loader indexes buf[ordinal-1].
+
+--- a/kernel/eka/kernel/sexec92.cpp
++++ b/kernel/eka/kernel/sexec92.cpp
+@@ -19,20 +19,67 @@
+ const TUint32 KKernelConfigPersonalityShift = 25;
+ const TUint32 KKernelConfigPersonalityMask = 0xfu << KKernelConfigPersonalityShift;
+ const TInt KPersonalitySym92 = 1;
++const TInt KPersonalitySym91 = 5;	// Symbian 9.1: the 9.2 numbering is a strict superset (personalities/sym91/README.md)
+ 
+ TBool Exec92Enabled = EFalse;
+-TUint32 EpocFastExecTable92[EXEC92_FAST_COUNT];
+-TUint32 EpocSlowExecTable92[3 + 2*EXEC92_SLOW_COUNT];
++// sym91: the SWI handler returns to the user's ip (9.1 EUSER stubs: "mov ip, lr; swi n"), read by
++// __ArmVectorSwi (nkern/arm/vectors.cia) on every SWI
++extern "C" { TInt ExecReturnViaIp = 0; }
++// sym91: CodeSegReadExportDir gives the export table from ordinal 1, without 9.2's ordinal-0 word
++// (memmodel/epoc/moving/mcodeseg.cpp)
++extern "C" { TInt ExecExportDirFromOrdinal1 = 0; }
++TUint32 EpocFastExecTable92[EXEC92_MAX_FAST];			// the active personality's tables (9.2 or 9.1)
++TUint32 EpocSlowExecTable92[3 + 2*EXEC92_MAX_SLOW];
+ volatile TUint32 Exec92LastBadFast = 0;		// fast execs run with interrupts off: record, don't print
+ 
+-// Size difference of loader structures for the current thread: 9.2 TProcessCreateInfo lacks
+-// iDebugAttributes, iDestructStat and iFlags (12 bytes) at the end.
+-TInt Exec92ProcessCreateInfoShrink()
++// Loader structures (TCodeSegCreateInfo, TProcessCreateInfo) as the ROM's own loader lays them out.
++// Measured in the phones' own kernels (copy-in sizes of ExecHandler::CodeSegCreate/ProcessCreate):
++//   9.1 (N73 ekern):  TCodeSegCreateInfo 380 bytes (ends at iClientProcessHandle: no demand-paging
++//                     fields), TProcessCreateInfo 416 = 380 + iHeapSizeMin..iSecurityZone (36)
++//   9.2 (N95 ekern):  TCodeSegCreateInfo 472 = ours, TProcessCreateInfo 512; we read 508 (ours less
++//                     iDebugAttributes/iDestructStat/iFlags, as before)
++// The derived fields of TProcessCreateInfo follow the base, so a shorter base moves them: copy in two
++// pieces. Fields the old layout lacks stay zero; nothing is written beyond the user's structure.
++TInt ExecLoaderCodeSegSize = sizeof(TCodeSegCreateInfo);
++TInt ExecLoaderProcessTail = sizeof(TProcessCreateInfo) - sizeof(TCodeSegCreateInfo);
++
++static TBool UsesPersonality()
+ 	{
+ 	if (!Exec92Enabled)
+-		return 0;
++		return EFalse;
+ 	const SSlowExecEntry* t = TheCurrentThread->iNThread.iSlowExecTable;
+-	return t == ((const SSlowExecTable*)EpocSlowExecTable92)->iEntries ? 12 : 0;
++	return t == ((const SSlowExecTable*)EpocSlowExecTable92)->iEntries;
++	}
++
++static inline TInt CsSize()
++	{ return UsesPersonality() ? ExecLoaderCodeSegSize : (TInt)sizeof(TCodeSegCreateInfo); }
++static inline TInt PcTail()
++	{ return UsesPersonality() ? ExecLoaderProcessTail : (TInt)(sizeof(TProcessCreateInfo) - sizeof(TCodeSegCreateInfo)); }
++
++void PersGetCodeSegInfo(TCodeSegCreateInfo& aInfo, const TCodeSegCreateInfo& aUser)
++	{
++	memclr(&aInfo, sizeof(aInfo));
++	kumemget32(&aInfo, &aUser, CsSize());
++	}
++
++void PersPutCodeSegInfo(TCodeSegCreateInfo& aUser, const TCodeSegCreateInfo& aInfo)
++	{
++	kumemput32(&aUser.iUids, &aInfo.iUids, CsSize() - sizeof(aInfo.iFileName));
++	}
++
++void PersGetProcessInfo(TProcessCreateInfo& aInfo, const TProcessCreateInfo& aUser)
++	{
++	memclr(&aInfo, sizeof(aInfo));
++	TInt cs = CsSize();
++	kumemget32(&aInfo, &aUser, cs);
++	kumemget32(&aInfo.iHeapSizeMin, (const TUint8*)&aUser + cs, PcTail());
++	}
++
++void PersPutProcessInfo(TProcessCreateInfo& aUser, const TProcessCreateInfo& aInfo)
++	{
++	TInt cs = CsSize();
++	kumemput32(&aUser.iUids, &aInfo.iUids, cs - sizeof(aInfo.iFileName));
++	kumemput32((TUint8*)&aUser + cs, &aInfo.iHeapSizeMin, PcTail());
+ 	}
+ 
+ // --- shims ------------------------------------------------------------------------------------
+@@ -90,6 +137,18 @@
+ 	return r==KErrNone ? h : r;
+ 	}
+ 
++// 9.1 (personalities/sym91/exec.map): UserSvr::DllTls(handle) and UserSvr::DllSetTls(handle, ptr)
++// go straight to the exec stubs, without the DLL uid argument 9.2 added (9.2 passes KDllUid_Default)
++TAny* Exec92Shim_DllTls91(TInt aHandle)
++	{
++	return ExecHandler::DllTls(aHandle, KDllUid_Default);
++	}
++
++TInt Exec92Shim_DllSetTls91(TInt aHandle, TAny* aPtr)
++	{
++	return ExecHandler::DllSetTls(aHandle, KDllUid_Default, aPtr);
++	}
++
+ // flags for slow shims: same handle preprocessing / system lock usage as the native call
+ static TUint32 SlowFlagsOf(TInt aOurSlowNumber)
+ 	{
+@@ -153,7 +212,16 @@
+ 	TheSuperPage().SetKernelConfigFlags(cfg & ~(KKernelConfigExec92Personality | KKernelConfigPersonalityMask));
+ 	if (!pers)
+ 		return;
+-	if (pers != KPersonalitySym92)
++	if (pers == KPersonalitySym92)
++		ExecLoaderProcessTail = sizeof(TProcessCreateInfo) - sizeof(TCodeSegCreateInfo) - 12;
++	else if (pers == KPersonalitySym91)
++		{
++		ExecLoaderCodeSegSize = _FOFF(TCodeSegCreateInfo, iCodeRelocTable);		// 380
++		ExecReturnViaIp = 1;
++		ExecExportDirFromOrdinal1 = 1;
++		ExecLoaderProcessTail = _FOFF(TProcessCreateInfo, iDebugAttributes) - sizeof(TCodeSegCreateInfo);	// 36
++		}
++	else
+ 		{
+ 		// a personality this kernel was not built with: our own exec numbering (the ROM's user side
+ 		// will not run, but the kernel says why)
+@@ -161,10 +229,14 @@
+ 		return;
+ 		}
+ 
+-	EpocFastExecTable92[0] = EXEC92_FAST_COUNT;
+-	for (TInt n=1; n<EXEC92_FAST_COUNT; ++n)
++	const TInt16* fastMap = pers == KPersonalitySym91 ? KExec91Fast : KExec92Fast;
++	const TInt16* slowMap = pers == KPersonalitySym91 ? KExec91Slow : KExec92Slow;
++	const TInt fastCount = pers == KPersonalitySym91 ? EXEC91_FAST_COUNT : EXEC92_FAST_COUNT;
++	const TInt slowCount = pers == KPersonalitySym91 ? EXEC91_SLOW_COUNT : EXEC92_SLOW_COUNT;
++	EpocFastExecTable92[0] = fastCount;
++	for (TInt n=1; n<fastCount; ++n)
+ 		{
+-		TInt m = KExec92Fast[n];
++		TInt m = fastMap[n];
+ 		TLinAddr f;
+ 		if (m >= 0)
+ 			f = EpocFastExecTable[m];
+@@ -176,12 +248,12 @@
+ 		EpocFastExecTable92[n] = f;
+ 		}
+ 
+-	EpocSlowExecTable92[0] = EXEC92_SLOW_COUNT;
++	EpocSlowExecTable92[0] = slowCount;
+ 	EpocSlowExecTable92[1] = EpocSlowExecTable[1];	// invalid handler (out of range numbers)
+ 	EpocSlowExecTable92[2] = EpocSlowExecTable[2];	// preprocess (handle lookup) handler
+-	for (TInt n=0; n<EXEC92_SLOW_COUNT; ++n)
++	for (TInt n=0; n<slowCount; ++n)
+ 		{
+-		TInt m = KExec92Slow[n];
++		TInt m = slowMap[n];
+ 		TUint32 flags;
+ 		TLinAddr f;
+ 		if (m >= 0)
+@@ -204,5 +276,6 @@
+ 		EpocSlowExecTable92[4 + 2*n] = f;
+ 		}
+ 	Exec92Enabled = ETrue;
+-	Kern::Printf("EXEC92: Symbian 9.2 exec personality enabled (%d fast, %d slow)", EXEC92_FAST_COUNT, EXEC92_SLOW_COUNT);
++	Kern::Printf("EXEC92: Symbian %s exec personality enabled (%d fast, %d slow; loader structs %d+%d)",
++		pers == KPersonalitySym91 ? "9.1" : "9.2", fastCount, slowCount, ExecLoaderCodeSegSize, ExecLoaderProcessTail);
+ 	}
+--- a/kernel/eka/kernel/scodeseg.cpp
++++ b/kernel/eka/kernel/scodeseg.cpp
+@@ -20,7 +20,12 @@
+ #include "execs.h"
+ 
+ extern void InvalidExecHandler();
+-extern TInt Exec92ProcessCreateInfoShrink();	// sexec92.cpp
++// sexec92.cpp: the loader structures as the ROM's own file server (its loader) lays them out, by
++// personality (9.1 TCodeSegCreateInfo has no demand-paging fields; 9.2 TProcessCreateInfo is shorter)
++extern void PersGetCodeSegInfo(TCodeSegCreateInfo& aInfo, const TCodeSegCreateInfo& aUser);
++extern void PersPutCodeSegInfo(TCodeSegCreateInfo& aUser, const TCodeSegCreateInfo& aInfo);
++extern void PersGetProcessInfo(TProcessCreateInfo& aInfo, const TProcessCreateInfo& aUser);
++extern void PersPutProcessInfo(TProcessCreateInfo& aUser, const TProcessCreateInfo& aInfo);
+ 
+ // Compare code segments by name
+ TInt CompareCodeSegsByName(const DCodeSeg& aA, const DCodeSeg& aB)
+@@ -1434,7 +1439,7 @@
+ TInt ExecHandler::CodeSegCreate(TCodeSegCreateInfo& aInfo)
+ 	{
+ 	TCodeSegCreateInfo info;
+-	kumemget32(&info, &aInfo, sizeof(info));
++	PersGetCodeSegInfo(info, aInfo);
+ 	__KTRACE_OPT2(KEXEC,KDLL,Kern::Printf("Exec::CodeSegCreate %S ver %08x", &info.iFileName, info.iModuleVersion));
+ 	__KTRACE_OPT(KDLL,DumpCodeSegCreateInfo(info));
+ 	K::CheckFileServerAccess();			// only F32 can use this exec function
+@@ -1453,7 +1458,7 @@
+ 	if (pP)
+ 		pP->Close(NULL);
+ 	NKern::ThreadLeaveCS();
+-	kumemput32(&aInfo.iUids, &info.iUids, sizeof(info)-sizeof(info.iFileName));
++	PersPutCodeSegInfo(aInfo, info);
+ 	__KTRACE_OPT(KDLL,DumpCodeSegCreateInfo(info));
+ 	__KTRACE_OPT2(KEXEC,KDLL,Kern::Printf("Exec::CodeSegCreate returns %d",r));
+ 	return r;
+@@ -1462,7 +1467,7 @@
+ TInt ExecHandler::CodeSegLoaded(TCodeSegCreateInfo& aInfo)
+ 	{
+ 	TCodeSegCreateInfo info;
+-	kumemget32(&info, &aInfo, sizeof(info));
++	PersGetCodeSegInfo(info, aInfo);
+ 	__KTRACE_OPT2(KEXEC,KDLL,Kern::Printf("Exec::CodeSegLoaded %S ver %08x", &info.iFileName, info.iModuleVersion));
+ 	__KTRACE_OPT(KDLL,DumpCodeSegCreateInfo(info));
+ 	DCodeSeg* pS=DCodeSeg::VerifyCallerAndHandle(info.iHandle);
+@@ -1471,7 +1476,7 @@
+ 	if (r==KErrNone)
+ 		pS->iMark|=DCodeSeg::EMarkLoaded;
+ 	Kern::EndAccessCode();
+-	kumemput32(&aInfo.iUids, &info.iUids, sizeof(info)-sizeof(info.iFileName));
++	PersPutCodeSegInfo(aInfo, info);
+ 	__KTRACE_OPT(KDLL,DumpCodeSegCreateInfo(info));
+ 	__KTRACE_OPT2(KEXEC,KDLL,Kern::Printf("Exec::CodeSegLoaded returns %d",r));
+ 	return r;
+@@ -1681,10 +1686,7 @@
+ TInt ExecHandler::ProcessCreate(TProcessCreateInfo& aInfo, const TDesC* aCommandLine)
+ 	{
+ 	TProcessCreateInfo info;
+-	// Symbian 9.2 loaders pass a shorter TProcessCreateInfo (no iDebugAttributes/iDestructStat/iFlags)
+-	const TInt usize = sizeof(info) - Exec92ProcessCreateInfoShrink();
+-	memclr(&info, sizeof(info));
+-	kumemget32(&info, &aInfo, usize);
++	PersGetProcessInfo(info, aInfo);	// the personality's layout (sexec92.cpp)
+ 	__KTRACE_OPT2(KEXEC,KDLL,Kern::Printf("Exec::ProcessCreate %S ver %08x", &info.iFileName, info.iModuleVersion));
+ 	__KTRACE_OPT(KDLL,DumpProcessCreateInfo(info));
+ 	K::CheckFileServerAccess();			// only F32 can use this exec function
+@@ -1736,7 +1738,7 @@
+ 	if (n)
+ 		n->Close();
+ 	NKern::ThreadLeaveCS();
+-	kumemput32(&aInfo.iUids, &info.iUids, usize-sizeof(info.iFileName));
++	PersPutProcessInfo(aInfo, info);
+ 	__KTRACE_OPT(KDLL,DumpProcessCreateInfo(info));
+ 	__KTRACE_OPT2(KEXEC,KDLL,Kern::Printf("Exec::ProcessCreate returns %d",r));
+ 	return r;
+@@ -1811,10 +1813,7 @@
+ TInt ExecHandler::ProcessLoaded(TProcessCreateInfo& aInfo)
+ 	{
+ 	TProcessCreateInfo info;
+-	// Symbian 9.2 loaders pass a shorter TProcessCreateInfo (no iDebugAttributes/iDestructStat/iFlags)
+-	const TInt usize = sizeof(info) - Exec92ProcessCreateInfoShrink();
+-	memclr(&info, sizeof(info));
+-	kumemget32(&info, &aInfo, usize);
++	PersGetProcessInfo(info, aInfo);	// the personality's layout (sexec92.cpp)
+ 	__KTRACE_OPT2(KEXEC,KDLL,Kern::Printf("Exec::ProcessLoaded %S ver %08x", &info.iFileName, info.iModuleVersion));
+ 	__KTRACE_OPT(KDLL,DumpProcessCreateInfo(info));
+ 	K::CheckFileServerAccess();			// only F32 can use this exec function
+@@ -1844,7 +1843,7 @@
+ 	if (r!=KErrNone)
+ 		pP->Close(NULL);
+ 	NKern::ThreadLeaveCS();
+-	kumemput32(&aInfo.iUids, &info.iUids, usize-sizeof(info.iFileName));
++	PersPutProcessInfo(aInfo, info);
+ 	__KTRACE_OPT(KDLL,DumpProcessCreateInfo(info));
+ 	__KTRACE_OPT2(KEXEC,KDLL,Kern::Printf("Exec::ProcessLoaded returns %d",r));
+ 	return r;
+--- a/kernel/eka/nkern/arm/vectors.cia
++++ b/kernel/eka/nkern/arm/vectors.cia
+@@ -136,8 +136,17 @@
+ extern "C" __NAKED__ void __ArmVectorSwi()
+ 	{
+ 	// IRQs disabled, FIQs enabled here
+-	asm("ldr r12, [lr, #-4] ");				// get SWI opcode
+ 	asm("stmfd sp!, {r11, lr} ");			// save return address, r11 for 8 byte align
++	// syborg-pg, personality sym91: Symbian 9.1 user code enters with "mov ip, lr; swi n" (EUSER
++	// stubs have no return instruction) and the 9.1 kernel returned to user mode through "bx ip". So
++	// for user-mode SWIs the return address is ip, in Thumb state if ip is odd
++	// (personalities/sym91/README.md). ExecReturnViaIp is set by Exec92Init (sexec92.cpp).
++	asm("ldr r11, __ExecReturnViaIp ");
++	asm("ldr r11, [r11] ");
++	asm("cmp r11, #0 ");
++	asm("bne swi_return_via_ip ");
++	asm("swi_entry_2: ");
++	asm("ldr r12, [lr, #-4] ");				// get SWI opcode
+ 	USER_MEMORY_GUARD_ON_IF_MODE_USR(r11);
+ 	asm("ldr r11, __TheScheduler ");	
+ 	asm("adr lr, fast_swi_exit ");
+@@ -162,6 +171,19 @@
+ 	asm("mvn r12, #0 ");					// put invalid SWI number into r12
+ 	asm("b slow_swi ");						// go through slow SWI routine to call invalid SWI handler
+ 
++	asm("swi_return_via_ip: ");				// sym91 (see the entry)
++	asm("mrs r11, spsr ");
++	asm("tst r11, #0x0f ");					// from user mode only
++	asm("bne swi_entry_2 ");
++	asm("tst r12, #1 ");
++	asm("orrne r11, r11, #0x20 ");			// Thumb caller: return in Thumb state
++	asm("msrne spsr_cxsf, r11 ");
++	asm("bic r11, r12, #1 ");
++	asm("str r11, [sp, #4] ");				// the return address the exits pop
++	asm("b swi_entry_2 ");
++	asm("__ExecReturnViaIp: ");
++	asm(".word ExecReturnViaIp ");
++
+ 	asm("fast_swi_exit: ");
+ #ifdef __CHECK_LOCK_STATE__
+ 	asm("mrs r12, spsr ");
+--- a/kernel/eka/memmodel/epoc/moving/mcodeseg.cpp
++++ b/kernel/eka/memmodel/epoc/moving/mcodeseg.cpp
+@@ -417,12 +417,21 @@
+ 	}
+ 
+ 
++// syborg-pg, personality sym91 (sexec92.cpp): a Symbian 9.1 loader wants the export table from
++// ordinal 1 (its import fixups index buf[ordinal-1]); 9.2 and later take the ordinal-0 word first
++extern "C" TInt ExecExportDirFromOrdinal1;
++
+ void DMemModelCodeSeg::ReadExportDir(TUint32* aDest)
+ 	{
+ 	__KTRACE_OPT(KDLL,Kern::Printf("DMemModelCodeSeg::ReadExportDir %08x",aDest));
+ 	if (!iXIP)
+ 		{
+ 		SRamCodeInfo& ri=RamInfo();
++		if (ExecExportDirFromOrdinal1)
++			{
++			kumemput32(aDest, (const TUint32*)ri.iExportDir, ri.iExportDirCount*sizeof(TLinAddr));
++			return;
++			}
+ 		TInt size=(ri.iExportDirCount+1)*sizeof(TLinAddr);
+ 		kumemput32(aDest, (const TUint32*)(ri.iExportDir-sizeof(TUint32)), size);
+ 		}

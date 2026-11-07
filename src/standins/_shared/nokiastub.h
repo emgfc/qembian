@@ -20,9 +20,11 @@ const TInt KStubRequest = 0x10000;
 // EWriteBlock: copy iSize bytes from iData to a1 (e.g. a capabilities structure)
 struct SStubCtl { TInt iFn; TStubAction iAction; TInt iValue; const TAny* iData; TInt iSize; };
 // optional per-device request hook: return KErrNone..KErrXxx to complete the request with it, or
-// KStubNotHandled to fall back to the table/default. aArgs = the two DoRequest argument words.
+// KStubNotHandled to fall back to the table/default. aArgs = the two DoRequest argument words;
+// aMajor = the major version of the interface the client opened the channel with (one driver name
+// can carry two interfaces: Custom is 1.0 on the N73, 2.0 on the N95, as the real driver negotiates)
 const TInt KStubNotHandled = 0x7fff0000;
-typedef TInt (*TStubRequestHook)(DThread* aClient, TInt aReq, const TUint32* aArgs);
+typedef TInt (*TStubRequestHook)(DThread* aClient, TInt aReq, const TUint32* aArgs, TInt aMajor);
 // optional per-device control hook: called before the table with the first 4 words at a1 (if
 // readable); return a value to return it from DoControl, or KStubNotHandled to fall through.
 typedef TInt (*TStubControlHook)(DThread* aClient, TInt aFn, TAny* a1, TAny* a2, const TUint32* aWords);
@@ -63,6 +65,7 @@ public:
 	virtual TInt DoCreate(TInt aUnit, const TDesC8*, const TVersion& aVer)
 		{
 		iUnit = aUnit;
+		iMajor = aVer.iMajor;
 		Kern::Printf("N95STUB: %S open unit %d ver %d.%d.%d by %O", &iF->iName, aUnit,
 					 aVer.iMajor, aVer.iMinor, aVer.iBuild, &Kern::CurrentThread());
 		return KErrNone;
@@ -78,7 +81,7 @@ public:
 				Kern::ThreadRawRead(&Kern::CurrentThread(), a2, args, sizeof(args));
 			TBool pend = !iF->iCompleteRequests;
 			TInt result = KErrNone;
-			TInt hr = iF->iHook ? iF->iHook(&Kern::CurrentThread(), ~aFn, args) : KStubNotHandled;
+			TInt hr = iF->iHook ? iF->iHook(&Kern::CurrentThread(), ~aFn, args, iMajor) : KStubNotHandled;
 			for (TInt i=0; i<iF->iCount; ++i)
 				if (iF->iCtl[i].iFn == (KStubRequest | ~aFn))
 					{
@@ -148,6 +151,7 @@ public:
 private:
 	DNokiaStubFactory* iF;
 	TInt iUnit;
+	TInt iMajor;
 	};
 
 inline TInt DNokiaStubFactory::Create(DLogicalChannelBase*& aChannel)

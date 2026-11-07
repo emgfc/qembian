@@ -1,0 +1,11 @@
+# ESTARTCOMP.TXT for the syborg-pg N73 (RM-132) hybrid ROM (replaces Z:\sys\data\ESTARTCOMP.TXT).
+# NOTE: EStart only splits lines on CR LF.
+#
+# The N73's own file: D: IRAM on 0, C: NAND (MEDUSII) on 6, Z: composite on 7, E: MMC on 1. Our board:
+# C: is the Syborg NVMemory on local drive 1, E: the second NVMemory on 2 (a blank image stands
+# for the miniSD card, so it is formatted when corrupt), Z: the ROFS composite on 8 (MEDROFS.PDD).
+
+D: 0  ELOCAL FAT  0       FS_FORMAT_COLD,FS_SYNC_DRIVE           # IRAM
+C: 1  ELOCAL FAT  0       FS_FORMAT_CORRUPT,FS_SCANDRIVE         # Syborg NVMemory (phone C: on NAND)
+Z: 8  0      0    0       FS_COMPOSITE                           # COMPOSITE (ROFS+ROMFS)
+E: 2  ELOCAL FAT  0       FS_FORMAT_CORRUPT,FS_SCANDRIVE         # MINISD CARD (Syborg NVMemory 2)

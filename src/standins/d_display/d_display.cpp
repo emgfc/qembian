@@ -14,7 +14,8 @@
 //   ctl 4                         cancel partial display
 //   ctl 5 -> TInt                 partial display active
 //   ctl 10 (screen by value)      select screen: only 0
-//   ctl 11 -> 26 words            capabilities (table below)
+//   ctl 11 -> 26 words            capabilities (table below; 23 words on the N73, whose
+//                                 CDisplayDriver keeps 0x5c bytes for them: board config disp_caps)
 //   ctl 26 -> TInt                current rotation index
 //   ctl 31 -> TInt                scan-line bytes
 //   req 0x8001 (sub)              panel self-test: sub 0 only
@@ -29,8 +30,30 @@
 //                                 sygl blob's eglSwapBuffers (src/n95gl, hack H-vsync-wait)
 #include "nokiastub.h"
 #include "syborg.h"
+#include "boardconfig.h"
 
-static const TUint32 KCaps[26] =
+// Per device (board config from the profile's [board.display], tools/device.py board_config; the
+// defaults are the N95's): caps block size, native panel orientation, scan-line bytes (ctl 31 and the
+// LCD HAL's stride), panel rows (partial display), and which rotation indexes the panel accepts.
+static TInt CapsWords = 26;			// disp_caps
+static TBool NativeLandscape = ETrue;	// disp_native=landscape|portrait
+static TInt FbPitch = 1280;			// disp_pitch
+static TUint PanelRows = 240;			// disp_rows
+static void ReadDisplayConfig()
+	{
+	char b[16];
+	CapsWords = BoardConfigInt("disp_caps", 26);
+	if (CapsWords < 1 || CapsWords > 26)
+		CapsWords = 26;
+	if (BoardConfig("disp_native", b, sizeof(b)) > 0)
+		NativeLandscape = b[0] == 'l';
+	FbPitch = BoardConfigInt("disp_pitch", 1280);
+	PanelRows = BoardConfigInt("disp_rows", NativeLandscape ? 240 : 320);
+	Kern::Printf("N95STUB: DisplayDriver %s panel, %d caps words, stride %d, %d panel rows",
+				 NativeLandscape ? "landscape" : "portrait", CapsWords, FbPitch, PanelRows);
+	}
+
+static TUint32 KCaps[26] =
 	{
 	1,				// +0  display present
 	0,				// +4  caller is the window server (ScDv ignores it)
@@ -41,8 +64,9 @@ static const TUint32 KCaps[26] =
 	0, 0,			// +16 partial-width updates, +20 update retry strategy (0 on the N95)
 	0, 0,			// +24/+28 current height/width (real 240/320, swapped after rotation; ScDv
 					//         does not need them, left 0 as before)
-	240,			// +32 max partial-display lines (power_save_display_mode reports it)
-	0, 1, 1,		// +36/+40/+44 rotation 90/180/270 (the panel cannot do 90)
+	240,			// +32 max partial-display lines (power_save_display_mode reports it; = disp_rows)
+	0, 1, 1,		// +36/+40/+44 rotation 90/180/270 (the N95 panel cannot do 90; a portrait panel
+					//             gets 1, 1, 1 in Install)
 	0,				// +48 EColor4K
 	0,				// +52 EColor64K: real 1; off because our frame buffer is 32 bpp only
 	0,				// +56 EColor16M
@@ -61,16 +85,17 @@ static TUint Rotation = 0;
 
 // Syborg fb registers (src/qemu-syborg/hw/arm/syborg_fb.c)
 enum { KFbOrientation = 4, KFbPartialStart = 14, KFbPartialEnd = 15, KFbPartialMode = 16 };
-const TUint KPanelRows = 240;		// native landscape panel: 320 columns x 240 rows
 
 // The phone is held portrait: the portrait UI (rotation index 3) is upright on the screen. The
 // controller turns the picture by (3 - index) quarter turns, so at the native index 0 (the
 // screensaver) the landscape picture's top is at the screen's left edge (inferred from the
 // screensaver passing its portrait X range as panel rows unreversed at index 3; confirmed by the
 // owner against the real N95 8GB).
+// A native portrait panel (N73) shows rotation index 0 upright, so the controller turns the picture
+// by index quarter turns the other way [I: no landscape use seen yet on such a phone].
 static void SetFbOrientation()
 	{
-	WriteReg(KHwBaseClcd, KFbOrientation, (3 - Rotation) & 3);
+	WriteReg(KHwBaseClcd, KFbOrientation, (NativeLandscape ? 3 - Rotation : 4 - Rotation) & 3);
 	}
 
 static void SetPartial(TBool aOn, TUint aStart, TUint aEnd, TBool aFullColour)
@@ -83,8 +108,8 @@ static void SetPartial(TBool aOn, TUint aStart, TUint aEnd, TBool aFullColour)
 	if (Rotation == 2)					// upside-down landscape: panel row r = picture row 239-r
 		{
 		TUint s = aStart;
-		aStart = KPanelRows - 1 - aEnd;
-		aEnd = KPanelRows - 1 - s;
+		aStart = PanelRows - 1 - aEnd;
+		aEnd = PanelRows - 1 - s;
 		}
 	WriteReg(KHwBaseClcd, KFbPartialStart, aStart);
 	WriteReg(KHwBaseClcd, KFbPartialEnd, aEnd);
@@ -170,8 +195,8 @@ static TInt DisplayCtl(DThread* aClient, TInt aFn, TAny* a1, TAny*, const TUint3
 		}
 	case 0x7f11:
 		return GlSubmit(aClient, aWords);
-	case 3:		// {startRow, endRow, fullColour}: start < end < 240
-		if (aWords[0] >= aWords[1] || aWords[1] >= 240)
+	case 3:		// {startRow, endRow, fullColour}: start < end < panel rows
+		if (aWords[0] >= aWords[1] || aWords[1] >= PanelRows)
 			return KErrArgument;
 		SetPartial(ETrue, aWords[0], aWords[1], aWords[2] != 0);
 		Kern::Printf("N95STUB: DisplayDriver partial display panel rows %d..%d %s, rotation %d -> picture %s",
@@ -185,6 +210,11 @@ static TInt DisplayCtl(DThread* aClient, TInt aFn, TAny* a1, TAny*, const TUint3
 		return Kern::ThreadRawWrite(aClient, a1, &PartialActive, sizeof(TInt));
 	case 10:	// screen index by value
 		return (TInt)a1 == 0 ? KErrNone : KErrNotSupported;
+	case 11:	// capabilities: exactly the client's block size (disp_caps words)
+		return Kern::ThreadRawWrite(aClient, a1, KCaps, CapsWords * sizeof(TUint32));
+	case 31:	// scan-line bytes (r_display export 77 on the N95): the frame buffer stride, as on the
+				// device (N95: 320 x 4 at every rotation; lcd_n95 programs the same pitch)
+		return Kern::ThreadRawWrite(aClient, a1, &FbPitch, sizeof(TInt));
 	case 26:	// current rotation index (last req 0x8003). r_display ord59 swaps HAL's native
 				// 320x240 to the current 240x320 with it (CDirectScreenBitmap checks its rect so)
 		return Kern::ThreadRawWrite(aClient, a1, &Rotation, sizeof(TInt));
@@ -192,14 +222,14 @@ static TInt DisplayCtl(DThread* aClient, TInt aFn, TAny* a1, TAny*, const TUint3
 	return KStubNotHandled;
 	}
 
-static TInt DisplayReq(DThread*, TInt aReq, const TUint32* aArgs)
+static TInt DisplayReq(DThread*, TInt aReq, const TUint32* aArgs, TInt)
 	{
 	switch (aReq)
 		{
 	case 0x8001: return aArgs[0] == 0 ? KErrNone : KErrNotSupported;
 	case 0x8002: return aArgs[0] == 1 ? KErrNone : KErrNotSupported;
 	case 0x8003:
-		if (aArgs[0] == 1 || aArgs[0] > 3)
+		if (aArgs[0] > 3 || (aArgs[0] && !KCaps[8 + aArgs[0]]))	// caps words 9..11: 90/180/270
 			return KErrNotSupported;
 		Rotation = aArgs[0];
 		SetFbOrientation();
@@ -212,11 +242,6 @@ static TInt DisplayReq(DThread*, TInt aReq, const TUint32* aArgs)
 
 static const SStubCtl KCtl[] =
 	{
-	{ 11, EWriteBlock, 0, KCaps, sizeof(KCaps) },
-	// ctl 31 = scan-line bytes (r_display export 77): 320 x bytes/pixel at every rotation, as on
-	// the device. ScDv draws with this stride: 240 used pixels per line at rotation 3, 320 at 0/2.
-	// lcd_n95 programs the same pitch into the fb and reports it through HAL.
-	{ 31, EWriteInt, 1280, 0, 0 },
 	{ KStubRequest | 0x23, EPendRequest, 0, 0, 0 },
 	};
 
@@ -239,7 +264,7 @@ static const SStubCtl KCtl[] =
 // so EndUpdate-paced loops run at the panel rate. WSERV's own updates (ctl 8/9) are not paced:
 // the frame buffer is always live. Coordinates are portrait (our frame buffer memory layout).
 // ---------------------------------------------------------------------------------------------
-const TInt KFbW = 240, KFbH = 320, KFbPitch = 1280, KBpp = 4;	// pitch: ctl 31
+const TInt KFbW = 240, KFbH = 320, KBpp = 4;	// stride: FbPitch (ctl 31)
 enum { KFbBase = 1, KFbIntMask = 6, KFbIntCause = 7, KFbFrameCount = 17, KFbRefreshRate = 18 };
 const TInt KErrDsbBusy = -39;			// value the real driver returns (FUN_8012aa20)
 const TInt KDisplayModeColor16MU = 11;	// TDisplayMode EColor16MU
@@ -357,8 +382,8 @@ static void VsyncDfcFn(TAny*)
 	TUint frames = ++Dsb.iFrames;
 	NKern::FMSignal(&DsbLock);
 	// the frame "goes to the panel": copy into the live frame buffer
-	TUint8* dst = FbKern + ry * KFbPitch + rx * KBpp;
-	for (TInt y = 0; y < rh; ++y, src += pitch, dst += KFbPitch)
+	TUint8* dst = FbKern + ry * FbPitch + rx * KBpp;
+	for (TInt y = 0; y < rh; ++y, src += pitch, dst += FbPitch)
 		memcpy(dst, src, rw * KBpp);
 	if (frames == 1 || (frames % 600) == 0)
 		Kern::Printf("N95DSB: frame %d presented at vsync %d (%d Hz)", frames,
@@ -425,7 +450,7 @@ static TInt DsbCreate(DThread* aClient, TAny* aChannel, TAny* a1, TInt aFlags)
 	NKern::ThreadEnterCS();
 	if (!FbChunk)
 		{
-		e = DPlatChunkHw::New(FbChunk, ReadReg(KHwBaseClcd, KFbBase), Kern::RoundToPageSize(KFbPitch * KFbH),
+		e = DPlatChunkHw::New(FbChunk, ReadReg(KHwBaseClcd, KFbBase), Kern::RoundToPageSize(FbPitch * KFbH),
 							  EMapAttrSupRw | EMapAttrBufferedC);
 		if (e != KErrNone)
 			{
@@ -576,6 +601,10 @@ public:
 		static TBool bound = EFalse;	// later loads of the LDD create (and drop) more factories
 		if (!bound)
 			{
+			ReadDisplayConfig();
+			KCaps[8] = PanelRows;
+			if (!NativeLandscape)
+				KCaps[9] = KCaps[10] = KCaps[11] = 1;
 			VsyncDfc.SetDfcQ(Kern::DfcQue0());
 			TInt r = Interrupt::Bind(EIntFb, VsyncIsr, NULL);
 			if (r == KErrNone)

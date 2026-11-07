@@ -1,0 +1,289 @@
+# Nokia N73 (RM-132): the first Symbian 9.1 / S60 3rd Edition device, and the first moving-memory-
+# model one. Findings and method: docs/devices/nokia-n73-rm132/onboarding-log.md.
+# Schema: docs/devices.md. Evidence tags: [V] checked against the firmware or a run, [I] inferred.
+schema = 1
+
+[device]
+id = "nokia-n73-rm132"
+vendor = "Nokia"
+model = "N73"
+type_code = "RM-132"                       # sw.txt of the firmware [V]
+aliases = ["n73"]
+market = "global"
+notes = "RM-133 is the N73 Music Edition (same platform, own firmware)."
+
+[platform]
+os = "symbian"
+os_version = "9.1"
+ui = "s60-3.0"                             # S60 3rd Edition (no feature pack)
+personality = "sym91"                      # personalities/sym91: the 9.2 exec tables + 9.1 loader structures
+soc = "omap1710"                           # TI OMAP1710, ARM926EJ-S [I: spec sheet; ROM is ARMv5 moving model V]
+cellular = "bb5"                           # BB5 modem over ISC/ISI; IscApi protocol = the N95's [V]
+
+# ---------------------------------------------------------------------------------------------
+[firmware]
+version = "3.0717.1.4.1"                   # sw.txt "V 3.0717.1.4.1 23-04-2007 RM-132" [V]
+container = "fiasco-bb5"
+checksums = "firmware.sha256"
+obtain = """
+Flash files of an RM-132 software version (Nokia Software Updater / Phoenix leftovers or an archive
+copy): the core .fpsx (SOS*CORE: compressed XIP core + ROFS1) and the language ROFS (.V1x). Put them
+in roms/RM-132_Nokia-N73/<version>/ (git-ignored) and point FW_DIR at that directory.
+"""
+
+[[firmware.files]]
+role = "core"                              # SOS*CORE: raw-deflate core image, then ROFS1 uncompressed
+glob = "N73_*_C00_PRD_cc.fpsx"
+compression = "sos-deflate"                # tools/fw/inventory.py sos_inflate
+partitions = { core = "SOS*CORE", rofs-after-core = "SOS*CORE" }
+
+[[firmware.files]]
+role = "rofx"                              # language ROFS (ROFx magic), a bare chunk stream (no record)
+glob = "N73_rofx_*.V??"
+partitions = { rofs = "_pre" }
+
+[firmware.identity]
+sw = { version = "V 3.0717.1.4.1", date = "23-04-2007", type_code = "RM-132" }
+langsw = { version = "V 3.0717.1.4.1-16", type_code = "RM-132" }
+drivers = []
+no_drivers = ["wlanldd.ldd", "wlanpdd.pdd"]   # no WLAN on the N73
+[firmware.identity.sha256]                 # the extracted images (build/devices/<id>/)
+"core-flat.img" = "ef0f7fd5bc5fb7f4e5730dd467541acd458adb4d51cba4a00460d3bab08dcea5"
+"rofs1.img" = "c3da3501da2b0aa16213ef62705eeb3f56de49a1259f634648706d3e18d09221"
+"rofs2.img" = "baf22cfebfc489f3dc7984bca1d1d6afe1a9980e90b988e5c33fc3d482573ec2"
+
+[firmware.rom]
+base = 0xF8000000                          # TRomHeader iRomBase [V]: moving memory model
+kernel_data = 0x64000000                   # [V]
+memory_model = "moving"                    # five fixed processes with data at 0x651..0x65B00000 [V]
+paged = false                              # 9.1: no demand paging
+user_window_start = 0xF8093120             # IscApi.dll: the user side starts among the firmware's kernel-side files [V]
+
+# ---------------------------------------------------------------------------------------------
+[board]
+machine = "syborg"
+cpu = "arm926"                             # ARM926EJ-S (QEMU arm926 + patches/qemu-modern/0003 cache type)
+ram_mb = 68                                # 64 MB on the phone, which also held the 20 MB core: our ROM image
+                                           # (21.6 MB with our kernel side after the firmware) is extra, so the
+                                           # free RAM is about what the phone had [I: 64 MB from spec sheets]
+ram_mb_real = 64
+
+[board.display]
+width = 240                                # wsini.ini SCR_WIDTH1/SCR_HEIGHT1 [V]
+height = 320
+native_orientation = "portrait"            # SCR_ROTATION1 0: the portrait UI needs no rotation [V wsini]
+line_pitch = 960                           # 240 x 4: lcd_portrait's stride, d_display ctl 31
+panel_rows = 320
+caps_words = 23                            # r_display keeps 0x5c bytes of caps (CDisplayDriver +0x18..0x74) [V]
+bpp = 32
+hal_modes = ["EColor64K", "EColor16MU"]    # WINDOWMODE COLOR16MU [V wsini]
+hal_mode = 1
+refresh_hz = 60                            # [I]
+blank_dim_percent = 25
+partial_mode = true
+touch = false
+rotation_caps = [1, 1, 1]                  # SCR_ROTATION2 90 (320x240 mode) exists [V wsini]; others [I]
+
+[board.timing]
+fast_counter_hz = 32768                    # [I: OMAP 32 kHz timer, as the N95's]
+nanokernel_tick_us = 1000                  # [I]
+rtc = "syborg-rtc"
+
+[board.audio]
+device = "syborg-audio"
+host_default = "pipewire"
+dsp = "none"                               # ehwa.ldd/ehwaomap.pdd exist, but the N95's DSP bridge stand-in (OMAP2420)
+                                           # answered the N73's bridgeapi.dll wrongly (garbage RMutex in
+                                           # MmfAudioServer): left out until the OMAP1710 bridge is researched
+
+[board.flash]
+base = 0x60000000
+size_mb = 128
+content = "rofs"
+
+[[board.drives]]
+letter = "D"
+local_drive = 0
+kind = "iram"
+flags = "FS_FORMAT_COLD,FS_SYNC_DRIVE"     # the N73's own line [V ESTARTCOMP.TXT]
+
+[[board.drives]]
+letter = "C"
+local_drive = 1
+kind = "nvmem"
+image = "nvmemory.img"
+size = "64M"
+flags = "FS_FORMAT_CORRUPT,FS_SCANDRIVE"
+
+[[board.drives]]
+letter = "E"
+local_drive = 2
+kind = "nvmem2"
+image = "nvmemory2.img"
+size = "1G"
+removable = true
+flags = "FS_FORMAT_CORRUPT,FS_SCANDRIVE"   # miniSD card; a blank image is formatted (the phone would ask)
+
+[[board.drives]]
+letter = "Z"
+local_drive = 8
+kind = "composite"
+flags = "FS_COMPOSITE"
+
+[board.input]
+keymap = "keymap.toml"                     # from the N73's ekeyp.dll matrix [V]
+translation = "qemu"
+
+# ---------------------------------------------------------------------------------------------
+[hardware]
+wlan = false
+bluetooth = true
+camera = { main_mp = 3.2, front = true, key = "two-stage" }   # lens cover switch not modelled
+fm_radio = true
+gps = false
+accelerometer = false
+slides = []
+leds = ["keypad-backlight", "display-backlight"]
+memory_card = true                         # miniSD
+mass_memory_gb = 0
+tv_out = true
+dsp = "ti-dsp-bridge"
+gpu = "none"
+
+# ---------------------------------------------------------------------------------------------
+[kernel]
+baseport = "syborgmv"                      # tools/baseport_variant.py: moving memory model, ARM926, no VFP
+variant = "udeb"
+trace_mask = 0x80000000
+secondary = "sys/bin/efile.exe"
+critical_thread_policy = "spare"
+user_memory_guards = false
+place = "after-firmware"                   # our kernel side after the firmware image (scripts/build-standins.sh pad)
+patchsets = ["platform", "sym92", "sym91", "n95"]
+
+[kernel.lcd]
+target = "lcd_portrait"                    # src/standins/lcd/lcd_portrait.mmp
+macros = ["__PORTRAIT_DISPLAY__", "SYBORG_FB_REPORTED_BPP=32", "SYBORG_FB_DISPLAY_MODE=1", "SYBORG_FB_NUM_MODES=2"]
+
+# Kernel-side stand-ins (src/standins), in obey order.
+[[standins]]
+name = "iscdriver"
+kind = "ldd"
+family = "nokia-bb5"
+role = "modem link, older ISC naming (IscDriver), channels 0..31; fake CMT peer iscpeer.inl"
+
+[[standins]]
+name = "iscdriverextension"
+kind = "ldd"
+family = "nokia-bb5"
+role = "modem link (IscDriverExtension), channels 32..63"
+
+[[standins]]
+name = "ssi"
+kind = "pdd"
+family = "nokia-bb5"
+role = "ISC data transmission PDD (isc_config.ini): load only"
+
+[[standins]]
+name = "xbus"
+kind = "ldd"
+family = "nokia-bb5"
+role = "load-only"
+
+[[standins]]
+name = "iscisimultiplexer"
+kind = "ldd"
+family = "nokia-bb5"
+role = "load-only"
+
+[[standins]]
+name = "custom"
+kind = "ldd"
+family = "nokia-bb5"
+role = "startup mode"
+
+[[standins]]
+name = "sosadlserver"
+kind = "ldd"
+family = "nokia-bb5"
+role = "accepts everything"
+
+[[standins]]
+name = "d_display"
+kind = "ldd"
+family = "nokia-omap2"
+role = "DisplayDriver (board config: 23 caps words, portrait panel, 960-byte stride)"
+
+[[standins]]
+name = "secldd"
+kind = "ldd"
+family = "nokia-bb5"
+role = "SecEnv"
+
+[[standins]]
+name = "lightldd"
+kind = "ldd"
+family = "nokia-bb5"
+role = "backlight LDD (H-lightdrv)"
+
+[[standins]]
+name = "lightpdd"
+kind = "pdd"
+family = "nokia-bb5"
+role = "backlight PDD: load-only"
+
+[[standins]]
+name = "medrofs"
+kind = "extension"
+family = "common"
+role = "ROFS1 + ROFx from the flash window on local drive 8"
+
+[[standins]]
+name = "mednvmem2"
+kind = "extension"
+family = "common"
+role = "second NVMemory (E:) on local drive 2"
+
+[standins.missing]
+drivers = ["ekeyp.dll", "ehwa.ldd", "ehwaomap.pdd", "camldd.ldd", "campdd.pdd", "camparifpdd.pdd", "bc02.ldd", "bc02_uart1.pdd",
+           "usbisa.ldd", "eusbc.ldd", "stildd.ldd", "rebootdriver.ldd", "test.ldd", "ebridgeutil.ldd"]
+
+# ---------------------------------------------------------------------------------------------
+[modem]
+kind = "isi-fake-peer"
+names = "platform/isi/names.txt"
+replies = "isi-replies.txt"
+stateful = "iscdriver"
+device_id = 0x6C
+imei = "490154203237518"                   # documentation example, not a real IMEI (H-imei)
+sim = "absent"
+mtc_state = "normal"
+power_off_delay_s = 3
+battery_bars = 7
+charger = false
+rtc_valid = true
+phone_lock = "disabled"
+
+[rom]
+code_patches = []
+files = [{ rom = "Sys/Data/ESTARTCOMP.TXT", local = "ESTARTCOMP.TXT" }]
+manifest = "hybrid-manifest.txt"
+
+[gl]
+impl = "none"                              # no GPU on the N73
+
+[milestones]
+first_output = ""
+wserv = "N95STUB: install DisplayDriver"
+startup_ui = "N95PROP: Startup::startup sets 101f8766/4"
+idle = "sets 101f8766/41 = 203"            # [I: S60 3.1's SysAp self-test key; check on the N73]
+expected_idle_s = 60                       # [I] until measured
+
+[props]
+startup = { category = 0x101F8766, state = 0x41, ui_phase = 0x4 }
+sim_status = { category = 0x101F75B6, key = 0x100052E9 }
+
+[status]
+level = "L0"
+updated = "2026-11-07"
+open = ["first boot", "DSP bridge (OMAP1710) for audio"]

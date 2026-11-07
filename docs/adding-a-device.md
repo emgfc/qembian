@@ -44,7 +44,17 @@ material for `[[standins]]`. It writes `devices/<id>/firmware.sha256` and the `[
 numbers (base, kernel data, paging, user window start) into the profile.
 
 If the container is not FIASCO/BB5 the tool stops here: write a short research brief for the
-container format (mock-level: partition table layout only) before going on.
+container format (mock-level: partition table layout only) before going on. Supported inside
+FIASCO: plain `SOS+CORE`/`SOS+ROFS` (N95), compressed `SOS*CORE` with ROFS1 after it
+(`compression = "sos-deflate"`, partitions `core` + `rofs-after-core`: N73), partition-less files
+(`partitions = { rofs = "_pre" }`).
+
+**Then read the ROM header before anything else** (`tools/romimg.py core-flat.img | tail -2`):
+`romBase` and `kernData` decide the kernel build. 0x80000000/0xC8000000 = multiple memory model
+(`kernel.baseport = "syborg"`); 0xF8000000/0x64000000 = moving model, ARMv5 (`syborgmv`, generated
+by `tools/baseport_variant.py`). Also check whether the firmware's kernel-side and user-side files
+are one block each or interleaved (`kernel.place = "after-firmware"` for the latter) and whether
+user EXEs have data in the kernel section (moving-model fixed processes).
 
 ## 3. Check the personality
 
@@ -58,6 +68,14 @@ tools/personality/check.py --device nokia-e72-rm530
 - Many, or a different memory model: fork `personalities/<nearest>/` into a new one named after the
   OS version, note the derivation in its README (which EUSER, which cross-check), and set
   `platform.personality` to it. This is a kernel rebuild (`scripts/build-kernel.sh`).
+
+Beyond the numbering, check (method in `personalities/sym91/README.md`):
+- the **ordered stub sequence** of both EUser.dll (decisive; export pairing is noisy);
+- the **stub shape**: `swi; bx lr` (9.2+) or `mov ip, lr; swi` (9.1: the kernel returns via ip);
+- exports that **branch straight to a stub** without setting r1..r3 (fewer arguments than ours);
+- **loader structures**: copy-in sizes of CodeSegCreate/ProcessCreate in the phone's own ekern
+  (find its slow exec table: a count word, two handler words, then {flags, handler} pairs);
+- how the loader indexes **ReadExportDir**'s buffer (ordinal 0 included or not).
 
 ## 4. Describe the hardware from the firmware
 
@@ -77,9 +95,12 @@ Where to look, with the tools in `docs/tools.md` (`syb_sym.py` works on any devi
   numbers (0 IRAM, 1 NVMemory, 2 second NVMemory, 8 composite ROFS). CR LF line endings.
 - **Stand-ins**: for each driver in the inventory's kernel-side list, look for an existing
   stand-in of the same name in `src/standins/` (families: `common`, `nokia-bb5` for BB5-era
-  modem/security/light drivers, `nokia-omap2` for display/DSP/DVFS). Same name → reuse (add it to
-  `[[standins]]`); unknown → leave it out and let the boot loop tell you whether anything
-  misses it (`[standins.missing]`).
+  modem/security/light drivers, `nokia-omap2` for display/DSP/DVFS). Same name is **not** enough:
+  compare the client DLL's side first (the control/request numbers it issues, buffer sizes it
+  reserves, the interface version it opens with). The N73 differed in all three places (display
+  caps 23 vs 26 words, Custom 1.0 vs 2.0, DSP bridge). A wrong mock is worse than a missing driver:
+  unknown → leave it out and let the boot loop tell you whether anything misses it
+  (`[standins.missing]`).
 - **Modem**: `[modem]` starts as a copy of the N95's; `isi-replies.txt` starts empty but for the
   boot-critical replies the N95 needed (MTC, SIM status, security, self-test, RTC, light, energy
   management: copy them, they are per ISI resource, not per phone).
@@ -92,9 +113,17 @@ Where to look, with the tools in `docs/tools.md` (`syb_sym.py` works on any devi
 ## 5. Build and boot loop
 
 ```
-tools/device.py build nokia-e72-rm530            # kernel side, stand-ins, compose, DTB (today scripts/hybrid-boot.sh --compose-only)
-sydb start --device-id nokia-e72-rm530 --fresh   # headless; waits for milestones.idle or times out
+tools/device.py build nokia-e72-rm530 --kernel   # kernel side (the profile's baseport), stand-ins, compose, DTB
+export SYBORG_DEVICE=nokia-e72-rm530; S="--session build/sydb-e72"
+sydb $S start --fresh --paused                    # QEMU stopped before the first instruction
+sydb $S catch add --kind panic --action freeze --snapshot
+sydb $S resume; sydb $S wait 'FAULT|<idle milestone>' --timeout 120
+sydb $S catch hits                                # thread, PC, caller, stack scan of the first panic
 ```
+**Start every early boot paused with catches armed.** Early faults happen in the first second,
+before a catch can be added to a running session; the catch file (and `sydb dbg break` on the
+suspect exec stub or kernel function, with the device's own kernel symbols) replaces reading
+register dumps. On the N73 this turned each fault into one boot.
 Then iterate with what the platform already has (all in `docs/tools.md` / `docs/sydb.md`):
 
 | Symptom | First tool | Typical fix |

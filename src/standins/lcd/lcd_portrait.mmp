@@ -1,0 +1,22 @@
+// LCD HAL extension for a native portrait panel (N73: 240x320 QVGA, wsini.ini WINDOWMODE COLOR16MU,
+// rotation 0 upright): the Syborg frame buffer as it is, 32 bpp (EColor16MU = HAL mode 1 of 2),
+// stride = width x 4 (the d_display stand-in's disp_pitch must match). None of the N95's
+// native-landscape changes (SYBORG_FB_N95: H-lcd-native-landscape, H-lcd-alwayson).
+#include "../../variant.mmh"
+#include "kernel/kern_ext.mmh"
+TARGET			VariantTarget(lcd_portrait,dll)
+TARGETTYPE		kext
+MACRO			__PORTRAIT_DISPLAY__
+MACRO			SYBORG_FB_REPORTED_BPP=32
+MACRO			SYBORG_FB_DISPLAY_MODE=1
+MACRO			SYBORG_FB_NUM_MODES=2
+SYSTEMINCLUDE	AsspNKernIncludePath
+SYSTEMINCLUDE	../../fb
+SOURCEPATH		../../fb
+SOURCE			syborg_fb.cpp
+LIBRARY			PlatformLib
+EPOCALLOWDLLDATA
+UID				0x1000008d 0x100039e8
+VENDORID		0x70000001
+ROMTARGET		lcd.dll
+CAPABILITY		all

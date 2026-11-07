@@ -1,0 +1,311 @@
+# Nokia N73 (RM-132) physical keys -> Symbian scan codes (EStdKey*) -> host keys.
+# Scan codes: the N73's own keypad driver ekeyp.dll (DVariantKeypad, kernel extension), its 6x6
+# matrix table at 0xf8060830 in RM-132 v3.0717 (36 bytes; docs/devices/nokia-n73-rm132/onboarding-log.md)
+# [V]. The power key is not in the matrix; S60's SysAp takes EStdKeyDevice2 as power, as on the N95 [I].
+# Host keys follow the N95's (devices/nokia-n95-8gb-rm320/keymap.toml) wherever the key exists.
+# Fields: see the N95 file and docs/devices.md section 2.2.
+schema = 1
+device = "nokia-n73-rm132"
+
+[aliases]
+select = "ok"
+back = "rsk"
+
+# front keys
+[[keys]]
+key = "lsk"
+label = "LSK"
+scancode = "EStdKeyDevice0"        # matrix 0
+host = ["f5"]
+set1 = 0x3f
+group = "front"
+row = 0
+col = 0
+
+[[keys]]
+key = "rsk"
+label = "RSK"
+scancode = "EStdKeyDevice1"        # matrix 1
+host = ["f7"]
+set1 = 0x41
+group = "front"
+row = 0
+col = 2
+
+[[keys]]
+key = "menu"
+label = "Menu"
+scancode = "EStdKeyApplication0"   # matrix 33
+host = ["f8"]
+set1 = 0x42
+group = "front"
+row = 1
+col = 0
+
+[[keys]]
+key = "multimedia"
+label = "Multimedia"
+scancode = "EStdKeyApplication6"   # matrix 22 and 24 (two contacts, same code)
+host = ["f20"]
+set1 = 0x5a
+group = "front"
+row = 1
+col = 2
+
+[[keys]]
+key = "call"
+style = "call"
+label = "Call"
+scancode = "EStdKeyYes"            # matrix 2
+host = ["f2"]
+set1 = 0x3c
+group = "front"
+row = 2
+col = 0
+
+[[keys]]
+key = "end"
+style = "end"
+label = "End"
+scancode = "EStdKeyNo"             # matrix 25
+host = ["f3"]
+set1 = 0x3d
+group = "front"
+row = 2
+col = 2
+
+[[keys]]
+key = "edit"
+label = "Edit (pencil)"
+scancode = "EStdKeyLeftShift"      # matrix 31 (S60 3rd: the pencil key is a shift key)
+host = ["f1"]
+set1 = 0x3b
+group = "front"
+row = 3
+col = 0
+
+[[keys]]
+key = "clear"
+label = "C"
+scancode = "EStdKeyBackspace"      # matrix 32
+host = ["backspace"]
+set1 = 0x0e
+group = "front"
+row = 3
+col = 2
+
+# navigation key
+[[keys]]
+key = "ok"
+label = "OK"
+scancode = "EStdKeyDevice3"        # matrix 5
+host = ["f6", "ret"]
+set1 = 0x40
+group = "nav"
+row = 1
+col = 1
+[[keys]]
+key = "up"
+label = "^"
+scancode = "EStdKeyUpArrow"        # matrix 7
+host = ["up"]
+set1 = 0xc8
+group = "nav"
+row = 0
+col = 1
+[[keys]]
+key = "down"
+label = "v"
+scancode = "EStdKeyDownArrow"      # matrix 8
+host = ["down"]
+set1 = 0xd0
+group = "nav"
+row = 2
+col = 1
+[[keys]]
+key = "left"
+label = "<"
+scancode = "EStdKeyLeftArrow"      # matrix 6
+host = ["left"]
+set1 = 0xcb
+group = "nav"
+row = 1
+col = 0
+[[keys]]
+key = "right"
+label = ">"
+scancode = "EStdKeyRightArrow"     # matrix 9
+host = ["right"]
+set1 = 0xcd
+group = "nav"
+row = 1
+col = 2
+
+# keypad (matrix 10..30)
+[[keys]]
+key = "1"
+label = "1"
+scancode = "'1'"
+host = ["1"]
+set1 = 0x02
+group = "keypad"
+row = 0
+col = 0
+[[keys]]
+key = "2"
+label = "2"
+scancode = "'2'"
+host = ["2"]
+set1 = 0x03
+group = "keypad"
+row = 0
+col = 1
+[[keys]]
+key = "3"
+label = "3"
+scancode = "'3'"
+host = ["3"]
+set1 = 0x04
+group = "keypad"
+row = 0
+col = 2
+[[keys]]
+key = "4"
+label = "4"
+scancode = "'4'"
+host = ["4"]
+set1 = 0x05
+group = "keypad"
+row = 1
+col = 0
+[[keys]]
+key = "5"
+label = "5"
+scancode = "'5'"
+host = ["5"]
+set1 = 0x06
+group = "keypad"
+row = 1
+col = 1
+[[keys]]
+key = "6"
+label = "6"
+scancode = "'6'"
+host = ["6"]
+set1 = 0x07
+group = "keypad"
+row = 1
+col = 2
+[[keys]]
+key = "7"
+label = "7"
+scancode = "'7'"
+host = ["7"]
+set1 = 0x08
+group = "keypad"
+row = 2
+col = 0
+[[keys]]
+key = "8"
+label = "8"
+scancode = "'8'"
+host = ["8"]
+set1 = 0x09
+group = "keypad"
+row = 2
+col = 1
+[[keys]]
+key = "9"
+label = "9"
+scancode = "'9'"
+host = ["9"]
+set1 = 0x0a
+group = "keypad"
+row = 2
+col = 2
+[[keys]]
+key = "star"
+label = "*"
+scancode = "'*'"                   # matrix 21
+host = ["f9"]
+set1 = 0x43
+group = "keypad"
+row = 3
+col = 0
+[[keys]]
+key = "star-kp"
+scancode = "'*'"
+host = ["kp_multiply"]
+set1 = 0x37
+group = "hidden"
+[[keys]]
+key = "0"
+label = "0"
+scancode = "'0'"
+host = ["0"]
+set1 = 0x0b
+group = "keypad"
+row = 3
+col = 1
+[[keys]]
+key = "hash"
+label = "#"
+scancode = "EStdKeyHash"           # matrix 23
+host = ["f10", "backslash"]
+set1 = 0x44
+group = "keypad"
+row = 3
+col = 2
+
+# side keys
+[[keys]]
+key = "power"
+label = "Power"
+scancode = "EStdKeyDevice2"        # not in the ekeyp.dll matrix [I: SysAp's power key code, as on the N95]
+host = ["f4"]
+set1 = 0x3e
+group = "side"
+long_press = "switch off"
+evidence = "I"
+[[keys]]
+key = "volup"
+label = "Vol +"
+scancode = "EStdKeyIncVolume"      # matrix 14
+host = ["f11"]
+set1 = 0x57
+group = "side"
+[[keys]]
+key = "voldown"
+label = "Vol -"
+scancode = "EStdKeyDecVolume"      # matrix 34
+host = ["f12"]
+set1 = 0x58
+group = "side"
+[[keys]]
+key = "camera-half"
+label = "Cam ½"
+scancode = "EStdKeyApplication19"  # matrix 26
+host = ["f15"]
+set1 = 0x5f
+group = "side"
+evidence = "I"                     # half press assumed from the code (N95: same code = half press)
+[[keys]]
+key = "camera"
+label = "Camera"
+scancode = "EStdKeyApplication1A"  # matrix 27
+host = ["f16"]
+set1 = 0x55
+group = "side"
+evidence = "I"
+[[keys]]
+key = "app1d"
+label = "EStdKeyApplication1D (matrix 16; role unknown on the N73, Gallery on the N95)"
+scancode = "EStdKeyApplication1D"
+host = ["f21"]
+set1 = 0x74
+group = "hidden"
+evidence = "I"
+
+# The camera lens cover (opening it starts the camera) is a switch the matrix does not carry; its
+# event path is not known yet. wsini.ini's hardware-state keys EKeyApplication9/A select the 320x240
+# screen mode (SCR_ROTATION2 90).

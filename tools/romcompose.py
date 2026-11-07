@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Compose a hybrid XIP ROM: our kernel side + the N95 user side at its original addresses.
 
-Layout of the result (romBase 0x80000000 in both inputs):
+Layout of the result (both inputs linked at the same romBase, taken from their headers: 0x80000000
+for multiple-model ROMs such as the N95's, 0xF8000000 for moving-model ones such as the N73's):
   [base, ustart)      bytes of OUR rom image (TRomHeader, bootstrap, our kernel-side files;
                       our user-side files in this window are dead bytes and not listed)
   [ustart, n95end)    bytes of the N95 flat core image, verbatim (N95 user side stays
@@ -22,7 +23,7 @@ import argparse, os, re, struct, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import romimg  # noqa: E402
 
-B = 0x80000000
+B = 0x80000000          # ROM linear base; set from the inputs' TRomHeader in main()
 EKERN_NAMES = ('ekern.exe',)
 KMASK = 0xF0000000
 LDR_PC = 0xE51FF004
@@ -151,24 +152,45 @@ def main():
                     help='raw code placed at ADDR in the gap between our listed files and the N95 user side')
     a = ap.parse_args()
 
+    global B
+    B = struct.unpack_from('<I', open(a.ours, 'rb').read(0x100), 0x8c)[0]   # TRomHeader.iRomBase
     od, orom, ofiles = load(a.ours)
     nd, nrom, nfiles = load(a.n95)
+    if orom.base != nrom.base:
+        raise SystemExit('ROM bases differ: ours 0x%08x (%s), firmware 0x%08x (%s): build our kernel side for the '
+                         "firmware's memory model (kernel.baseport in the device profile)" % (orom.base, a.ours, nrom.base, a.n95))
     ok = kernel_side(od, ofiles)
     nk = kernel_side(nd, nfiles)
     nuser = [f for f in nfiles if f['path'] not in nk]
     ustart = min(f['addr'] for f in nuser)
     ours_listed = [f for f in ofiles if f['path'] in ok or f['path'].split('/')[-1].lower() in
                    [k.lower() for k in a.keep_ours]]
-    oend = max(f['addr'] + f['size'] for f in ours_listed)
-    if oend > ustart:
-        raise SystemExit('our kernel side ends at 0x%08x, beyond the N95 user window start 0x%08x' % (oend, ustart))
     n95end = len(nd) + B
-    print('ours: %d kernel-side files end 0x%08x; N95: dropping %d kernel-side, keeping %d user files from 0x%08x'
-          % (len(ours_listed), oend, len(nk), len(nuser), ustart))
+    # Our kernel-side files sit either below the firmware's user side (N95: the firmware's own
+    # kernel side was one block at the bottom) or after the whole firmware image (N73: its ROM
+    # interleaves kernel- and user-side files, so our build pads its obey file past the firmware,
+    # scripts/build-standins.sh). Our header, bootstrap and directory are always below ustart.
+    low = [f for f in ours_listed if f['addr'] + f['size'] <= ustart]
+    high = [f for f in ours_listed if f['addr'] >= n95end]
+    bad = [f for f in ours_listed if f not in low and f not in high]
+    if bad:
+        raise SystemExit('our kernel-side files overlap the firmware image (user side from 0x%08x to 0x%08x): %s; '
+                         'pad our kernel side past the firmware (kernel.place = "after-firmware")'
+                         % (ustart, n95end, ', '.join('%s@0x%08x' % (f['path'], f['addr']) for f in bad[:4])))
+    if orom.rootlist >= ustart:
+        raise SystemExit('our ROM directory (0x%08x) is not below the firmware user side (0x%08x)' % (orom.rootlist, ustart))
+    oend = max([f['addr'] + f['size'] for f in low] + [orom.rootlist])
+    print('ours: %d kernel-side files below 0x%08x, %d after the firmware (from 0x%08x); firmware: dropping %d '
+          'kernel-side, keeping %d user files from 0x%08x' % (len(low), ustart, len(high), n95end, len(nk), len(nuser), ustart))
 
     out = bytearray(od[:ustart - B].ljust(ustart - B, b'\0'))
     out += nd[ustart - B:]
     assert len(out) == n95end - B
+    if high:
+        # all of our image after the firmware, not just the listed extents: rombuild puts each
+        # image's DLL reference table (and some export directories) just past the extent the
+        # directory lists, and the kernel follows those pointers
+        out += od[n95end - B:]
     for spec in a.blob:
         at, path = spec.split('=', 1)
         at = int(at, 0)
@@ -217,9 +239,10 @@ def main():
         return list(struct.unpack_from('<%dI' % (n + 1), d, a - B + 4))
     ne = est(nd, nrom)
     oe = est(od, orom)
-    ents = sorted(set([x for x in ne[:-1] if ustart <= x < n95end] +
+    ucode = {f['image']['code'] for f in nuser if 'image' in f}
+    ents = sorted(set([x for x in ne[:-1] if ustart <= x < n95end and x in ucode] +
                       [x for x in oe[:-1] if any(f['image']['code'] == x for f in ours_listed if 'image' in f)]))
-    fence = max(ne[-1] if ne else 0, n95end)
+    fence = max(ne[-1] if ne else 0, n95end, (B + len(od)) if high else 0)
     est_at = B + len(out)
     out += struct.pack('<i', len(ents)) + struct.pack('<%dI' % (len(ents) + 1), *(ents + [fence]))
     # ROFS partition blob for MEDROFS.PDD: ROFS1 at 0, each following ROFx at the previous
@@ -258,6 +281,14 @@ def main():
     def put(off, v):
         struct.pack_into('<I', out, off, v)
     put(144, size)                 # iRomSize
+    # moving memory model: "fixed" processes of the firmware have their data in the kernel section,
+    # between iKernDataAddress and iKernelLimit (N73: efile, c32exe, FbServ, EwSrv, AknIconSrv at
+    # 0x651..0x65B00000); the kernel puts its own mappings above iKernelLimit, so it must be the firmware's
+    fixed = [f for f in nuser if 'image' in f and nrom.kerndata <= f['image']['databsslin'] < nrom.kernlimit]
+    if fixed and nrom.kernlimit > orom.kernlimit:
+        put(156, nrom.kernlimit)   # iKernelLimit
+        print('kernel limit 0x%08x -> 0x%08x (the firmware\'s: %d fixed processes: %s)' % (
+            orom.kernlimit, nrom.kernlimit, len(fixed), ', '.join(f['path'].split('/')[-1] for f in fixed)))
     put(148, rootlist_at)          # iRomRootDirectoryList
     put(164, eaddr[sec[0]])        # iSecondaryFile (TRomEntry)
     put(188, est_at)               # iRomExceptionSearchTable
@@ -299,7 +330,8 @@ def main():
     if a.manifest:
         with open(a.manifest, 'w') as m:
             for k, (p, ad, sz, att) in sorted(entries.items(), key=lambda kv: kv[1][1]):
-                m.write('%08x %9d %02x %s %s\n' % (ad, sz, att, 'OURS' if ad < ustart else 'N95 ', p))
+                ours = ad < ustart or any(f['addr'] == ad for f in high) or ad >= n95end
+                m.write('%08x %9d %02x %s %s\n' % (ad, sz, att, 'OURS' if ours else 'N95 ', p))
 
 
 if __name__ == '__main__':

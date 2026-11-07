@@ -90,6 +90,7 @@ sydb catch add --category KERN-EXEC --reason 3                             # any
 sydb catch list | hits | show ID | rm [ID] | resume
 sydb snap save [NAME] [--stopped] | snap list | snap rm NAME
 sydb fork catch-1 [--into DIR] [--run]     # resume the snapshot as build/sydb-fork-catch-1, paused
+sydb start --fresh --paused                # QEMU stopped before the first instruction: arm catches/breaks, then sydb resume
 sydb --session build/sydb-fork-catch-1 dbg attach    # ... the very moment, as often as needed
 sydb restore NAME                          # the same into this session
 sydb pause | resume

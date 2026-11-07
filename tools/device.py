@@ -331,9 +331,12 @@ def build(prof, variant=None, kernel=False, standins=True, out=None, trace=None,
     os.environ.update(env_dev)
     k = os.path.join('build', 'epocroot', 'sf', 'os', 'kernelhwsrv', 'kernel', 'eka')
     pers = get(prof, 'platform.personality')
-    if pers == 'sym92':			# exec numbering table compiled into the kernel (personalities, step 4)
-        _run(['python3', '-I', 'tools/personality/gen_exec_map.py', k + '/kernel/execs.txt',
-              'personalities/%s/exec.map' % pers, k + '/kernel/exec92_map.h'])
+    # exec numbering tables of every personality, compiled into the kernel, which picks one at boot
+    # from the ROM header (personalities/registry.toml; docs/devices.md section 4.3)
+    _run(['python3', '-I', 'tools/personality/gen_exec_map.py', k + '/kernel/execs.txt', k + '/kernel/exec92_map.h']
+         + ['%s=personalities/%s/exec.map' % (p, p) for p in ('sym92', 'sym91')])
+    bp = get(prof, 'kernel.baseport', 'syborg')	# syborg (multiple model) or a tools/baseport_variant.py one
+    os.environ['SYBORG_BASEPORT'] = bp
     if kernel:
         _run(['scripts/build-syborg.sh', get(prof, 'kernel.variant', 'udeb')], os.path.join(logs, 'device-syborg-build.txt'))
     if standins:
@@ -358,7 +361,7 @@ def build(prof, variant=None, kernel=False, standins=True, out=None, trace=None,
         pfiles.append(src)
     vr = get(prof, 'kernel.variant', 'udeb')
     cmd = ['python3', '-I', 'tools/romcompose.py',
-           '--ours', 'build/rom-hybrid/syborg_hybrid_kernel_ARMV5_%s.img' % vr,
+           '--ours', 'build/rom-hybrid/%s_hybrid_kernel_ARMV5_%s.img' % (bp, vr),
            '--n95', ps['core_flat'], '-o', img, '--manifest', ps['manifest'],
            '--trace', trace or hex(get(prof, 'kernel.trace_mask', 0x80000000))]
     if pers:
@@ -440,6 +443,11 @@ def board_config(prof):
         kv.append('imei=%s' % m['imei'])
     if 'power_off_delay_s' in m:
         kv.append('power_off_ms=%d' % int(m['power_off_delay_s'] * 1000))
+    disp = get(prof, 'board.display', {})			# d_display stand-in geometry (N95 values by default)
+    for key, name in (('caps_words', 'disp_caps'), ('native_orientation', 'disp_native'),
+                      ('line_pitch', 'disp_pitch'), ('panel_rows', 'disp_rows')):
+        if key in disp:
+            kv.append('%s=%s' % (name, disp[key]))
     return ';'.join(kv)
 
 

@@ -1,0 +1,24 @@
+moving memory model (Symbian 9.1 phones: baseport syborgmv) under GCCE: two .cia literals took a
+global's address as an "i" operand, which GCC rejects; emit the symbol (plus a constant offset) instead.
+
+--- a/kernel/eka/memmodel/epoc/moving/arm/xkernel.cia
++++ b/kernel/eka/memmodel/epoc/moving/arm/xkernel.cia
+@@ -351,6 +351,6 @@
+ 	asm("__f32: ");
+ 	asm(".word  " CSM_ZN1K20TheFileServerProcessE );
+ 	asm("__code_limit: ");
+-	asm(".word %a0" : : "i" ((TInt)&::TheMmu.iUserCodeBase) );
++	asm(".word TheMmu+%a0" : : "i" (_FOFF(ArmMmu,iUserCodeBase)) );	// syborg-pg: GCCE cannot take a global's address as "i"
+ 	}
+ 
+--- a/kernel/eka/memmodel/epoc/moving/arm/xsched.cia
++++ b/kernel/eka/memmodel/epoc/moving/arm/xsched.cia
+@@ -605,7 +605,7 @@
+ 	asm("__TheScheduler: ");
+ 	asm(".word TheScheduler ");
+ 	asm("__TheMmu: ");
+-	asm(".word %a0" : : "i" ((TInt)&::TheMmu));
++	asm(".word TheMmu ");						// syborg-pg: GCCE cannot take a global's address as "i"
+ 	};
+ 
+ __NAKED__ TUint32 DMemModelChunk::ApplyTopLevelPermissions(TChunkState /*aChunkState*/)

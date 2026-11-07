@@ -12,7 +12,8 @@ Layout (reverse-engineered on RM-320 35.0.001; see docs/n95-firmware-inventory.m
     tag 0x2E (fpsx UDA, len 25) handled generically: size/location searched.
 Chunks following a partition record belong to that partition.
 
-Usage: fiasco.py FILE [--out DIR]   (writes DIR/<partition>.bin, location-ordered, gaps 0xFF)
+Usage: fiasco.py FILE [--out DIR]   (writes DIR/<partition>@<lo>.bin, location-ordered, gaps 0xFF,
+                                      and DIR/<partition>@<rec_loc>.hdr: the record's payload)
 """
 import argparse, mmap, os, struct, sys
 
@@ -75,8 +76,14 @@ def main():
             buf = bytearray(b'\xff' * (hi - lo))
             for cl, off, sz in chunks:
                 buf[cl - lo:cl - lo + sz] = m[off:off + sz]
-            fn = os.path.join(a.out, '%s@%08x.bin' % (name.replace('+', '_').replace('/', '_'), lo))
+            stem = name.replace('+', '_').replace('/', '_')
+            fn = os.path.join(a.out, '%s@%08x.bin' % (stem, lo))
             open(fn, 'wb').write(buf)
+            # the record's own payload is the partition image header, flashed at rec_loc just before
+            # the chunks (compressed SOS* partitions start their data inside it: tools/fw/inventory.py)
+            if rest and rest[0] and rest[0][1]:
+                q, sz = rest[0]
+                open(os.path.join(a.out, '%s@%08x.hdr' % (stem, loc)), 'wb').write(m[q:q + sz])
 
 
 if __name__ == '__main__':

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """sydb: adb-like dev/debug bridge for the virtual N95 (see docs/sydb.md).
 
-  sydb start [--seed DIR] [--fresh] [--gui] [--rom ROM] [--audio wav|host|DRIVER]   boot a session, wait for idle
+  sydb start [--seed DIR] [--fresh] [--gui] [--rom ROM] [--audio wav|host|DRIVER] [--paused]   boot a session, wait for idle
   sydb stop | status | wait idle|agent|REGEX [--timeout S]
   sydb install | uninstall           agent on/off C: incl. its Starter startup-list record (session stopped)
   sydb ls PATH | push LOCAL REMOTE | pull REMOTE LOCAL | rm PATH | mkdir PATH
@@ -213,7 +213,8 @@ def cmd_start(sdir, a):
     log = open(os.path.join(sdir, 'daemon.log'), 'w')
     subprocess.Popen([sys.executable, os.path.abspath(__file__), '--session', sdir, '_daemon', rom, drives,
                       '--audio', getattr(a, 'audio', None) or 'wav', '--gl', getattr(a, 'gl', None) or 'host']
-                     + (['--gui'] if a.gui else []), stdout=log, stderr=log, stdin=subprocess.DEVNULL,
+                     + (['--gui'] if a.gui else []) + (['--paused'] if getattr(a, 'paused', False) else []),
+                     stdout=log, stderr=log, stdin=subprocess.DEVNULL,
                      start_new_session=True, cwd=ROOT)
     for _ in range(100):
         time.sleep(0.1)
@@ -221,8 +222,9 @@ def cmd_start(sdir, a):
             break
     else:
         die('daemon did not come up, see %s' % os.path.join(sdir, 'daemon.log'))
-    if a.no_wait:
-        print('started; session %s' % sdir)
+    if a.no_wait or getattr(a, 'paused', False):
+        print('started%s; session %s' % (' paused before the first instruction (arm catches/breakpoints, then '
+                                          'sydb resume)' if getattr(a, 'paused', False) else '', sdir))
         return
     r = need(c.call({'op': 'wait', 'what': 'idle', 'timeout': a.timeout}))
     s = 'phone %s at %.1f s' % (r['state'], r['t'])
@@ -316,8 +318,9 @@ def main():
         ap = argparse.ArgumentParser(); ap.add_argument('rom'); ap.add_argument('drives')
         ap.add_argument('--gui', action='store_true'); ap.add_argument('--restore')
         ap.add_argument('--audio', default='wav'); ap.add_argument('--gl', default='host')
+        ap.add_argument('--paused', action='store_true')
         x = ap.parse_args(rest)
-        daemon.serve(sdir, x.rom, x.drives, x.gui, [], x.restore, x.audio, x.gl)
+        daemon.serve(sdir, x.rom, x.drives, x.gui, ['-S'] if x.paused else [], x.restore, x.audio, x.gl)
         return
     if cmd == 'phone':                 # emulator window: screen + phone keys + machine controls
         ap = argparse.ArgumentParser(prog='sydb phone')
@@ -386,6 +389,8 @@ def main():
         ap.add_argument('--audio', default='wav', help='wav (<session>/audio.wav, default), host (speakers: '
                         '$AUDIO or pipewire, like run-gui) or any QEMU audiodev driver (pa, alsa, sdl, none)')
         ap.add_argument('--rom')
+        ap.add_argument('--paused', action='store_true', help='QEMU starts stopped (-S): arm catches or '
+                        'breakpoints for early boot, then sydb resume')
         a = ap.parse_args(rest)
         a.rom = a.rom or (DEVICE_ROM if a.device else DEVPATHS['rom'])
         (cmd_start if cmd == 'start' else cmd_install)(sdir, a)
