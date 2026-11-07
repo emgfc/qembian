@@ -9,7 +9,7 @@ FeatureInfoAdaptation, FeatMgrServer, startuplanguageplugin, EInfoServer, NokiaD
 `build/n95/ghidra/DATAPORT.CSY.c`, produced with the new `tools/e32load.py` from the ROFS image
 (carved with `tools/research/rofs_extract.py`, added here). Public references: oFono
 `drivers/isimodem/{network,info,mtc,gpds,sim,gss}.h` (constants only) and the user's own BB5 notes
-(`~/work/nokia-phoenix/bb5-adl-wire-format.md`, resource `0x23`).
+(notes on the BB5 service-tool wire format, resource `0x23`).
 
 Legend: **[verified]** read from the N95 binaries (address given); **[ref]** public reference
 (names/values); **[notes]** the user's BB5 notes; **[inferred]** reasoned, not measured.

@@ -42,7 +42,7 @@ NVMemory media, hostfs, snapshot, sound, ethernet (virtio), webcamera, and estar
 | CodeSourcery 2005q1C / 2008q3 | Wayback, and the `Nokia_Symbian3_SDK_v1.0/epoc32/tools/distrib` Windows installers | not used |
 | User's `~/csl-gcc` | CSL **GCC 3.4.3** (S60 3rd FP1 GCCE), i386 | too old for GCC_SURGE |
 | User's `~/gcc-builds/gcc-14.2.0` | `arm-none-symbianelf` GCC 14.2 + binutils 2.29.1 (GCC4Symbian-style) | Interesting for later modernisation. Expect many C++ diagnostics on 2010 kernel code. Not tried. |
-| User's `~/work/symbian-build` (SymbianRevive fork of LinuxBuild) | modern-compiler fixes; `imgtools` excluded from its build | not used (we need rombuild; the original LinuxBuild builds fine in squeeze) |
+| SymbianRevive fork of LinuxBuild | modern-compiler fixes; `imgtools` excluded from its build | not used (we need rombuild; the original LinuxBuild builds fine in squeeze) |
 
 Binary-only components that end up in the ROM:
 the **RVCT runtime DLLs** `drtaeabi.dll`, `dfpaeabi.dll`, `drtrvct3_1.dll`, `dfprvct3_1.dll`,

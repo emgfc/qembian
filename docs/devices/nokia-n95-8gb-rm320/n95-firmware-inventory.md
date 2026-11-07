@@ -52,7 +52,7 @@ The container header names the platform `OMAP2420 UNISTORE-II-1.5.1 ALG` with `X
   - Uncompressed, the image is 58 MB.
 - **Files:** 2,719 files, of which 2,712 are XIP executable images.
 - **Validation:** 2,710 of 2,712 are byte-identical to the separate dump in
-  `~/work/symbian-bin/bin`. The two exceptions, `efile.exe` (7 bytes) and `installserver.exe`
+  a file dump of the same core ROM taken from a modified phone. The two exceptions, `efile.exe` (7 bytes) and `installserver.exe`
   (16 bytes), are the classic RomPatcher targets. **That dump came from a patched device.**
   Use this extraction as the stock reference.
 - **Where the code is:** practically all of S60 is XIP in the core image: EUSER, EFSRV, WSERV, CONE,
@@ -113,9 +113,9 @@ The container header names the platform `OMAP2420 UNISTORE-II-1.5.1 ALG` with `X
 - **`iDllRefTable` is empty for most images:** rombuild lists only dependencies that need
   initialisation, so dependency lists cannot be taken from it.
 
-## 5. `~/work/symbian` sources
+## 5. Local Symbian Foundation sources
 
-- `~/work/symbian/oss.FCL.sf.os.kernelhwsrv` has **exactly the same 269 commits** as
+- a local clone of `oss.FCL.sf.os.kernelhwsrv` has **exactly the same 269 commits** as
   `external/oss.FCL.sf.os.kernelhwsrv` (2009-10 to 2010-12, build 4016 on master, 3098 on
   GCC_SURGE). It holds no 9.2 kernel source, so it doesn't change either option. Same for the
   other `oss.FCL.sf.*` packages (graphics, classicui, appsupport and so on): Symbian^3-era middleware.
