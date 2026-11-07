@@ -136,7 +136,8 @@ automatically when there is no host build. With the development packages listed 
 `--container` builds a native QEMU instead.
 
 Guest code built with GCC 14 (the OpenGL ES library, the sydb on-phone agent) also needs the
-Nokia S60 3rd Edition SDK, which cannot be redistributed. It is mounted at build time:
+Nokia S60 3rd Edition SDK, which cannot be redistributed. It is mounted at build time. Build these
+before `tools/device.py build`, which puts the OpenGL ES library into the ROM when it exists:
 
 ```sh
 S60SDK=/path/to/S60_3rd_FP1/Epoc32 CONTAINER=modern scripts/in-container.sh src/sygl/build.sh
