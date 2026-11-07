@@ -50,10 +50,10 @@ One QEMU binary serves every phone; everything phone-specific is declared in
   like the phone's own; verify with `tools/personality/check.py --device ID`.
 - Smoke test after every platform change: `tests/device-smoke.sh [ID]` (own session; idle, Carousel,
   Switch off), unit tests `tests/device_py_test.py`.
-- Firmware and the owner's phone images stay in `build/devices/<id>/` (git-ignored). Never boot the
-  owner's drives (`run-gui.sh` defaults) for a test: use `sydb --session build/sydb-<name>` sessions.
+- Firmware and the user's own phone images stay in `build/devices/<id>/` (git-ignored). Never boot the
+  user's personal drives (`run-gui.sh` defaults) for a test: use `sydb --session build/sydb-<name>` sessions.
 
-## Subagent research rules (owner's instruction)
+## Subagent research rules
 
 Research agents deliver **just enough API/protocol knowledge to mock a driver or system**, never a
 full reverse-engineering of it.

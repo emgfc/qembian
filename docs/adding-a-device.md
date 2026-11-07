@@ -284,7 +284,7 @@ Syborg NVMemory devices (`nvmem`, `nvmem2`), D: is RAM, Z: is the ROM + ROFS com
   `MTOOLS_SKIP_CHECK=1 mcopy -i nvmemory.img FILE ::/data/`. Never while a QEMU has the image open
   (two writers corrupt the FAT; the scripts refuse).
 - `sydb install` puts the sydb agent and its start-up record on C: (mtools, phone off).
-- Never use the owner's personal phone images for tests: make a session (`sydb --session
+- Never use the user's personal phone images for tests: make a session (`sydb --session
   build/sydb-<name> start --fresh`).
 
 ## Checklist (copy into the device README and tick)
