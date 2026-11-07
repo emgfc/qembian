@@ -143,9 +143,6 @@ S60SDK=/path/to/S60_3rd_FP1/Epoc32 CONTAINER=modern scripts/in-container.sh src/
 S60SDK=/path/to/S60_3rd_FP1/Epoc32 CONTAINER=modern scripts/in-container.sh src/n95apps/devagent/build.sh
 ```
 
-`tests/device-smoke.sh ID` checks a build end to end (boot to the home screen, an application,
-switch-off).
-
 ## For agents
 
 Start with `CLAUDE.md`, then `docs/tools.md` (debugging tools), `docs/sydb.md` (the bridge and
