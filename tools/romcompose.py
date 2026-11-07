@@ -52,6 +52,8 @@ def kernel_side(d, files):
             out.add(f['path'])
             continue
         n = im['codesize']
+        if not (0 <= im['code'] - B and im['code'] - B + n <= len(d)):
+            continue			# not an executable image (bad header), never kernel side
         ws = struct.unpack_from('<%dI' % (n // 4), d, im['code'] - B)
         if any(ws[i] == LDR_PC and ekr[0] <= ws[i + 1] < ekr[1] for i in range(len(ws) - 1)):
             out.add(f['path'])

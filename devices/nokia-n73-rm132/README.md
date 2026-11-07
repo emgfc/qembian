@@ -5,12 +5,13 @@ model device of the platform. Firmware: RM-132 v3.0717.1.4.1 western (sw.txt 23-
 `roms/RM-132_Nokia-N73/3.0717.1.4.1/` (git-ignored; `FW_DIR=... tools/fw/inventory.py --device
 nokia-n73-rm132`). How it was brought up and every finding: `docs/devices/nokia-n73-rm132/onboarding-log.md`.
 
-## Level: L0 (kernel side + user side start; not yet idle)
+## Level: L1 (home screen and menu)
 
 Boots our moving-model kernel (`baseport syborgmv`, `-cpu arm926`) with the 9.1 personality
-(`personalities/sym91`): efile, EStart, Starter, SystemAgent, FbServ, the window server (portrait
-240x320 on `lcd_portrait`), DosServer, comms, LanguageSelection, Eikon and the splash screen start.
-Then MmfAudioServer has no DSP bridge and EikSrvs crashes when it exits (open item 1).
+(`personalities/sym91`) to Active Standby ("Offline", no SIM) in about 48 s on the first boot, after the
+city, time and date queries (answer with LSK) and the tutorial prompt (RSK). The menu opens and
+applications start (Calendar checked). The UI is Chinese: this archive's language pack (`.V16`) holds
+Chinese PRC (31) and language 159 only; switch in Settings.
 
 Build and boot:
 ```
@@ -39,9 +40,10 @@ the N73 from the N95 by the client's arguments / interface version instead of a 
 
 ## Open items
 
-1. DSP bridge mock for OMAP1710 (`bridgeapi.dll`'s requests; the N95's stand-in does not fit). Needed
-   for idle: EikSrvs dies with MmfAudioServer.
-2. `[milestones]` idle line and `expected_idle_s` once it reaches idle.
+1. Smoke test: needs seeded drives so the first-boot queries do not hold the idle milestone.
+2. FaxModem.exe panics KERN-EXEC 3 three times after idle (not needed for the UI).
+5. DSP bridge variant picked from the client's arguments (hack H-stub-protocol-guess); the start-up
+   tone node is created and fed, audio output not checked.
 3. Camera lens-cover switch, landscape (camera) mode, twips of the 2.4" panel.
 4. Modem: `PN_PHONE_INFO` 0x15 (INFO_PRODUCT_INFO_READ, selector 0x0A, from EInfoServer) is the only
    unanswered ISI request of the boot so far; the N95 never sends it, so its reply layout is unknown
@@ -55,5 +57,5 @@ the N73 from the N95 by the client's arguments / interface version instead of a 
 - [x] device.toml, keymap.toml (`device.py check` green)
 - [x] `device.py build` composes
 - [x] L0: user processes start
-- [ ] L1: idle screen, agent up, smoke test
+- [x] L1: idle screen, menu, an application (agent and smoke test open)
 - [ ] L2..L4

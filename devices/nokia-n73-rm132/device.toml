@@ -284,14 +284,14 @@ impl = "none"                              # no GPU on the N73
 first_output = ""
 wserv = "N95STUB: install DisplayDriver"
 startup_ui = "N95PROP: Startup::startup sets 101f8766/4"
-idle = "sets 101f8766/41 = 203"            # [I: S60 3.1's SysAp self-test key; check on the N73]
-expected_idle_s = 60                       # [I] until measured
+idle = "SysAp::SysAp sets 101f8766/41 = 203"   # [V] as on the N95: Active Standby up
+expected_idle_s = 50                       # [V] first boot ~48 s, but only after the city/time/date queries are answered
 
 [props]
 startup = { category = 0x101F8766, state = 0x41, ui_phase = 0x4 }
 sim_status = { category = 0x101F75B6, key = 0x100052E9 }
 
 [status]
-level = "L0"
+level = "L1"                               # home screen and menu (Calendar opens); first-boot queries answered by hand
 updated = "2026-11-07"
-open = ["first boot"]
+open = ["smoke test needs seeded drives (first-boot city/time/date/tutorial queries)", "FaxModem.exe panics KERN-EXEC 3", "RES_94 and PN_PHONE_INFO 0x15 unanswered", "H-stub-protocol-guess: declare the DSP bridge variant in the profile"]

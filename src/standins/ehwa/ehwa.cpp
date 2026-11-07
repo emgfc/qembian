@@ -454,6 +454,7 @@ static TInt HwaCtl(DThread* aClient, TInt aFn, TAny* a1, TAny* a2, const TUint32
 		Kern::Printf("N95STUB: Hwa image chunk %d bytes at %08x -> handle %08x", size, base, h);
 		return h;
 		}
+	case 0x400000a:	// the N73's number for it (older bridgeapi; never issued by the N95's), same layout
 	case 0x400000b:	// PROC shared buffer: a1 = TPtr8 out, a2 = TBuf8<4>{size}
 	case 0x4000016:
 		{

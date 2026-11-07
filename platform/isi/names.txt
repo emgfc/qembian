@@ -36,6 +36,8 @@ res DB PN_NAMESERVICE         verified
 msg 09 19 SIM_NETWORK_INFO_REQ            ref
 msg 09 1D SIM_IMSI_REQ_READ_IMSI          ref
 msg 09 1F SIM_LANGUAGE_PREF_REQ?          inferred
+msg 09 3B SIM_IMSI_EQUAL_REQ?             inferred  # N73 NokiaDSY SIM start-up; data {FA, 00}
+msg 09 3C SIM_IMSI_EQUAL_RESP?            inferred  # {FA, cause}: 2A equal, 2B not equal (docs/devices/nokia-n73-rm132/isi-sim-3b.md)
 msg 0A 00 NET_MODEM_REG_STATUS_GET_REQ    verified
 msg 0A 0B NET_RSSI_GET_REQ                verified
 msg 0A 36 NET_RAT_REQ                     verified
@@ -58,6 +60,7 @@ msg 17 0A EM_BATTERY_INFO_REQ?            inferred  # op 1 bars, op 2 charger (S
 msg 17 21 EM_INFO_IND?                    inferred
 msg 1B 00 INFO_SERIAL_NUMBER_READ_REQ     ref
 msg 1B 0B INFO_REQ_0B?                    inferred
+msg 1B 02 INFO_PP_READ_REQ_OLD?           inferred  # N73 NOKIATSY (older numbering, n95-isc-isi-protocol.md 0x62 table); resp 03
 msg 1B 29 INFO_PP_READ_REQ                verified
 msg 1B 2E INFO_REQ_2E?                    inferred
 msg 1C 2D ACC_REQ_2D?                     inferred

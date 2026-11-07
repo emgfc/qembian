@@ -107,8 +107,15 @@ did not help, so the flow gets better with each phone. [V] = checked in the firm
 - **DSP bridge [V]**: the N73's bridge is the N95 protocol except the image load (ctl 0x4000002: image
   in the client's buffer, return 0; docs/devices/nokia-n73-rm132/dspbridge-n73.md). Picked by the
   client's argument: hack **H-stub-protocol-guess** (docs/hacks.md).
-- **Open: SIM [V]**: after SIM_STATUS (disconnected) the N73's DosServer sends PN_SIM 0x3B "fa 00"
-  and waits; the SIM state stays 1 and start-up stays at system state 202.
+- **SIM and telephony [V]**: after SIM_STATUS (disconnected) NokiaDSY asks PN_SIM 0x3B "fa 00" (IMSI
+  equal?, docs/devices/nokia-n73-rm132/isi-sim-3b.md; reply 3C FA 2A). The reply sat in the queue:
+  DosServer was blocked in a synchronous ETel call (custom request 1000019) whose TSY waited for an
+  unanswered PN_PHONE_INFO 0x02 (product profile read, older numbering of the N95's 0x29), so it never
+  read channel 24 again. Found by lining up the IPC trace (`syb_report` "likely blocked") with the
+  ISCPEER send times. Then SIM 0x29/0x31 ("not available"); start-up ran to Active Standby.
+- **Audio gateway [V]**: eapgwc.dll asks for its shared buffer with ctl 0x400000A (N95: 0x400000B);
+  the stand-in ignored it and eapgwc dereferenced NULL. Same body now.
+- **Result**: Active Standby at ~48 s (first boot, queries answered), menu and Calendar work.
 - **Was open: DSP bridge [V]**: the N95's TI DSP bridge stand-in (ehwa/ehwaomap, OMAP2420) answers the
   N73's bridgeapi.dll wrongly (it calls RMutex::Wait on a garbage object after ctl 0x4000002). Left
   out; but then MmfAudioServer's resource thread dies, and when MmfAudioServer exits 30 s later EikSrvs

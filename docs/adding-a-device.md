@@ -146,6 +146,43 @@ Rules while looping:
   `sydb start` waits for; `expected_idle_s` bounds the smoke test).
 - Record the missing tool in `docs/tooling-ideas.md` after a long loop.
 
+## 5a. What to expect (patterns seen so far, N95 and N73)
+
+These recur from phone to phone; check them before chasing symptoms.
+
+- **Personality gaps show up as odd behaviour, not clean errors.** A call your map marks `!invalid`
+  but the firmware uses returns 0 silently. Run the "used but invalid" check (every SWI the
+  device's EUSER issues must map to something) and `tools/personality/exec_sizes.py` (copy sizes of
+  every exec handler, the phone's own kernel vs a known one) before the first boot.
+- **CPU generation changes the exec set.** ARMv5 phones (no LDREX) do atomic operations
+  (`User::LockedInc/LockedDec`, used by RFastLock/RCriticalSection) through fast execs that ARMv6
+  EUSERs never call. Missing ones deadlock servers: symptom = white or frozen screen, the CPU idle
+  in the null thread, FbServ/Wserv blocked.
+- **A blank screen with the frame buffer filled is not a display problem.** Check the fb registers
+  and memory (`sydb hmp 'xp /20wx 0xc0005000'`): if the window server cleared it, the UI side is
+  blocked; find who waits on whom.
+- **"Who waits on whom" needs the IPC trace.** Compose a second ROM with `--trace 0x80000800`
+  (KIPC) and read `tools/syb_report.py`'s "likely blocked" list. A server blocked in a *synchronous*
+  call stops reading everything else, so a missing modem reply on one channel can freeze a
+  different subsystem. Line up the blocked request's time with the `ISCPEER: ... send` lines around
+  it to find the unanswered message.
+- **The fake modem is per firmware generation.** Same resources, different message numbers (older
+  phones use older numbering), extra start-up questions (e.g. a SIM-changed check), different
+  first-boot sequences. Unanswered requests (`tools/isi.py log`) that appear *before* a stall are the
+  ones to research; many others are harmless (the N95 leaves 15 kinds unanswered).
+- **Driver protocols drift too.** The same stand-in name can serve a client that renumbers one
+  control (DSP bridge shared buffer) or changes one call's contract (image load). The stand-in log's
+  `ignored` lines for a known driver are the hint; declare the variant in the profile instead of
+  guessing from arguments (hack H-stub-protocol-guess).
+- **Kernel "Exc 1" dumps from `K::USafeReadAndParseDesHeader` with tiny addresses are noise**:
+  integers flagged as descriptors in IPC; the kernel handles them.
+- **First boot asks questions** (city, time, date, tutorial): the idle milestone comes only after
+  they are answered (LSK/RSK). The smoke test needs drives from an answered first boot.
+- **The UI language is the firmware's language pack**: an archive's ROFS2/ROFx may hold only some
+  languages (check `rofs.py rofs2.img | grep -oE '\.r[0-9]+$' | sort | uniq -c`).
+- **Research in parallel.** A mock-level research agent (CLAUDE.md rules) on one protocol question
+  while you keep booting keeps the main loop short; give it the exact request bytes and log lines.
+
 ## 6. Verify: the "done" levels
 
 Each level is a checklist that an agent can run through sydb; `tools/device.py status ID` prints

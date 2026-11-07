@@ -130,7 +130,9 @@ def paths(prof):
         'dir': bdir,
         'core_flat': os.path.join(bdir, 'core-flat.img'),
         'core_json': os.path.join(bdir, 'core.json'),
-        'rofs': [os.path.join(bdir, 'rofs1.img'), os.path.join(bdir, 'rofs2.img')],
+        'rofs': [os.path.join(bdir, 'rofs%d.img' % i) for i in range(1, 2 + max(
+            [int(f[4:-4]) for f in (os.listdir(bdir) if os.path.isdir(bdir) else ()) if re.fullmatch(r'rofs\d+\.img', f)] or [2]))
+                 if i <= 2 or os.path.exists(os.path.join(bdir, 'rofs%d.img' % i))],
         'rom': os.path.join(bdir, 'hybrid.img'),
         'manifest': os.path.join(bdir, get(prof, 'rom.manifest', 'hybrid-manifest.txt')),
         'dtb': os.path.join(bdir, 'syborg-device.dtb'),

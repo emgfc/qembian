@@ -120,8 +120,11 @@ def main():
                 shutil.copyfile(src[0], os.path.join(out, 'core-flat.img'))
             elif kind == 'core':
                 run(py + [os.path.join(ROOT, 'tools', 'rom_unpage.py'), src[0], os.path.join(out, 'core-flat.img')])
-            elif kind == 'rofs':
-                shutil.copyfile(src[0], os.path.join(out, 'rofs1.img' if role == 'core' else 'rofs2.img'))
+            elif kind == 'rofs':		# rofs1 from the core file, rofs2 from 'rofx', else the role's name
+                name = {'core': 'rofs1', 'rofx': 'rofs2'}.get(role, role) + '.img'
+                data = open(src[0], 'rb').read()
+                img = data if data[:4] in (b'ROFS', b'ROFx') else rofs_slice(data, pname)	# RAPIDO NAND: 0xC00 prefix
+                open(os.path.join(out, name), 'wb').write(img)
             elif kind == 'rofs-after-core':		# ROFS1 in the same partition, after the compressed core
                 if rest is None:
                     raise SystemExit('%s: rofs-after-core needs a compressed core partition first' % dev)
