@@ -1,4 +1,4 @@
-# Nokia N95 8GB (RM-320): the first syborg-pg device profile.
+# Nokia N95 8GB (RM-320): the first qembian device profile.
 # Every value below is what the repository uses today; the comment names the file it comes from.
 # Schema: docs/devices.md. Evidence tags: [V] checked against code/firmware, [I] inferred.
 schema = 1

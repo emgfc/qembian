@@ -6,7 +6,7 @@
 #     binutils 2.29.1 in /opt/symbianelf, elf2e32_next in /opt/elf2e32 (built in stage 1);
 #   - the Python tools (3.13: tomllib), mtools/dosfstools for drive images, gdb-multiarch for sydb.
 # Build context: the repository root (.containerignore keeps it to container/ and patches/elf2e32_next).
-#   podman build -t localhost/syborg-modern:trixie -f container/Containerfile.modern .
+#   podman build -t localhost/qembian-modern:trixie -f container/Containerfile.modern .
 # Proprietary inputs are never baked in: the S60 SDK and firmware are bind-mounted at run time.
 
 FROM docker.io/library/debian:trixie-slim AS toolchain

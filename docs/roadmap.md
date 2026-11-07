@@ -1,4 +1,4 @@
-# Roadmap
+# qembian roadmap
 
 Decision (2026-11-04, by the project owner): **option 1 first, then option A.** Options are
 defined in [n95-compatibility.md §6](devices/nokia-n95-8gb-rm320/n95-compatibility.md).

@@ -6,7 +6,7 @@
  	asm("mov r0, #0");
 -	asm("mcr p15, 0, r0, c7, c0, 4");
 +	asm("mcr p15, 0, r0, c7, c0, 4");	// ARMv6 CP15 wait-for-interrupt (a NOP on ARMv7)
-+	asm(".word 0xe320f003");		// ARMv7 WFI (syborg-pg: modern QEMU halts only on this)
++	asm(".word 0xe320f003");		// ARMv7 WFI (qembian: modern QEMU halts only on this)
  	asm("bx lr");
  }
  

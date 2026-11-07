@@ -2,7 +2,7 @@
 
 Every tool forwards to the session daemon (tools/sydb/daemon.py) and returns compact JSON text;
 ui_screenshot can return the picture inline (MCP image content). Register e.g. in Claude Code:
-  claude mcp add sydb -- python3 /path/to/syborg-pg/tools/sydb/sydb.py mcp
+  claude mcp add sydb -- python3 /path/to/qembian/tools/sydb/sydb.py mcp
 """
 import base64, json, os, subprocess, sys, time
 

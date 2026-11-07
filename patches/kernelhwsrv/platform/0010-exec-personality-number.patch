@@ -4,7 +4,7 @@
  #include "execpers_map.h"
  
  const TUint32 KKernelConfigExec92Personality = 1u<<29;
-+// syborg-pg: the personality number (personalities/registry.toml: 0 native, 1 sym92, 2 sym93, ...)
++// qembian: the personality number (personalities/registry.toml: 0 native, 1 sym92, 2 sym93, ...)
 +// in bits 25..28, written by tools/romcompose.py --exec-personality; bit 29 alone (older ROMs) = sym92
 +const TUint32 KKernelConfigPersonalityShift = 25;
 +const TUint32 KKernelConfigPersonalityMask = 0xfu << KKernelConfigPersonalityShift;

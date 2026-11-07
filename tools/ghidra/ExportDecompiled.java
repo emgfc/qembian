@@ -1,5 +1,5 @@
 // Headless Ghidra post-script: write decompiled C for every function to the file given as
-// the first script argument.   (syborg-pg; used by tools/ghidra/decompile.sh)
+// the first script argument.   (qembian; used by tools/ghidra/decompile.sh)
 import ghidra.app.script.GhidraScript;
 import ghidra.app.decompiler.*;
 import ghidra.program.model.listing.*;

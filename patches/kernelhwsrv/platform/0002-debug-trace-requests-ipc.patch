@@ -14,7 +14,7 @@
  	if ((aInfo.iFlags & KIpcDirWrite) == 0)
  		{
  		r = pT->DoDesRead(aMsg->Descriptor(aParam), aInfo.iLocalPtr, aInfo.iLocalLen, aOffset, mode);
-+		// syborg-pg: show what servers read from clients (file names etc.) when KIPC tracing is on
++		// qembian: show what servers read from clients (file names etc.) when KIPC tracing is on
 +		__KTRACE_OPT(KIPC,
 +			{
 +			TInt wide = (aInfo.iFlags & KChunkShiftBy1) ? 1 : 0;

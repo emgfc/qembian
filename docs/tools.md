@@ -1,4 +1,4 @@
-# Debugging tools (N95 hybrid on QEMU 11.1.3)
+# qembian debugging tools
 
 Quick reference for people and agents. All tools run on the host from the project root.
 

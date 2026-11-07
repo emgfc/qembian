@@ -5,7 +5,7 @@
      cpu->midr = 0x41069265;
      cpu->reset_fpsid = 0x41011090;
 -    cpu->ctr = 0x1dd20d2;
-+    cpu->ctr = 0x1d152192; /* syborg-pg: ctype 14, I 32K / D 16K, 4-way, 32B lines (OMAP1710, Nokia N73); was 0x1dd20d2 (ctype 0: the EKA2 kernel's InternalCache::Init1 faults) */
++    cpu->ctr = 0x1d152192; /* qembian: ctype 14, I 32K / D 16K, 4-way, 32B lines (OMAP1710, Nokia N73); was 0x1dd20d2 (ctype 0: the EKA2 kernel's InternalCache::Init1 faults) */
      cpu->reset_sctlr = 0x00050078;
  
      /*

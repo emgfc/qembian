@@ -23,7 +23,7 @@ have_image() {
 
 case "$KIND" in
   legacy)
-    IMAGE="${IMAGE:-localhost/syborg-legacy:squeeze-i386}"
+    IMAGE="${IMAGE:-localhost/qembian-legacy:squeeze-i386}"
     if ! have_image "$IMAGE"; then
       echo ">> building container image $IMAGE" >&2
       "$ENGINE" build --arch 386 -t "$IMAGE" -f "$ROOT/container/Containerfile" "$ROOT/container" >&2
@@ -34,7 +34,7 @@ case "$KIND" in
       ${CONTAINER_ARGS:-} \
       "$IMAGE" "${@:-bash}" ;;
   modern)
-    IMAGE="${IMAGE:-localhost/syborg-modern:trixie}"
+    IMAGE="${IMAGE:-localhost/qembian-modern:trixie}"
     if ! have_image "$IMAGE"; then
       echo ">> building container image $IMAGE (GCC 14 toolchain: takes a while once)" >&2
       "$ENGINE" build -t "$IMAGE" -f "$ROOT/container/Containerfile.modern" "$ROOT" >&2

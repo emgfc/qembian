@@ -6,7 +6,7 @@ diff -ru a/baseport/syborg/bootstrap/syborg.inc b/baseport/syborg/bootstrap/sybo
  
  ; More ram required to boot SF image
 -KHwRamSizeMb            EQU    512			; 512MB
-+; syborg-pg: 168 MB = 58 MB core ROM image (kept in RAM, unpaged) + ~19 MB used by the N95 system
++; qembian: 168 MB = 58 MB core ROM image (kept in RAM, unpaged) + ~19 MB used by the N95 system
 +; at idle + ~90 MB free, the N95 8GB's "~90 MB free executable RAM" (it has 128 MB and pages its ROM)
 +KHwRamSizeMb            EQU    168
  ;KHwRamSizeMb            EQU    256			; 256MB

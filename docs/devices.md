@@ -1,6 +1,6 @@
 # Devices: the declarative device model
 
-How syborg-pg grows from one hand-built virtual N95 8GB into a platform where any S60 phone is
+How qembian grows from one hand-built virtual N95 8GB into a platform where any S60 phone is
 added by writing a profile directory, without a QEMU fork or rebuild per phone. Written 2026-11-06
 from the state of the repository (commit 44c48d2). [V] = checked in the code or docs named,
 [I] = inferred or proposed. The ordered refactor is in [refactor-plan.md](refactor-plan.md); the

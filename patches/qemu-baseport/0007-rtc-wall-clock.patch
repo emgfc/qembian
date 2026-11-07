@@ -4,7 +4,7 @@
  	return EStartupColdReset;
  }
  
-+// syborg-pg: hardware RTC = QEMU syborg-rtc register 4 (WALL, UTC seconds since 2000-01-01;
++// qembian: hardware RTC = QEMU syborg-rtc register 4 (WALL, UTC seconds since 2000-01-01;
 +// host time plus an offset that QEMU persists with -global syborg-rtc.offset-file=...).
 +const TUint8 KSyborgRtcWall = 4;
 +

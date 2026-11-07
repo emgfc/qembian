@@ -1,4 +1,4 @@
-// Copyright (c) 2026 syborg-pg contributors. Licensed under the Eclipse Public License v1.0.
+// Copyright (c) 2026 qembian contributors. Licensed under the Eclipse Public License v1.0.
 //
 // MEDROFS.PDD: read-only "NAND" media serving the N95 ROFS partition (ROFS1 + ROFx extension
 // at ROFS1's iMaxImageSize, as on the phone's flash) from the board's read-only flash window at

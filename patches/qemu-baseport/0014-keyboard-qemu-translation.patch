@@ -4,7 +4,7 @@
  	__DEBUG_PRINT("DKeyboardPs2Soc::RxDfc %d %d", keycode, dwn);
    
  	keycode &= ~(0x80000000);	
-+	// syborg-pg: bit 30 = QEMU already translated the key with the device keymap (tools/device.py
++	// qembian: bit 30 = QEMU already translated the key with the device keymap (tools/device.py
 +	// gen qemu-keymap): bits 0..7 are the Symbian scan code. Otherwise a set-1 code for the table,
 +	// which ends at 0xef (codes past it used to read beyond the table).
 +	TInt code;

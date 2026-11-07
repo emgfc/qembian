@@ -4,7 +4,7 @@
  /* The ARM MMU allows 1k pages.  */
  /* ??? Linux doesn't actually use these, and they're deprecated in recent
     architecture revisions.  Maybe a configure option to disable them.  */
-+/* syborg-pg: 12 here (4k soft-MMU pages) stops the Symbian boot before the
++/* qembian: 12 here (4k soft-MMU pages) stops the Symbian boot before the
 +   first kernel output; not investigated (the modern QEMU port replaces this).  */
  #define TARGET_PAGE_BITS 10
  #endif
@@ -15,7 +15,7 @@
      return code | (domain << 4);
  }
  
-+/* syborg-pg: invalidate the soft-TLB entries an ARMv6/v7 "TLB invalidate by MVA"
++/* qembian: invalidate the soft-TLB entries an ARMv6/v7 "TLB invalidate by MVA"
 +   can cover. The soft TLB holds every mapping as TARGET_PAGE_SIZE (1k) pages, so a
 +   section (1M/16M), 64k or 4k page is several entries: look at the current page
 +   tables and flush the whole TLB for sections or an empty L1 slot (the section may
@@ -65,7 +65,7 @@
 -#else
 -            tlb_flush(env, 1);
 -#endif
-+            /* syborg-pg: flush only the entries this MVA can cover (see
++            /* qembian: flush only the entries this MVA can cover (see
 +               tlb_flush_mva) instead of the whole TLB.  */
 +            tlb_flush_mva(env, val);
              break;

@@ -1,4 +1,4 @@
-# ESTARTCOMP.TXT for the syborg-pg N73 (RM-132) hybrid ROM (replaces Z:\sys\data\ESTARTCOMP.TXT).
+# ESTARTCOMP.TXT for the qembian N73 (RM-132) hybrid ROM (replaces Z:\sys\data\ESTARTCOMP.TXT).
 # NOTE: EStart only splits lines on CR LF.
 #
 # The N73's own file: D: IRAM on 0, C: NAND (MEDUSII) on 6, Z: composite on 7, E: MMC on 1. Our board:

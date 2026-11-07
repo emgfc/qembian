@@ -5,7 +5,7 @@
  		
  ; Hardware memory size is 128MB - 32MB reserved for bootloader
 -		mov		r4, #KHwRamSizeMb
-+; syborg-pg: the board's RAM size (syborg-platform RAM_MB, word 3; MMU off: physical address),
++; qembian: the board's RAM size (syborg-platform RAM_MB, word 3; MMU off: physical address),
 +; KHwRamSizeMb when it reads 0 (an older board), so a device's RAM needs no bootstrap rebuild
 +		mov		r1, #0xc0000000
 +		orr		r1, r1, #0x11000
@@ -20,7 +20,7 @@
  GetRamBanks	ROUT
  	    push    {r1-r3,lr}
 -		mov		r0, #KHwRamSizeMb
-+		mov		r1, #0xc0000000			; syborg-pg: RAM_MB of the board, as in DoInitialiseHardware
++		mov		r1, #0xc0000000			; qembian: RAM_MB of the board, as in DoInitialiseHardware
 +		orr		r1, r1, #0x11000
 +		ldr		r0, [r1, #12]
 +		cmp		r0, #0

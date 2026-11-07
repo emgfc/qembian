@@ -5,7 +5,7 @@
      cpu->isar.mvfr0 = 0x11111111;
      cpu->isar.mvfr1 = 0x00000000;
 -    cpu->ctr = 0x1dd20d2;
-+    cpu->ctr = 0x1d992992; /* syborg-pg: 32K I/D, 4-way, 32B lines, VIPT aliasing (OMAP2420 / N800 kernel log); was 0x1dd20d2 (ctype 0, invalid on v6) */
++    cpu->ctr = 0x1d992992; /* qembian: 32K I/D, 4-way, 32B lines, VIPT aliasing (OMAP2420 / N800 kernel log); was 0x1dd20d2 (ctype 0, invalid on v6) */
      cpu->reset_sctlr = 0x00050078;
      SET_IDREG(isar, ID_PFR0, 0x111);
      SET_IDREG(isar, ID_PFR1, 0x1);
@@ -14,7 +14,7 @@
      cpu->isar.mvfr0 = 0x11111111;
      cpu->isar.mvfr1 = 0x00000000;
 -    cpu->ctr = 0x1dd20d2;
-+    cpu->ctr = 0x1d992992; /* syborg-pg: 32K I/D, 4-way, 32B lines, VIPT aliasing (OMAP2420 / N800 kernel log); was 0x1dd20d2 (ctype 0, invalid on v6) */
++    cpu->ctr = 0x1d992992; /* qembian: 32K I/D, 4-way, 32B lines, VIPT aliasing (OMAP2420 / N800 kernel log); was 0x1dd20d2 (ctype 0, invalid on v6) */
      cpu->reset_sctlr = 0x00050078;
      SET_IDREG(isar, ID_PFR0, 0x111);
      SET_IDREG(isar, ID_PFR1, 0x1);

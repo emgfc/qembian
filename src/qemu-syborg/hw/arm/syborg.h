@@ -1,7 +1,7 @@
 /*
  * Syborg (Symbian Virtual Platform) board for modern QEMU — shared definitions.
  *
- * Written for syborg-pg from the register descriptions in the Symbian Syborg baseport and the
+ * Written for qembian from the register descriptions in the Symbian Syborg baseport and the
  * QEMU 0.9.1-symbian device plugins (behaviour only, no code copied).
  *
  * SPDX-License-Identifier: GPL-2.0-or-later

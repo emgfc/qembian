@@ -8,7 +8,7 @@ global's address as an "i" operand, which GCC rejects; emit the symbol (plus a c
  	asm(".word  " CSM_ZN1K20TheFileServerProcessE );
  	asm("__code_limit: ");
 -	asm(".word %a0" : : "i" ((TInt)&::TheMmu.iUserCodeBase) );
-+	asm(".word TheMmu+%a0" : : "i" (_FOFF(ArmMmu,iUserCodeBase)) );	// syborg-pg: GCCE cannot take a global's address as "i"
++	asm(".word TheMmu+%a0" : : "i" (_FOFF(ArmMmu,iUserCodeBase)) );	// qembian: GCCE cannot take a global's address as "i"
  	}
  
 --- a/kernel/eka/memmodel/epoc/moving/arm/xsched.cia
@@ -18,7 +18,7 @@ global's address as an "i" operand, which GCC rejects; emit the symbol (plus a c
  	asm(".word TheScheduler ");
  	asm("__TheMmu: ");
 -	asm(".word %a0" : : "i" ((TInt)&::TheMmu));
-+	asm(".word TheMmu ");						// syborg-pg: GCCE cannot take a global's address as "i"
++	asm(".word TheMmu ");						// qembian: GCCE cannot take a global's address as "i"
  	};
  
  __NAKED__ TUint32 DMemModelChunk::ApplyTopLevelPermissions(TChunkState /*aChunkState*/)

@@ -1,4 +1,4 @@
-# sydb: dev/debug bridge for the virtual N95
+# sydb: qembian's dev/debug bridge to the virtual phone
 
 adb-like bridge. Its main user is an LLM (through the MCP server); the CLI is the human interface.
 Design and roadmap: [devtools-bridge.md](devtools-bridge.md). Status 2026-11-06: phase 0/1 work, and

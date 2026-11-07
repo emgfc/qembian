@@ -10,7 +10,7 @@
  * 0.9.1 plugin (host start time in microseconds minus the virtual clock in nanoseconds); the
  * guest only uses LATCH=1 / DATA_LOW as a free-running 1 MHz counter.
  *
- * syborg-pg extension: register 4 WALL = calendar time in UTC seconds since 2000-01-01, read and
+ * qembian extension: register 4 WALL = calendar time in UTC seconds since 2000-01-01, read and
  * written by the baseport's Syborg::(Set)SystemTimeInSecondsFrom2000 (kernel hardware RTC).
  * WALL = QEMU rtc clock (host time, honours -rtc base=/clock=) + wall_offset. A guest write moves
  * wall_offset, so a date/time set on the phone keeps running from the new value. With the

@@ -6,7 +6,7 @@ diff -ru a/baseport/syborg/specific/syborg.h b/baseport/syborg/specific/syborg.h
  const TUint KHwBasePeripherals  = KPrimaryIOBase;       
  const TUint KHwLinSeparation	= 0x1000;
 -const TInt KMsTickPeriod	= 10000;
-+const TInt KMsTickPeriod	= 1000;	// syborg-pg: 1 ms nanokernel tick as on the N95 (its hal.dll reports ENanoTickPeriod 1000)
++const TInt KMsTickPeriod	= 1000;	// qembian: 1 ms nanokernel tick as on the N95 (its hal.dll reports ENanoTickPeriod 1000)
  
  const TUint KHwBaseSic				= KHwBasePeripherals + 0x00*KHwLinSeparation;
  // intended for use as a free-running counter. Reading the value register of a free-running syborg counter returns a microsec value
@@ -18,7 +18,7 @@ diff -ru a/baseport/syborg/specific/syborg_priv.h b/baseport/syborg/specific/syb
  #define	_UNLOCK		NKern::RestoreInterrupts(irq);
  
 -const TUint32 K1000HzTickMatchLoad = 1000;
-+const TUint32 K1000HzTickMatchLoad = 100;	// syborg-pg: 100 kHz timer / 100 = 1 kHz (was 1000 = 10 ms)
++const TUint32 K1000HzTickMatchLoad = 100;	// qembian: 100 kHz timer / 100 = 1 kHz (was 1000 = 10 ms)
  const TInt KNumSyborgInts = 64;
  
  class SyborgInterrupt : public Interrupt

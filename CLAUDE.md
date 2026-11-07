@@ -1,7 +1,8 @@
-# syborg-pg: notes for Claude sessions and subagents
+# qembian: notes for Claude sessions and subagents
 
-Nokia N95 8GB (S60 3rd FP1, Symbian 9.2) user side, unmodified, on our EKA2 kernel with stand-in
-drivers and a fake modem, on our own Syborg board in QEMU 11.1.3. Start with `docs/tools.md`
+qembian: Nokia S60 phone user sides (first and most tested: N95 8GB, S60 3rd FP1, Symbian 9.2),
+unmodified, on our EKA2 kernel with stand-in drivers and a fake modem, on our own Syborg board in
+QEMU 11.1.3. Start with `docs/tools.md`
 (debugging tools), `docs/hacks.md` (every workaround), `docs/roadmap.md` (status and queue).
 
 ## Live phone: use sydb first

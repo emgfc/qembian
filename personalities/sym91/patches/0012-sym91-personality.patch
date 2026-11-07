@@ -361,7 +361,7 @@ Personality sym91 (Symbian 9.1 user sides, N73) on our kernel (personalities/sym
  	// IRQs disabled, FIQs enabled here
 -	asm("ldr r12, [lr, #-4] ");				// get SWI opcode
  	asm("stmfd sp!, {r11, lr} ");			// save return address, r11 for 8 byte align
-+	// syborg-pg, personality sym91: Symbian 9.1 user code enters with "mov ip, lr; swi n" (EUSER
++	// qembian, personality sym91: Symbian 9.1 user code enters with "mov ip, lr; swi n" (EUSER
 +	// stubs have no return instruction) and the 9.1 kernel returned to user mode through "bx ip". So
 +	// for user-mode SWIs the return address is ip, in Thumb state if ip is odd
 +	// (personalities/sym91/README.md). ExecReturnViaIp is set by Exec92Init (sexecpers.cpp).
@@ -400,7 +400,7 @@ Personality sym91 (Symbian 9.1 user sides, N73) on our kernel (personalities/sym
  	}
  
  
-+// syborg-pg, personality sym91 (sexecpers.cpp): a Symbian 9.1 loader wants the export table from
++// qembian, personality sym91 (sexecpers.cpp): a Symbian 9.1 loader wants the export table from
 +// ordinal 1 (its import fixups index buf[ordinal-1]); 9.2 and later take the ordinal-0 word first
 +extern "C" TInt ExecExportDirFromOrdinal1;
 +

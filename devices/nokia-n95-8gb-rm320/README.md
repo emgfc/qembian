@@ -1,6 +1,6 @@
 # Nokia N95 8GB (RM-320)
 
-The first syborg-pg device: S60 3rd Edition FP1, Symbian 9.2, firmware 35.0.001 (global, with WLAN).
+The first qembian device: S60 3rd Edition FP1, Symbian 9.2, firmware 35.0.001 (global, with WLAN).
 Profile: [device.toml](device.toml), keys: [keymap.toml](keymap.toml). Variant without WLAN (China):
 [../nokia-n95-8gb-rm321](../nokia-n95-8gb-rm321).
 

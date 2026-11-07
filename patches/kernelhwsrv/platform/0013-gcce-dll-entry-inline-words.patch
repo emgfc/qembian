@@ -8,7 +8,7 @@ executed as instructions. At ROM base 0x80000000 they decode as harmless conditi
  	void * code_seg_limit;
  	asm(".extern Image$$ER_RO$$Base");
  	asm(".extern Image$$ER_RO$$Limit");
-+	// syborg-pg: the two words sit in the instruction stream, so branch over them; executed, they
++	// qembian: the two words sit in the instruction stream, so branch over them; executed, they
 +	// decode as whatever the code addresses happen to be (harmless "HI" ops at 0x80000000, a fault
 +	// in the unconditional space for a ROM at 0xF8000000: kernel DLL detach crashed on the N73)
 +	asm("b 1f");
@@ -26,7 +26,7 @@ executed as instructions. At ROM base 0x80000000 they decode as harmless conditi
  	void * code_seg_limit;
  	asm(".extern Image$$ER_RO$$Base");
  	asm(".extern Image$$ER_RO$$Limit");
-+	// syborg-pg: the two words sit in the instruction stream, so branch over them; executed, they
++	// qembian: the two words sit in the instruction stream, so branch over them; executed, they
 +	// decode as whatever the code addresses happen to be (harmless "HI" ops at 0x80000000, a fault
 +	// in the unconditional space for a ROM at 0xF8000000: kernel DLL detach crashed on the N73)
 +	asm("b 1f");

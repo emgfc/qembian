@@ -1,4 +1,4 @@
-// Copyright (c) 2026 syborg-pg contributors. Licensed under the Eclipse Public License v1.0.
+// Copyright (c) 2026 qembian contributors. Licensed under the Eclipse Public License v1.0.
 //
 // Table-driven stand-ins for Nokia N95 logical devices (kernel side). Each LDD declares
 //   - the factory name its user-side clients open (RBusLogicalChannel::DoCreate)

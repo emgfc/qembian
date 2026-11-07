@@ -7,7 +7,7 @@ diff -ru a/baseport/syborg/config.inc b/baseport/syborg/config.inc
  ;	GBLL	CFG_CPU_ARM926J
 -;	GBLL	CFG_CPU_ARM1136
 -	GBLL    CFG_CPU_CORTEX_A8N
-+	GBLL	CFG_CPU_ARM1136		; syborg-pg: N95 CPU (OMAP2420 ARM1136 r0p2)
++	GBLL	CFG_CPU_ARM1136		; qembian: N95 CPU (OMAP2420 ARM1136 r0p2)
 +;	GBLL    CFG_CPU_CORTEX_A8N
  ;	GBLL	CFG_CPU_ARM1136_ERRATUM_399234_FIXED
  ;	GBLL    CFG_CPU_ARM1136_ERRATUM_411920_FIXED
@@ -20,7 +20,7 @@ diff -ru a/baseport/syborg/specific/interrupts.cia b/baseport/syborg/specific/in
  	asm("mov r0, #0");
  	asm("mcr p15, 0, r0, c7, c0, 4");	// ARMv6 CP15 wait-for-interrupt (a NOP on ARMv7)
 +#ifndef __CPU_ARM1136__
- 	asm(".word 0xe320f003");		// ARMv7 WFI (syborg-pg: modern QEMU halts only on this)
+ 	asm(".word 0xe320f003");		// ARMv7 WFI (qembian: modern QEMU halts only on this)
 +#endif	// on ARM1136 the CP15 WFI above halts (QEMU WFI_v6); the v7 encoding is UNPREDICTABLE there
  	asm("bx lr");
  }
@@ -33,7 +33,7 @@ diff -ru a/baseport/syborg/variant.mmh b/baseport/syborg/variant.mmh
  //#define __CPU__ ARM926EJ-S
  
 -//macro __CPU_ARM1136__
-+// syborg-pg: ARM1136 (r0p2, as the N95's OMAP2420; QEMU -cpu arm1136-r2), VFP11 = VFPv2
++// qembian: ARM1136 (r0p2, as the N95's OMAP2420; QEMU -cpu arm1136-r2), VFP11 = VFPv2
 +macro __CPU_ARM1136__
  
  //#define __CPU_ARM1176__

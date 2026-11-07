@@ -5,7 +5,7 @@
  BLX_r            .... 0001 0010 1111 1111 1111 0011 ....      @rm
  
 -CLZ              .... 0001 0110 1111 .... 1111 0001 ....      @rdm
-+# syborg-pg: ARM11/Cortex-A8 hardware ignores the should-be-one fields (19:16, 11:8);
++# qembian: ARM11/Cortex-A8 hardware ignores the should-be-one fields (19:16, 11:8);
 +# Nokia N95 code contains CLZ with them as zero (0xe160201e = clz r2, lr).
 +CLZ              .... 0001 0110 ---- .... ---- 0001 ....      @rdm
  

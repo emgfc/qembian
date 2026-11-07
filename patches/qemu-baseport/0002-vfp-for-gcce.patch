@@ -5,7 +5,7 @@
  
  
 -#ifndef GCCE
-+// syborg-pg: VFP enabled for GCCE too (the N95 user side uses VFP; see docs/build-log.md)
++// qembian: VFP enabled for GCCE too (the N95 user side uses VFP; see docs/build-log.md)
  macro __CPU_HAS_VFP
 +#ifndef GCCE
  #define USE_VFP_MATH

@@ -1,7 +1,7 @@
 --- /dev/null
 +++ b/kernel/eka/kernel/sexecpers.cpp
 @@ -0,0 +1,181 @@
-+// Copyright (c) 2026 syborg-pg contributors. Licensed under the Eclipse Public License v1.0.
++// Copyright (c) 2026 qembian contributors. Licensed under the Eclipse Public License v1.0.
 +//
 +// Symbian OS 9.2 executive-call personality.
 +//
@@ -479,7 +479,7 @@
 --- /dev/null
 +++ b/kernel/eka/kernel/arm/cexecpers.cia
 @@ -0,0 +1,35 @@
-+// Copyright (c) 2026 syborg-pg contributors. Licensed under the Eclipse Public License v1.0.
++// Copyright (c) 2026 qembian contributors. Licensed under the Eclipse Public License v1.0.
 +//
 +// Fast-exec shims for the Symbian 9.2 personality (see ../sexecpers.cpp).
 +// Fast execs run in SVC mode with interrupts disabled, so these read-modify-writes are atomic

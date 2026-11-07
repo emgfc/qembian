@@ -1,4 +1,4 @@
-// Copyright (c) 2026 syborg-pg contributors. Licensed under the Eclipse Public License v1.0.
+// Copyright (c) 2026 qembian contributors. Licensed under the Eclipse Public License v1.0.
 //
 // Fake modem peer behind the Nokia N95 ISC channel interface used by IscApi.dll.
 // Built twice: nokiaiscdriver.ldd ("NokiaISCDriver", channels = units 0..31) and

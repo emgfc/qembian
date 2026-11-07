@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""sydb: adb-like dev/debug bridge for the virtual N95 (see docs/sydb.md).
+"""sydb: qembian's adb-like dev/debug bridge to the virtual phone (see docs/sydb.md).
 
   sydb start [--seed DIR] [--fresh] [--gui] [--rom ROM] [--audio wav|host|DRIVER] [--paused | --catch-panics]
                                               boot a session, wait for idle

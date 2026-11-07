@@ -7,7 +7,7 @@
 +// The PC set-1 code -> EStdKey table (the E0 prefix folded into bit 7) is generated from the device
 +// profile by tools/device.py gen keymap-header: platform/symbian/syborg-pc-keys.toml (the shipped
 +// Syborg table + extended navigation) overlaid with devices/<id>/keymap.toml. scripts/build-syborg.sh
-+// writes syborg_keyboard_map.h next to this file (syborg-pg, docs/devices.md).
++// writes syborg_keyboard_map.h next to this file (qembian, docs/devices.md).
  const TUint8 KConvertCode[] =
    {
 -	/*00*/ EStdKeyNull,

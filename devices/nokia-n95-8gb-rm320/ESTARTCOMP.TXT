@@ -1,4 +1,4 @@
-# ESTARTCOMP.TXT for the syborg-pg hybrid ROM (replaces the N95's Z:\sys\data\ESTARTCOMP.TXT)
+# ESTARTCOMP.TXT for the qembian hybrid ROM (replaces the N95's Z:\sys\data\ESTARTCOMP.TXT)
 # NOTE: EStart only splits lines on CR LF; with LF-only endings it loops forever in TLex.
 #
 # The N95 file maps C: to local drive 6 (NAND), Y: to 7, Z: to the ROFS composite on 8 and E: to
