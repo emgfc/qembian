@@ -133,7 +133,7 @@ def main():
     cj = json.load(open(os.path.join(out, 'core.json')))
     drv = sorted(f['path'].split('/')[-1] for f in cj['files'] if f['path'].lower().endswith(('.ldd', '.pdd')))
     have = {s['name'].lower() for s in prof.get('standins', [])}
-    missing = {m.lower() for m in devmodel.get(prof, 'standins.missing.drivers', [])}
+    missing = {m.lower() for m in devmodel.get(prof, 'kernel.missing_drivers', [])}
     with open(os.path.join(out, 'kernel-drivers.txt'), 'w') as fo:
         for d in drv:
             base = d.lower().rsplit('.', 1)[0]

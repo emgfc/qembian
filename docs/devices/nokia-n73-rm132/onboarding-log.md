@@ -134,5 +134,6 @@ catches each later fault took one boot.
    caps size, the Custom interface version and the DSP bridge all differed. Rule: compare the
    client DLL's requests (control numbers, buffer sizes, opened interface version) before reusing a
    stand-in; a wrong mock is worse than a missing driver.
-10. TOML: `[standins.missing]` after `[[standins]]` attaches to the *last* stand-in entry, so
-    `device.py get standins.missing.drivers` finds nothing (also in the N95 profile).
+10. TOML: `[standins.missing]` after `[[standins]]` attached to the *last* stand-in entry, so
+    `device.py get standins.missing.drivers` found nothing (also in the N95 profile). Fixed: the list is
+    now `kernel.missing_drivers`.

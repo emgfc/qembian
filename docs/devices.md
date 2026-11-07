@@ -119,7 +119,7 @@ boots), `critical_thread_policy` (`spare` = H-critical-exit, `strict`), `user_me
 **`[[standins]]`** kernel-side stand-ins composed into the ROM, in obey order: `name` (directory
 under `src/standins/`), `kind` (`ldd`, `pdd`, `extension`, `lcd`), `family` (`common`,
 `nokia-bb5`, `nokia-omap2`, …), `role` (one line), `options` (MACRO= pairs for the mmp, e.g. ISC
-channel base). `[standins.missing].drivers` lists the firmware's kernel-side files that have no
+channel base). `kernel.missing_drivers` lists the firmware's kernel-side files that have no
 stand-in (documented gaps, read by the status report).
 
 **`[modem]`** `kind` (`isi-fake-peer`), `names` (platform-wide resource/message names),

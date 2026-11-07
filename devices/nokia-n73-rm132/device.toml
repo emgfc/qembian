@@ -160,6 +160,7 @@ critical_thread_policy = "spare"
 user_memory_guards = false
 place = "after-firmware"                   # our kernel side after the firmware image (scripts/build-standins.sh pad)
 patchsets = ["platform", "sym92", "sym91", "n95"]
+missing_drivers = ["ekeyp.dll", "ehwa.ldd", "ehwaomap.pdd", "camldd.ldd", "campdd.pdd", "camparifpdd.pdd", "bc02.ldd", "bc02_uart1.pdd", "usbisa.ldd", "eusbc.ldd", "stildd.ldd", "rebootdriver.ldd", "test.ldd", "ebridgeutil.ldd"]   # firmware kernel-side files with no stand-in (documented gaps)
 
 [kernel.lcd]
 target = "lcd_portrait"                    # src/standins/lcd/lcd_portrait.mmp
@@ -244,9 +245,6 @@ kind = "extension"
 family = "common"
 role = "second NVMemory (E:) on local drive 2"
 
-[standins.missing]
-drivers = ["ekeyp.dll", "ehwa.ldd", "ehwaomap.pdd", "camldd.ldd", "campdd.pdd", "camparifpdd.pdd", "bc02.ldd", "bc02_uart1.pdd",
-           "usbisa.ldd", "eusbc.ldd", "stildd.ldd", "rebootdriver.ldd", "test.ldd", "ebridgeutil.ldd"]
 
 # ---------------------------------------------------------------------------------------------
 [modem]

@@ -164,6 +164,7 @@ secondary = "sys/bin/efile.exe"            # romcompose --secondary: the phone's
 critical_thread_policy = "spare"           # H-critical-exit (kernel patches 0003/0006)
 user_memory_guards = false                 # kernel patch 0009 (release-kernel behaviour the 9.2 drivers rely on)
 patchsets = ["platform", "sym92", "n95"]   # see docs/devices.md §4.2 for the split of patches/kernelhwsrv
+missing_drivers = ["keypad.dll", "accelerometerldd.ldd", "accelerometerpdd.pdd", "mobilecrashdriver.ldd", "services.ldd", "omaplcd.ldd"]   # firmware kernel-side files with no stand-in (documented gaps)
 
 [kernel.lcd]                               # macros of the LCD HAL extension (src/n95compat/lcd/lcd_n95.mmp)
 target = "lcd_n95"
@@ -262,9 +263,6 @@ kind = "extension"
 family = "common"
 role = "second NVMemory (E:) on local drive 2 (patch qemu-baseport 0006)"
 
-# Nokia kernel-side files present in the firmware but NOT stood in for (documented gaps).
-[standins.missing]
-drivers = ["keypad.dll", "accelerometerldd.ldd", "accelerometerpdd.pdd", "mobilecrashdriver.ldd", "services.ldd", "omaplcd.ldd"]
 
 # ---------------------------------------------------------------------------------------------
 # Fake modem (ISI over ISC). Simple replies are a table; stateful ones are code in the stand-in.
