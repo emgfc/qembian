@@ -370,9 +370,15 @@ def build(prof, variant=None, kernel=False, standins=True, out=None, trace=None,
         cmd += ['--exec-personality', pers]		# personalities/registry.toml number in the ROM header
     for f in get(prof, 'rom.files', []):
         cmd += ['--file', '%s=%s' % (f['rom'], device_file(prof, f['local']))]
-    for r in ps['rofs']:
-        if os.path.exists(r):
-            cmd += ['--rofs', r]
+    rofs = [r for r in ps['rofs'] if os.path.exists(r)]
+    for r in rofs:
+        cmd += ['--rofs', r]
+    # a composite over several ROFS images, each on its own local drive (9.3: ROFS1/2/3 on 9/10/11)
+    zdrives = [d['local_drive'] for d in get(prof, 'board.drives', []) if d.get('kind') == 'composite']
+    if len(zdrives) > 1:
+        if len(zdrives) != len(rofs):
+            raise DeviceError('%d composite drives in [[board.drives]] for %d ROFS images' % (len(zdrives), len(rofs)))
+        cmd += ['--rofs-drives', ','.join(str(x) for x in zdrives)]
     for pf in pfiles:
         cmd += ['--patches', pf]
     blob = os.path.join(ps['dir'], 'sygl', 'sygl.bin')			# src/sygl/build.sh --device ID

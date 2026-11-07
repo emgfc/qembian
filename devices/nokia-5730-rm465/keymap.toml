@@ -1,0 +1,604 @@
+# Nokia 5730 XpressMusic (RM-465) keys -> EStdKey scan codes -> host keys.
+# Scan codes: the 5730's keypad_exp.dll 32-bit matrix table at 0x8010ba3c (RM-465 v101.48.128) [V];
+# index numbers in the comments. End and Power are not in the matrix (power-key path) [I].
+# QWERTY slide: letters on the host letter keys (digits keep the numeric keypad).
+schema = 1
+device = "nokia-5730-rm465"
+
+[aliases]
+select = "ok"
+back = "rsk"
+
+[[keys]]
+key = "lsk"
+label = "LSK"
+scancode = "EStdKeyDevice0"
+host = ["f5"]
+set1 = 0x3f
+group = "front"
+row = 0
+col = 0   # matrix 81
+
+[[keys]]
+key = "rsk"
+label = "RSK"
+scancode = "EStdKeyDevice1"
+host = ["f7"]
+set1 = 0x41
+group = "front"
+row = 0
+col = 2   # matrix 94
+
+[[keys]]
+key = "menu"
+label = "Menu"
+scancode = "EStdKeyApplication0"
+host = ["f8"]
+set1 = 0x42
+group = "front"
+row = 1
+col = 0   # matrix 83
+
+[[keys]]
+key = "call"
+label = "Call"
+scancode = "EStdKeyYes"
+host = ["f2"]
+set1 = 0x3c
+group = "front"
+row = 2
+col = 0   # matrix 96
+
+[[keys]]
+key = "end"
+label = "End"
+scancode = "EStdKeyNo"
+host = ["f3"]
+set1 = 0x3d
+group = "front"
+row = 2
+col = 2
+evidence = "I"   # not in the matrix (power-key path) [I]
+
+[[keys]]
+key = "clear"
+label = "C"
+scancode = "EStdKeyBackspace"
+host = ["backspace"]
+set1 = 0x0e
+group = "front"
+row = 1
+col = 2   # matrix 82
+
+[[keys]]
+key = "ok"
+label = "OK"
+scancode = "EStdKeyDevice3"
+host = ["f6", "ret"]
+set1 = 0x40
+group = "nav"
+row = 1
+col = 1   # matrix 64
+
+[[keys]]
+key = "up"
+label = "^"
+scancode = "EStdKeyUpArrow"
+host = ["up"]
+set1 = 0xc8
+group = "nav"
+row = 0
+col = 1   # matrix 108
+
+[[keys]]
+key = "down"
+label = "v"
+scancode = "EStdKeyDownArrow"
+host = ["down"]
+set1 = 0xd0
+group = "nav"
+row = 2
+col = 1   # matrix 109, 116
+
+[[keys]]
+key = "left"
+label = "<"
+scancode = "EStdKeyLeftArrow"
+host = ["left"]
+set1 = 0xcb
+group = "nav"
+row = 1
+col = 0   # matrix 106
+
+[[keys]]
+key = "right"
+label = ">"
+scancode = "EStdKeyRightArrow"
+host = ["right"]
+set1 = 0xcd
+group = "nav"
+row = 1
+col = 2   # matrix 107
+
+[[keys]]
+key = "1"
+label = "1"
+scancode = "'1'"
+host = ["1"]
+set1 = 0x02
+group = "keypad"
+row = 0
+col = 0
+
+[[keys]]
+key = "2"
+label = "2"
+scancode = "'2'"
+host = ["2"]
+set1 = 0x03
+group = "keypad"
+row = 0
+col = 1
+
+[[keys]]
+key = "3"
+label = "3"
+scancode = "'3'"
+host = ["3"]
+set1 = 0x04
+group = "keypad"
+row = 0
+col = 2
+
+[[keys]]
+key = "4"
+label = "4"
+scancode = "'4'"
+host = ["4"]
+set1 = 0x05
+group = "keypad"
+row = 1
+col = 0
+
+[[keys]]
+key = "5"
+label = "5"
+scancode = "'5'"
+host = ["5"]
+set1 = 0x06
+group = "keypad"
+row = 1
+col = 1
+
+[[keys]]
+key = "6"
+label = "6"
+scancode = "'6'"
+host = ["6"]
+set1 = 0x07
+group = "keypad"
+row = 1
+col = 2
+
+[[keys]]
+key = "7"
+label = "7"
+scancode = "'7'"
+host = ["7"]
+set1 = 0x08
+group = "keypad"
+row = 2
+col = 0
+
+[[keys]]
+key = "8"
+label = "8"
+scancode = "'8'"
+host = ["8"]
+set1 = 0x09
+group = "keypad"
+row = 2
+col = 1
+
+[[keys]]
+key = "9"
+label = "9"
+scancode = "'9'"
+host = ["9"]
+set1 = 0x0a
+group = "keypad"
+row = 2
+col = 2
+
+[[keys]]
+key = "0"
+label = "0"
+scancode = "'0'"
+host = ["0"]
+set1 = 0x0b
+group = "keypad"
+row = 3
+col = 1
+
+[[keys]]
+key = "star"
+label = "*"
+scancode = "'*'"
+host = ["f9"]
+set1 = 0x43
+group = "keypad"
+row = 3
+col = 0   # matrix 97
+
+[[keys]]
+key = "hash"
+label = "#"
+scancode = "EStdKeyHash"
+host = ["f10"]
+set1 = 0x44
+group = "keypad"
+row = 3
+col = 2   # matrix 98
+
+[[keys]]
+key = "power"
+label = "Power"
+scancode = "EStdKeyDevice2"
+host = ["f4"]
+set1 = 0x3e
+group = "side"
+evidence = "I"   # not in the matrix [I: SysAp power key, as on N95/N73]
+
+[[keys]]
+key = "volup"
+label = "Vol +"
+scancode = "EStdKeyIncVolume"
+host = ["f11"]
+set1 = 0x57
+group = "side"   # matrix 67
+
+[[keys]]
+key = "voldown"
+label = "Vol -"
+scancode = "EStdKeyDecVolume"
+host = ["f12"]
+set1 = 0x58
+group = "side"   # matrix 68
+
+[[keys]]
+key = "play"
+label = ">||"
+scancode = "EStdKeyApplication2"
+host = ["audioplay"]
+set1 = 0xa2
+group = "media"
+row = 0
+col = 1   # matrix 105
+
+[[keys]]
+key = "prev"
+label = "|<<"
+scancode = "EStdKeyApplication4"
+host = ["audioprev"]
+set1 = 0x90
+group = "media"
+row = 0
+col = 0
+evidence = "I"   # matrix 110
+
+[[keys]]
+key = "next"
+label = ">>|"
+scancode = "EStdKeyApplication5"
+host = ["audionext"]
+set1 = 0x99
+group = "media"
+row = 0
+col = 2
+evidence = "I"   # matrix 104
+
+[[keys]]
+key = "app1b"
+label = "EStdKeyApplication1B (matrix 71; role unknown)"
+scancode = "EStdKeyApplication1B"
+host = ["f23"]
+set1 = 0x6d
+group = "hidden"
+evidence = "I"
+
+[[keys]]
+key = "app1c"
+label = "EStdKeyApplication1C (matrix 72; role unknown)"
+scancode = "EStdKeyApplication1C"
+host = ["f24"]
+set1 = 0x6f
+group = "hidden"
+evidence = "I"
+
+[[keys]]
+key = "qq"
+label = "Q"
+scancode = "'Q'"
+host = ["q"]
+group = "qwerty"
+
+[[keys]]
+key = "qw"
+label = "W"
+scancode = "'W'"
+host = ["w"]
+group = "qwerty"
+
+[[keys]]
+key = "qe"
+label = "E"
+scancode = "'E'"
+host = ["e"]
+group = "qwerty"
+
+[[keys]]
+key = "qr"
+label = "R"
+scancode = "'R'"
+host = ["r"]
+group = "qwerty"
+
+[[keys]]
+key = "qt"
+label = "T"
+scancode = "'T'"
+host = ["t"]
+group = "qwerty"
+
+[[keys]]
+key = "qy"
+label = "Y"
+scancode = "'Y'"
+host = ["y"]
+group = "qwerty"
+
+[[keys]]
+key = "qu"
+label = "U"
+scancode = "'U'"
+host = ["u"]
+group = "qwerty"
+
+[[keys]]
+key = "qi"
+label = "I"
+scancode = "'I'"
+host = ["i"]
+group = "qwerty"
+
+[[keys]]
+key = "qo"
+label = "O"
+scancode = "'O'"
+host = ["o"]
+group = "qwerty"
+
+[[keys]]
+key = "qp"
+label = "P"
+scancode = "'P'"
+host = ["p"]
+group = "qwerty"
+
+[[keys]]
+key = "qa"
+label = "A"
+scancode = "'A'"
+host = ["a"]
+group = "qwerty"
+
+[[keys]]
+key = "qs"
+label = "S"
+scancode = "'S'"
+host = ["s"]
+group = "qwerty"
+
+[[keys]]
+key = "qd"
+label = "D"
+scancode = "'D'"
+host = ["d"]
+group = "qwerty"
+
+[[keys]]
+key = "qf"
+label = "F"
+scancode = "'F'"
+host = ["f"]
+group = "qwerty"
+
+[[keys]]
+key = "qg"
+label = "G"
+scancode = "'G'"
+host = ["g"]
+group = "qwerty"
+
+[[keys]]
+key = "qh"
+label = "H"
+scancode = "'H'"
+host = ["h"]
+group = "qwerty"
+
+[[keys]]
+key = "qj"
+label = "J"
+scancode = "'J'"
+host = ["j"]
+group = "qwerty"
+
+[[keys]]
+key = "qk"
+label = "K"
+scancode = "'K'"
+host = ["k"]
+group = "qwerty"
+
+[[keys]]
+key = "ql"
+label = "L"
+scancode = "'L'"
+host = ["l"]
+group = "qwerty"
+
+[[keys]]
+key = "qz"
+label = "Z"
+scancode = "'Z'"
+host = ["z"]
+group = "qwerty"
+
+[[keys]]
+key = "qx"
+label = "X"
+scancode = "'X'"
+host = ["x"]
+group = "qwerty"
+
+[[keys]]
+key = "qc"
+label = "C"
+scancode = "'C'"
+host = ["c"]
+group = "qwerty"
+
+[[keys]]
+key = "qv"
+label = "V"
+scancode = "'V'"
+host = ["v"]
+group = "qwerty"
+
+[[keys]]
+key = "qb"
+label = "B"
+scancode = "'B'"
+host = ["b"]
+group = "qwerty"
+
+[[keys]]
+key = "qn"
+label = "N"
+scancode = "'N'"
+host = ["n"]
+group = "qwerty"
+
+[[keys]]
+key = "qm"
+label = "M"
+scancode = "'M'"
+host = ["m"]
+group = "qwerty"
+
+[[keys]]
+key = "qspace"
+label = "Space"
+scancode = "EStdKeySpace"
+host = ["spc"]
+group = "qwerty"
+
+[[keys]]
+key = "qenter"
+label = "Enter"
+scancode = "EStdKeyEnter"
+host = ["kp_enter"]
+group = "qwerty"
+
+[[keys]]
+key = "qshift"
+label = "Shift"
+scancode = "EStdKeyLeftShift"
+host = ["shift"]
+group = "qwerty"
+
+[[keys]]
+key = "qshiftr"
+label = "Shift R"
+scancode = "EStdKeyRightShift"
+host = ["shift_r"]
+group = "qwerty"
+
+[[keys]]
+key = "qfn"
+label = "Fn"
+scancode = "EStdKeyLeftFunc"
+host = ["alt"]
+group = "qwerty"
+
+[[keys]]
+key = "qfnr"
+label = "Fn R"
+scancode = "EStdKeyRightFunc"
+host = ["alt_r"]
+group = "qwerty"
+
+[[keys]]
+key = "qctrl"
+label = "Chr"
+scancode = "EStdKeyLeftCtrl"
+host = ["ctrl"]
+group = "qwerty"
+
+[[keys]]
+key = "qcomma"
+label = ","
+scancode = "EStdKeyComma"
+host = ["comma"]
+group = "qwerty"
+
+[[keys]]
+key = "qdot"
+label = "."
+scancode = "EStdKeyFullStop"
+host = ["dot"]
+group = "qwerty"
+
+[[keys]]
+key = "qquote"
+label = "'"
+scancode = "EStdKeySingleQuote"
+host = ["apostrophe"]
+group = "qwerty"
+
+[[keys]]
+key = "qbl"
+label = "["
+scancode = "EStdKeySquareBracketLeft"
+host = ["bracket_left"]
+group = "qwerty"
+
+[[keys]]
+key = "qbr"
+label = "]"
+scancode = "EStdKeySquareBracketRight"
+host = ["bracket_right"]
+group = "qwerty"
+
+[[keys]]
+key = "qminus"
+label = "-"
+scancode = "EStdKeyMinus"
+host = ["minus"]
+group = "qwerty"
+
+[[keys]]
+key = "qtab"
+label = "Tab"
+scancode = "EStdKeyTab"
+host = ["tab"]
+group = "qwerty"
+
+# QWERTY slide: wsini.ini hardware states EKeyDeviceB = 240x320 at 0, EKeyDeviceA = 320x240 at 90,
+# EKeyDeviceC = 320x240 at 270 [V]; sent as keys until a switch stand-in exists.
+[[switches]]
+name = "qwerty-slide"
+positions = ["closed", "open"]
+open  = { scancode = "EStdKeyDeviceA", host = ["f13"], set1 = 0x5d, layout = "landscape" }
+close = { scancode = "EStdKeyDeviceB", host = ["f14"], set1 = 0x5e, layout = "portrait" }

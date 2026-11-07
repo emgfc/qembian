@@ -35,6 +35,7 @@
 // Per device (board config from the profile's [board.display], tools/device.py board_config; the
 // defaults are the N95's): caps block size, native panel orientation, scan-line bytes (ctl 31 and the
 // LCD HAL's stride), panel rows (partial display), and which rotation indexes the panel accepts.
+const TInt KMaxCapsWords = 28;		// KCaps below
 static TInt CapsWords = 26;			// disp_caps
 static TBool NativeLandscape = ETrue;	// disp_native=landscape|portrait
 static TInt FbPitch = 1280;			// disp_pitch
@@ -43,7 +44,7 @@ static void ReadDisplayConfig()
 	{
 	char b[16];
 	CapsWords = BoardConfigInt("disp_caps", 26);
-	if (CapsWords < 1 || CapsWords > 26)
+	if (CapsWords < 1 || CapsWords > KMaxCapsWords)
 		CapsWords = 26;
 	if (BoardConfig("disp_native", b, sizeof(b)) > 0)
 		NativeLandscape = b[0] == 'l';
@@ -53,7 +54,7 @@ static void ReadDisplayConfig()
 				 NativeLandscape ? "landscape" : "portrait", CapsWords, FbPitch, PanelRows);
 	}
 
-static TUint32 KCaps[26] =
+static TUint32 KCaps[KMaxCapsWords] =		// N95 26 words, N73 23, 5730 27 (disp_caps); words 26.. unknown, 0
 	{
 	1,				// +0  display present
 	0,				// +4  caller is the window server (ScDv ignores it)
@@ -74,7 +75,8 @@ static TUint32 KCaps[26] =
 	0,				// +64 EColor16MA
 	0, 0, 0, 0, 0,	// +68..+84
 	1, 1,			// +88/+92 constants on the device (meaning unknown)
-	0, 0			// +96/+100
+	0, 0,			// +96/+100
+	0, 0			// +104/+108 (5730's 27th word; meaning unknown)
 	};
 
 // partial-display state (one panel) and the current rotation index (req 0x8003)

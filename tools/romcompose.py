@@ -144,6 +144,8 @@ def main():
                     help='add or replace a ROM file (data only), e.g. Sys/Data/ESTARTCOMP.TXT=rom/hybrid/ESTARTCOMP.TXT')
     ap.add_argument('--rofs', action='append', default=[], metavar='IMG',
                     help='ROFS image(s) for the N95 ROFS media (MEDROFS.PDD): first ROFS, then ROFx extension')
+    ap.add_argument('--rofs-drives', help='comma list of local drives, one per --rofs image (header version 2, '
+                    'e.g. 9,10,11 for a composite over ROFS1/2/3); default: one blob on drive 8 (ROFS1 + ROFx)')
     ap.add_argument('--exec92', action='store_true', help='= --exec-personality sym92 (the original flag, bit 29)')
     ap.add_argument('--exec-personality', help='personality NAME or number from personalities/registry.toml: '
                     'kernel config bits 25..28 (+ bit 29 for sym92)')
@@ -252,7 +254,28 @@ def main():
     # into the ROM (RAM): a 4 KB header page { "N95ROFS\0", size } and the blob at +0x1000, loaded
     # by QEMU at the flash window 0x60000000 (scripts/run-modern.sh)
     rofs_at = rofs_len = 0
-    if a.rofs:
+    if a.rofs and a.rofs_drives:
+        drives = [int(x, 0) for x in a.rofs_drives.split(',')]
+        if len(drives) != len(a.rofs):
+            raise SystemExit('--rofs-drives: %d drives for %d images' % (len(drives), len(a.rofs)))
+        blob, table = bytearray(), []
+        for drv, path in zip(drives, a.rofs):
+            img = open(path, 'rb').read()
+            if img[:4] not in (b'ROFS', b'ROFx'):
+                raise SystemExit('%s: not a ROFS image' % path)
+            table.append((drv, len(blob), len(img)))
+            blob += img + b'\xff' * ((-len(img)) % 0x1000)
+        rofs_len = len(blob)
+        if rofs_len + 0x1000 > 128 << 20:
+            raise SystemExit('ROFS blob 0x%x does not fit the 128 MB flash window' % rofs_len)
+        hdr = bytearray(0x1000)
+        struct.pack_into('<8sIII', hdr, 0, b'N95ROFS\0', rofs_len, 2, len(table))
+        for i, t in enumerate(table):
+            struct.pack_into('<III', hdr, 20 + 12 * i, *t)
+        with open(a.out + '.rofs', 'wb') as f:
+            f.write(hdr + blob)
+        print('ROFS flash image (v2): %s -> %s.rofs' % (', '.join('drive %d: 0x%x bytes' % (t[0], t[2]) for t in table), a.out))
+    elif a.rofs:
         blob = bytearray()
         for k, path in enumerate(a.rofs):
             img = open(path, 'rb').read()

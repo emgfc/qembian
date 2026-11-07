@@ -6,6 +6,11 @@
 // flash image <rom>.rofs = header page { "N95ROFS\0", TUint32 size } + blob at +0x1000;
 // scripts/run-modern.sh loads it there.
 // Registered as local drive N95ROFS_DRIVE (8, the N95's own ESTARTCOMP.TXT number).
+//
+// Header version 2 (words 3.. = { 2, count, then count x {local drive, offset, size} }): phones whose
+// composite Z: mounts several ROFS images on their own local drives (9.3 RAPIDO: ROFS1/2/3 on
+// drives 9/10/11, ESTARTCOMP "Z: 9 EROFS ROFS 0 FS_COMPOSITE" x3). Each image is one partition of
+// the same media, mapped to its drive; tools/romcompose.py --rofs-drives writes this layout.
 
 #include "locmedia.h"
 #include "platform.h"
@@ -16,7 +21,10 @@
 #define N95ROFS_DRIVE 8
 _LIT(KPddName, "Media.N95Rofs");
 _LIT(KDriveName, "N95Rofs");
-static const TInt KDriveNumbers[1] = { N95ROFS_DRIVE };
+const TInt KMaxRofs = 4;
+static TInt KDriveNumbers[KMaxRofs] = { N95ROFS_DRIVE };
+static TInt RofsCount = 1;						// partitions (= drives)
+static TInt RofsOffset[KMaxRofs], RofsLen[KMaxRofs];
 
 static TLinAddr RofsBase = 0;
 static TInt RofsSize = 0;
@@ -34,6 +42,21 @@ static TInt FindRofs()
 	TBool ok = t[0] == 0x5235394e /*"N95R"*/ && t[1] == 0x0053464f /*"OFS\0"*/ && t[2] > 0
 			   && t[2] <= (TUint32)(KFlashWindow - 0x1000);
 	RofsSize = ok ? (TInt)t[2] : 0;
+	RofsCount = 1;
+	RofsOffset[0] = 0;
+	RofsLen[0] = RofsSize;
+	if (ok && t[3] == 2 && t[4] >= 1 && t[4] <= (TUint32)KMaxRofs)	// version 2: one drive per image
+		{
+		RofsCount = t[4];
+		for (TInt i = 0; i < RofsCount; ++i)
+			{
+			KDriveNumbers[i] = t[5 + 3*i];
+			RofsOffset[i] = t[6 + 3*i];
+			RofsLen[i] = t[7 + 3*i];
+			if (RofsOffset[i] < 0 || RofsLen[i] <= 0 || RofsOffset[i] + RofsLen[i] > RofsSize)
+				ok = EFalse;
+			}
+		}
 	hdr->Close(NULL);
 	if (!ok)
 		return KErrNotFound;
@@ -76,10 +99,14 @@ public:
 	virtual void Disconnect(DLocalDrive*, TThreadMessage*) {}
 	virtual TInt PartitionInfo(TPartitionInfo& anInfo)
 		{
-		anInfo.iPartitionCount = 1;
-		anInfo.iEntry[0].iPartitionBaseAddr = 0;
-		anInfo.iEntry[0].iPartitionLen = anInfo.iMediaSizeInBytes = RofsSize;
-		anInfo.iEntry[0].iPartitionType = KPartitionTypeRofs;
+		anInfo.iPartitionCount = RofsCount;
+		anInfo.iMediaSizeInBytes = RofsSize;
+		for (TInt i = 0; i < RofsCount; ++i)
+			{
+			anInfo.iEntry[i].iPartitionBaseAddr = RofsOffset[i];
+			anInfo.iEntry[i].iPartitionLen = RofsLen[i];
+			anInfo.iEntry[i].iPartitionType = KPartitionTypeRofs;
+			}
 		return KErrNone;
 		}
 	virtual void NotifyPowerDown() {}
@@ -145,11 +172,12 @@ DECLARE_EXTENSION_PDD()
 DECLARE_STANDARD_EXTENSION()
 	{
 	TInt r = FindRofs();
-	Kern::Printf("N95ROFS: %s base %08x size %08x -> local drive %d", r == KErrNone ? "flash" : "NO ROFS in flash", RofsBase, RofsSize, N95ROFS_DRIVE);
+	Kern::Printf("N95ROFS: %s base %08x size %08x -> %d image(s), local drive %d..", r == KErrNone ? "flash" : "NO ROFS in flash",
+				 RofsBase, RofsSize, RofsCount, KDriveNumbers[0]);
 	if (r != KErrNone)
 		return KErrNone;	// nothing to serve; don't fail the boot
 	DPrimaryMediaBase* pM = new DPrimaryMediaBase;
 	if (!pM)
 		return KErrNoMemory;
-	return LocDrv::RegisterMediaDevice(EFixedMedia2, 1, &KDriveNumbers[0], pM, 1, KDriveName);
+	return LocDrv::RegisterMediaDevice(EFixedMedia2, RofsCount, &KDriveNumbers[0], pM, 1, KDriveName);
 	}

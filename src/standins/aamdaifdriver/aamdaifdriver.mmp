@@ -1,0 +1,12 @@
+// AAMdaifDriver.ldd stand-in (5730 RAPIDO audio, probe: logs and accepts) (see nokiastub.h)
+#include "../../variant.mmh"
+#include <kernel/kern_ext.mmh>
+target			VariantTarget(aamdaifdriver,ldd)
+linkas			aamdaifdriver.ldd
+targettype		ldd
+sourcepath		.
+source			aamdaifdriver.cpp
+noexportlibrary
+vendorid		0x70000001
+capability		all
+userinclude		../_shared	// src/standins/_shared: nokiastub.h, iscpeer.inl, isireplies.h, stubcert.h

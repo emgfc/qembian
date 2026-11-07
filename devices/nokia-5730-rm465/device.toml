@@ -1,0 +1,291 @@
+# Nokia 5730 XpressMusic (RM-465): Symbian 9.3 / S60 3rd Edition FP2, BB5 RAPIDO platform, QWERTY
+# slide. Third device; flow and lessons: docs/adding-a-device.md. Evidence: [V] firmware/run, [I] inferred.
+schema = 1
+
+[device]
+id = "nokia-5730-rm465"
+vendor = "Nokia"
+model = "5730 XpressMusic"
+type_code = "RM-465"
+aliases = ["5730"]
+market = "global"
+
+[platform]
+os = "symbian"
+os_version = "9.3"
+ui = "s60-3.2"                             # S60 3rd Edition Feature Pack 2
+personality = "sym92"                      # [V] 9.3's EUSER stub sequence and shape equal the N95's 9.2 ones, the
+                                           # kernels' exec handlers copy the same sizes (exec_sizes.py): no own map needed
+soc = "rapido"                             # karap.dll, RAP3NAND partition [V names]; ARM11 [I]
+cellular = "bb5"
+
+[firmware]
+version = "101.48.128"
+container = "fiasco-bb5"
+checksums = "firmware.sha256"
+obtain = """
+Flash files of an RM-465 software version: the core .c00 (SOS+CORE demand-paged XIP + SOS+ROFS1) and
+the ROFS2/ROFS3 .v19 files. Put them in roms/RM-465_Nokia-5730-XpressMusic/<version>/ (git-ignored)
+and point FW_DIR at that directory.
+"""
+
+[[firmware.files]]
+role = "core"                              # SOS+CORE (paged, 0xC00 RAPIDO NAND prefix) + SOS+ROFS1
+glob = "rm465_*_prd.c00"
+partitions = { core = "SOS_CORE", rofs = "SOS_ROFS1" }
+
+[[firmware.files]]
+role = "rofs2"                             # language pack
+glob = "rm465_*_prdapps.rofs2.v??"
+partitions = { rofs = "SOS_ROFS2" }
+
+[[firmware.files]]
+role = "rofs3"                             # customer variant
+glob = "rm465_*_prdapps.rofs3.v??"
+partitions = { rofs = "SOS_ROFS3" }
+
+[firmware.identity]
+sw = { version = "101.48.128", date = "10-06-09", type_code = "RM-465" }      # Resource/versions/sw.txt [V]
+langsw = {}
+drivers = ["wlanldd.ldd", "wlanpdd.pdd"]
+[firmware.identity.sha256]
+"core-flat.img" = "3bbd90c2b0d70893da94906520e817623fff01657726a93c76573d824b6f5155"
+"rofs1.img" = "df4ca0c47b107013fdb69d5284e76577f092d04d25cb3aeb0d3f597437e7627c"
+"rofs2.img" = "ca48ead3f4d70a62f9f5de6770e36d984234204ac147ce1fda65bd230592dd09"
+
+[firmware.rom]
+base = 0x80000000                          # [V] multiple memory model
+kernel_data = 0xC8000000
+memory_model = "multiple"
+paged = true
+user_window_start = 0x80274B50             # ecomp.fsy; kernel side is one block below it [V]
+
+# ---------------------------------------------------------------------------------------------
+[board]
+machine = "syborg"
+cpu = "arm1136-r2"
+ram_mb = 172                               # 128 MB on the phone [I: spec sheet] + the unpaged 43.9 MB core image
+ram_mb_real = 128
+
+[board.display]
+width = 240                                # wsini.ini SCR_WIDTH1/HEIGHT1, rotation 0 [V]
+height = 320
+native_orientation = "portrait"            # 240x320 at 0; 320x240 at 90/270 on the slide states [V wsini]
+line_pitch = 960
+panel_rows = 320
+caps_words = 27                            # r_display: CDisplayDriver 0x84 bytes, caps at +0x18, 0x6C bytes [V]
+bpp = 32
+hal_modes = ["EColor64K", "EColor16MU"]    # WINDOWMODE COLOR16MU [V]
+hal_mode = 1
+refresh_hz = 60
+blank_dim_percent = 25
+partial_mode = true
+touch = false
+rotation_caps = [1, 1, 1]
+
+[board.timing]
+fast_counter_hz = 32768                    # [I]
+nanokernel_tick_us = 1000                  # [I]
+rtc = "syborg-rtc"
+
+[board.audio]
+device = "syborg-audio"
+host_default = "pipewire"
+dsp = "none"                               # RAPIDO audio (AAMdaifDriver.ldd, minkda.ldd, esound.ldd): no stand-in yet
+
+[board.flash]
+base = 0x60000000
+size_mb = 128
+content = "rofs"
+
+[[board.drives]]
+letter = "D"
+local_drive = 0
+kind = "iram"
+flags = "FS_FORMAT_COLD,FS_SYNC_DRIVE"
+
+[[board.drives]]
+letter = "C"
+local_drive = 1
+kind = "nvmem"
+image = "nvmemory.img"
+size = "64M"
+flags = "FS_FORMAT_CORRUPT,FS_SCANDRIVE"
+
+[[board.drives]]
+letter = "E"
+local_drive = 2
+kind = "nvmem2"
+image = "nvmemory2.img"
+size = "1G"
+removable = true
+flags = "FS_FORMAT_CORRUPT,FS_SCANDRIVE"
+
+[[board.drives]]
+letter = "Z"
+local_drive = 9                            # ROFS1 (ESTARTCOMP "Z: 9 EROFS ROFS 0 FS_COMPOSITE" x3) [V]
+kind = "composite"
+flags = "FS_COMPOSITE"
+
+[[board.drives]]
+letter = "Z"
+local_drive = 10                           # ROFS2
+kind = "composite"
+flags = "FS_COMPOSITE"
+
+[[board.drives]]
+letter = "Z"
+local_drive = 11                           # ROFS3
+kind = "composite"
+flags = "FS_COMPOSITE"
+
+[board.input]
+keymap = "keymap.toml"                     # keypad_exp.dll matrix [V]
+translation = "qemu"
+
+# ---------------------------------------------------------------------------------------------
+[hardware]
+wlan = true                                # wlanldd/wlanpdd in the core [V]
+bluetooth = true
+camera = { main_mp = 3.2, front = true, key = "none" }
+fm_radio = true
+gps = false                                # [I]
+accelerometer = true                       # accelerometerldd/pdd [V]
+slides = ["qwerty"]
+leds = ["keypad-backlight", "display-backlight"]
+memory_card = true
+mass_memory_gb = 0
+tv_out = true                              # [I]
+dsp = "none"
+gpu = "none"
+
+# ---------------------------------------------------------------------------------------------
+[kernel]
+baseport = "syborg"
+variant = "udeb"
+trace_mask = 0x80000000
+secondary = "sys/bin/efile.exe"
+critical_thread_policy = "spare"
+user_memory_guards = false
+place = "after-firmware"                   # our kernel side (to 0x8031xxxx) does not fit below the user side (0x80274B50)
+patchsets = ["platform", "sym92", "n95"]
+missing_drivers = ["karap.dll", "keypad_exp.dll", "minkda.ldd", "esound.ldd", "accelerometerldd.ldd",
+                   "accelerometerpdd.pdd", "magnetometerldd.ldd", "magnetometerpdd.pdd", "camldd.ldd", "campdd.pdd",
+                   "camsecondarypdd.pdd", "wlanldd.ldd", "wlanpdd.pdd", "pltwlanpdd.pdd", "bc02.ldd", "bc02_uart1.pdd",
+                   "medsd.pdd", "mobilecrashdriver.ldd", "tcldd.ldd", "tracecoreostldd.ldd", "rebootdriver.ldd"]
+
+[kernel.lcd]
+target = "lcd_portrait"
+macros = ["__PORTRAIT_DISPLAY__", "SYBORG_FB_REPORTED_BPP=32", "SYBORG_FB_DISPLAY_MODE=1", "SYBORG_FB_NUM_MODES=2"]
+
+[[standins]]
+name = "nokiaiscdriver"
+kind = "ldd"
+family = "nokia-bb5"
+role = "modem link (ISC channels 0..31), fake CMT peer iscpeer.inl"
+
+[[standins]]
+name = "sisadriver"
+kind = "ldd"
+family = "nokia-bb5"
+role = "load-only (IscApi's RAPIDO transport; the N95 loads xbus.ldd instead)"
+
+[[standins]]
+name = "iscisimultiplexer"
+kind = "ldd"
+family = "nokia-bb5"
+role = "load-only"
+
+[[standins]]
+name = "nokiaiscdriverextension"
+kind = "ldd"
+family = "nokia-bb5"
+role = "modem link (ISC channels 32..63)"
+
+[[standins]]
+name = "custom"
+kind = "ldd"
+family = "nokia-bb5"
+role = "startup mode"
+
+[[standins]]
+name = "d_display"
+kind = "ldd"
+family = "nokia-omap2"
+role = "DisplayDriver (board config: 27 caps words, portrait panel, 960-byte stride)"
+
+[[standins]]
+name = "secldd"
+kind = "ldd"
+family = "nokia-bb5"
+role = "SecEnv"
+
+[[standins]]
+name = "lightldd"
+kind = "ldd"
+family = "nokia-bb5"
+role = "backlight LDD"
+
+[[standins]]
+name = "lightpdd"
+kind = "pdd"
+family = "nokia-bb5"
+role = "backlight PDD: load-only"
+
+[[standins]]
+name = "aamdaifdriver"
+kind = "ldd"
+family = "nokia-rapido"
+role = "MdaifDriver (RAPIDO audio): PROBE, accepts and logs everything (H-mdaif-probe)"
+
+[[standins]]
+name = "medrofs"
+kind = "extension"
+family = "common"
+role = "ROFS1/2/3 from the flash window on local drives 9/10/11 (header version 2)"
+
+[[standins]]
+name = "mednvmem2"
+kind = "extension"
+family = "common"
+role = "second NVMemory (E:) on local drive 2"
+
+# ---------------------------------------------------------------------------------------------
+[modem]
+kind = "isi-fake-peer"
+names = "platform/isi/names.txt"
+replies = "isi-replies.txt"
+stateful = "nokiaiscdriver"
+device_id = 0x6C
+imei = "490154203237518"                   # documentation example, not a real IMEI (H-imei)
+sim = "absent"
+mtc_state = "normal"
+power_off_delay_s = 3
+battery_bars = 7
+charger = false
+rtc_valid = true
+phone_lock = "disabled"
+
+[rom]
+code_patches = []
+files = [{ rom = "Sys/Data/ESTARTCOMP.TXT", local = "ESTARTCOMP.TXT" }]
+manifest = "hybrid-manifest.txt"
+
+[gl]
+impl = "none"
+
+[milestones]
+first_output = ""
+wserv = "N95STUB: install DisplayDriver"
+startup_ui = "N95PROP: Startup::startup sets 101f8766/4"
+idle = "SysAp::SysAp sets 101f8766/41 = 203"
+expected_idle_s = 60                       # [I] until measured
+
+[props]
+startup = { category = 0x101F8766, state = 0x41, ui_phase = 0x4 }
+sim_status = { category = 0x101F75B6, key = 0x100052E9 }
+
+[status]
+level = "L0-pending"
+updated = "2026-11-07"
+open = ["first boot"]
