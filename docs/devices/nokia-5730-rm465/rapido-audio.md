@@ -151,3 +151,99 @@ plays; a playback mock must return a writable buffer there (out of scope).
 Log: `ctl 5` -> ISCPEER F3 30 answered 31 -> `ctl 7` x4 (`[0 0 0 0]`, `[1 0 0 0]`, ...) -> `ctl 6`;
 `!CdspControlServer` then enters its scheduler and MmfAudioServer start-up completes. If anything still
 waits, the fallback is `v = 1` in ctl 5 (skips F3 entirely; ctls 7/6 never come).
+
+## Playback requests (silent)
+
+Follow-up (static reading only). Blocker seen: `!CdspControlServer` after MdaifDriver ctl 8 sends
+F3 0x32 `00 00 | 00 02 | 00 01 | 00 03 | 02 00 | 00 00` and waits for 0x33.
+
+### What one DSP request does (cdspcontrolserver 0x80932118, one branch per command 7, 8, 9, 11, 12, ...) [verified]
+
+1. **ctl 8** (AAMdaifApi ord 4) with a1 -> `{cmd, &o1, &o2, &o3}`. cmd is 0/1/2 for server commands 7/8/9.
+   The three out words are pre-set to 0 by the client. cdspcontrolserver reads **only o1**, as
+   `o1 / 1920` (cmd 0), `/ 960` (cmd 1) or `/ 320` (cmd 2), which becomes u16 @20 of 0x32. o1 = 0 is fine.
+   **ctl 8 does not have to write anything** for this path [verified]. In aamdaif.dll (the PCM data path,
+   not this blocker), o1/o2 are the size/offset passed to ctl 2 dir 1, so 0 means empty buffers [inferred].
+2. Aamm ord 38 -> **F3 0x32**, then `CActiveSchedulerWait::Start`.
+3. **0x33** -> Aamm 0x807bb954 -> observer slot 6 (cdspcontrolserver 0x809328b4) = `AsyncStop` only.
+   The values are passed but ignored [verified].
+4. Aamm ord 51 -> **F3 0x3B**, then **a second wait**. This is the next blocker once 0x33 is answered [verified].
+5. **0x3C** -> Aamm 0x807bc94c -> observer slot 0 (0x80932812) = `AsyncStop` only [verified]. Then the
+   server writes a status string (0x8093202c) and completes the request. No further wait, and no ctl
+   9/11/12 [verified for commands 7 and 8; other commands use the same pattern, inferred].
+
+The F3 sub-objects (+0x11c: 0x31/33/35/37, +0x120: 0x3C/3E/40/42/54, +0x124: 0x52/57/58) all report to
+the same observer, cdspcontrolserver+0x68 (Aamm 0x807bb0c8) [verified]. Its slots:
+
+| reply | slot | cdspcontrolserver action |
+|---|---|---|
+| 0x31 | 5 | memory map (above) + AsyncStop |
+| 0x33 | 6 | AsyncStop |
+| 0x37 | 7 | nothing (`bx lr`) |
+| 0x35 | 8 | nothing |
+| 0x3C / 0x3E / 0x40 | 0 / 1 / 2 | AsyncStop |
+| 0x42 / 0x54 | 3 / 4 | nothing |
+
+So cdspcontrolserver checks no status anywhere: any well-formed reply counts as success [verified].
+Request -> reply pairs: 0x30->31, 0x32->33, 0x34->35, 0x36->37, 0x3B->3C (ord 51), 0x3D->3E (ord 36),
+0x3F->40 (ord 39), 0x41->42 (ord 52, sent without a wait). cdspcontrolserver never sends 0x34 or 0x36: it
+does not import their Aamm ordinals [verified].
+
+### Field meanings (mock level)
+
+0x32 request [verified offsets; meanings inferred]:
+
+| offset | field |
+|---|---|
+| @10 | command index 0/1/2 |
+| @12 | constant 2 |
+| @14 | channels code (Aamm 0x807bcb18: 1 -> 0, 2 -> 1; so 1 = stereo) |
+| @16 | raw format arg (3) |
+| @18 | sample-rate code (0x0200, about 48 kHz) |
+| @20 | buffer frames (o1 / 1920 ...) |
+
+Parsing traps that **panic** inside Aamm (`User::Panic`) on bad values [verified]:
+- **Sample-rate code** (Aamm 0x807bca9a). It must be one of 0x0002, 0x0004, 0x0008, 0x0010, 0x0020,
+  0x0040, 0x0080, 0x0100, 0x0200, 0x0800 or 0x1000; anything else panics with code 6 (0 does too).
+  These map to the TMMFSampleRate bits 8k, 11.025k, 12k, 16k, 22.05k, 24k, 32k, 44.1k, 48k, 88.2k and
+  96k [inferred].
+- **Channels code** (Aamm 0x807bcb34). It must be 0 or 1, else panic 0.
+
+The reply fields and their checks:
+- **0x33**: u16 @10 and u16 @12 (echo of the request, inferred), u16 @14 = sample-rate code (**must be valid**).
+- **0x3C** and **0x3E**: u16 @10, u16 @12 (status/handle, inferred, unchecked).
+- **0x40**: u16 @10.
+- **0x35**: u16 @10, u32 @12.
+- **0x37**: u16 @10, u32 @12, u16 @16 = channels code (0/1), u16 @18 = sample-rate code (**must be valid**).
+
+All getters come from isimessage.dll (ords 22/23). "02 00" is valid whether it is read big-endian
+(0x0200) or little-endian (0x0002) [verified set].
+
+### Reply lines (devices/nokia-5730-rm465/isi-replies.txt)
+
+```
+reply F3 32 33 00 00 00 02 02 00                          # DSP stream setup: @10/@12 echo, @14 rate code 0x0200 (Aamm 0x807bca9a panics on 0); cdsp slot 6 = AsyncStop only
+reply F3 3B 3C 00 00 00 00                                # DSP request step 2 (Aamm ord 51): cdsp slot 0 = AsyncStop; values unchecked
+reply F3 3D 3E 00 00 00 00                                # (Aamm ord 36) cdsp slot 1 = AsyncStop
+reply F3 3F 40 00 00                                      # (Aamm ord 39) cdsp slot 2 = AsyncStop
+reply F3 41 42 00 00                                      # (Aamm ord 52, no wait) ignored; stops "no reply" noise
+reply F3 34 35 00 00 00 00 00 00                          # not sent by cdsp; harmless if another client sends it
+reply F3 36 37 00 00 00 00 00 00 00 00 02 00              # not sent by cdsp; @16 channels 0 (mono), @18 rate 0x0200 (both checked)
+```
+Lines 1–4 are needed (3 and 4 for commands whose branch uses ord 36/39, inferred); lines 5–7 are optional.
+All are 32 bytes or less, so the generator works without changes.
+
+### MdaifDriver (aamdaifdriver.cpp)
+
+- **ctl 8**: return 0 and write nothing. That is enough for cdspcontrolserver [verified]. The current
+  default (KErrNone, no write) already does this.
+- **ctl 9** (aamdaif ord 10; a1 is a small integer, 1 or 2, not a pointer) and **ctl 11**: return 0.
+  Not used on this path [verified, cdspcontrolserver does not import them].
+- **ctl 12**: only reached through AAMdaifApi ord 5 when ctl 10 returns 1. Keep ctl 10 at 0 [verified].
+- Suggested change to the ctl-2 hook: when `w[3] == 1` (aamdaif's writable buffer, size taken from
+  ctl 8's o1 = 0), write NULL instead of the ROM table pointer, so a zero-length `TPtr8` never points
+  into ROM. Mapping a real buffer is out of scope [inferred].
+
+Expected log after the change [inferred]: `ctl 8` -> F3 32 answered 33 -> F3 3B answered 3C -> the
+request completes, the tone path finishes silently. If something still waits, look for an unanswered
+F3 3D/3F or a resource 0x0B/0x77 request from the `!AudioServer` thread.

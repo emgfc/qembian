@@ -29,3 +29,16 @@ reply 19 0A 0B 01 01 04 04 01 00                          # RTC status (DosServe
 # waits for 0x31 with 34 bytes {2 unread, A0..A3, B0..B3 as u32}; nothing is validated, zeros = no DSP
 # memory to map (docs/devices/nokia-5730-rm465/rapido-audio.md). Without it start-up times out.
 reply F3 30 31 len=34
+# 5730 playback-time DSP requests, silent (docs/devices/nokia-5730-rm465/rapido-audio.md "Playback
+# requests (silent)"): each request is ctl 8 -> 0x32/0x33 -> 0x3B/0x3C; no status is checked, but Aamm
+# panics on a sample-rate code outside {2,4,8,..,0x200,0x800,0x1000} (0x33 @14) [V]
+reply F3 32 33 00 00 00 02 02 00
+reply F3 3B 3C 00 00 00 00
+# other commands, same pattern [inferred]
+reply F3 3D 3E 00 00 00 00
+reply F3 3F 40 00 00
+reply F3 41 42 00 00
+# 5730 TSY: PN_SIM 0x62 {4D 01 01} after ETel request 40018 (ConnMon, then DosServer's SAE thread wait on
+# it); unanswered, the SIM state was never published and startup.exe never entered its UI phase.
+# No SIM: "service, 0x24 = not available" as the N95/N73 TSYs accept for SIM reads [inferred]
+reply 09 62 63 4D 24

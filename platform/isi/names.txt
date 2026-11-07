@@ -82,5 +82,7 @@ msg DB 01 PNS_NAME_QUERY_REQ              verified
 msg DB 05 PNS_NAME_ADD_REQ                verified
 msg DB 07 PNS_NAME_REMOVE_REQ             verified
 msg F3 30 DSP_START_REQ?                  inferred  # header only; resp 31 = 34 bytes (A0..A3, B0..B3)
+msg F3 32 DSP_PCM_SETUP_REQ?              inferred  # resp 33 {u16, u16, rate code}; 5730 Aamm
+msg F3 3B DSP_PCM_START_REQ?              inferred  # resp 3C; the second wait of a playback request
 
 # ---- canned replies (formerly the KTable in iscpeer.inl) ----
