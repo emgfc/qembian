@@ -6,7 +6,7 @@
 # The board (machine, CPU, RAM, display, ROFS flash window, drive sizes) comes from the device profile
 # (tools/device.py qemu-args; --device ID, else $SYBORG_DEVICE, else devices/default). --fb overrides
 # the display size.
-# Defaults: headless (-display none), serial0 on stdout, fresh 64 MB NVMemory image (C: drive)
+# Defaults: headless (-display none; --gui: a GTK window, QEMU_DISPLAY=sdl for SDL), serial0 on stdout, fresh 64 MB NVMemory image (C: drive)
 # per run (--nvmem, default build/run-modern/nvmemory-<pid>.img, deleted on exit unless given),
 # E: likewise (--nvmem2, 1 GB sparse). A FILE given explicitly is persistent: created when
 # missing (C: 64 MB, E: 1 GB, or NVMEM_SIZE / NVMEM2_SIZE), never wiped; the phone formats it.
@@ -26,7 +26,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --device) DEVICE="$2"; shift ;;
     --timeout) TIMEOUT="$2"; shift ;;
-    --gui) DISPLAY_OPT=() ;;
+    --gui) DISPLAY_OPT=(-display "${QEMU_DISPLAY:-gtk}") ;;   # explicit: a -vnc (sydb adds one) would otherwise be the only display
     --gdb) GDB=(-s) ;;
     --gdb-wait) GDB=(-s -S) ;;
     --serial-log) SERIAL=(-serial "file:$2"); shift ;;
