@@ -180,6 +180,11 @@ These recur from phone to phone; check them before chasing symptoms.
   they are answered (LSK/RSK). The smoke test needs drives from an answered first boot.
 - **The UI language is the firmware's language pack**: an archive's ROFS2/ROFx may hold only some
   languages (check `rofs.py rofs2.img | grep -oE '\.r[0-9]+$' | sort | uniq -c`).
+- **Devices that share a kernel baseport share its guest keyboard fallback table**
+  (`syborg_keyboard_map.h`, generated at `--kernel` build time): the last device built wins. With
+  `translation = "qemu"` it only covers keys the QEMU keymap does not map, but rebuild a device's
+  kernel side (`--kernel`) after building another one on the same baseport
+  (`tests/device_py_test.py` checks the default device's).
 - **Research in parallel.** A mock-level research agent (CLAUDE.md rules) on one protocol question
   while you keep booting keeps the main loop short; give it the exact request bytes and log lines.
 
