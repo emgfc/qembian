@@ -458,11 +458,30 @@ static const Property syborg_audio_properties[] = {
     DEFINE_AUDIO_PROPERTIES(SyborgAudioState, audio_be),
 };
 
+/* a machine reset: playback stopped (its queue points at the old boot's buffers), the decoder closed,
+   registers as at power on */
+static void syborg_audio_reset(DeviceState *dev)
+{
+    SyborgAudioState *s = SYBORG_AUDIO(dev);
+    syborg_audio_stop(s);
+    syborg_audio_dec_close(s);
+    s->format = 0;
+    s->rate = 8000;
+    s->channels = 1;
+    s->volume = 200;
+    s->buf_addr = s->buf_len = s->status = s->int_enable = s->int_status = 0;
+    s->tone_freq1 = s->tone_freq2 = s->tone_ms = s->done_count = 0;
+    s->tone_phase = 0;
+    s->config_addr = s->config_len = 0;
+    syborg_audio_update_irq(s);
+}
+
 static void syborg_audio_class_init(ObjectClass *oc, const void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(oc);
 
     dc->realize = syborg_audio_realize;
+    device_class_set_legacy_reset(dc, syborg_audio_reset);
     dc->vmsd = &vmstate_syborg_audio;
     device_class_set_props(dc, syborg_audio_properties);
 }

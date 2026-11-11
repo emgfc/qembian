@@ -1,0 +1,10 @@
+// eglprobe's entry in the application menu (eglprobe.cpp)
+#include <appinfo.rh>
+
+UID2 KUidAppRegistrationResourceFile
+UID3 0xE0001DC0
+
+RESOURCE APP_REGISTRATION_INFO
+	{
+	app_file = "eglprobe";
+	}

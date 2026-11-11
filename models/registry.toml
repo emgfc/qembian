@@ -1,0 +1,227 @@
+# Known Nokia type codes (docs/device-model-v2.md 2.1): grows with our knowledge. A row needs no profile;
+# it lets ROM identification say "known phone, no emulation profile yet" instead of "unknown".
+#   code      type designator (sw.txt / .vpl TypeDesignator)
+#   name      marketing name;  platform: S60/Symbian release;  soc: adaptation family ([I] = not checked)
+#   model     emulation profile id (models/<id>/), "" = none;  base: for a variant, the model it extends
+#   status    supported (a profile boots) | profile-draft | known (firmware held or targeted, no profile)
+# Seeded 2026-11-10 from docs/device-matrix.md sections 2-3 and the firmware held in roms/.
+schema = 1
+default = "nokia-n95-8gb-rm320"         # the device a bare tools/device.py, sydb or script uses when no SYBORG_DEVICE / instance names one
+
+[[types]]
+code = "RM-132"
+name = "N73"
+platform = "s60-3.0"
+soc = "omap1710"
+model = "nokia-n73-rm132"
+status = "supported"
+
+[[types]]
+code = "RM-133"
+name = "N73 Music Edition"
+platform = "s60-3.0"
+soc = "omap1710"
+model = "nokia-n73-rm133"
+base = "nokia-n73-rm132"
+status = "supported"
+
+[[types]]
+code = "RM-320"
+name = "N95 8GB"
+platform = "s60-3.1"
+soc = "omap2420"
+model = "nokia-n95-8gb-rm320"
+status = "supported"
+
+[[types]]
+code = "RM-321"
+name = "N95 8GB (China)"
+platform = "s60-3.1"
+soc = "omap2420"
+model = "nokia-n95-8gb-rm321"
+base = "nokia-n95-8gb-rm320"
+status = "profile-draft"                     # no firmware held
+
+[[types]]
+code = "RM-465"
+name = "5730 XpressMusic"
+platform = "s60-3.2"
+soc = "rapido"
+model = "nokia-5730-rm465"
+status = "supported"
+
+[[types]]
+code = "RM-348"
+name = "N79"
+platform = "s60-3.2"
+soc = "rapido"
+model = "nokia-n79-rm348"
+status = "supported"
+
+[[types]]
+code = "RM-356"
+name = "5800 XpressMusic"
+platform = "s60-5.0"
+soc = "rapido"
+model = "nokia-5800-rm356"
+status = "supported"
+
+[[types]]
+code = "RM-596"
+name = "N8"
+platform = "symbian3"
+soc = "rapido-bcm2727"
+model = "nokia-n8-rm596"
+status = "supported"
+
+[[types]]
+code = "RM-774"
+name = "701"
+platform = "belle-fp2"
+soc = "bcm2763"
+model = "nokia-701-rm774"
+status = "profile-draft"                     # boots to the window server (personalities/sym102)
+
+[[types]]
+code = "RM-807"
+name = "808 PureView"
+platform = "belle-fp2"
+soc = "bcm2763"
+model = "nokia-808-rm807"
+status = "profile-draft"
+
+[[types]]
+code = "RM-469"
+name = "E52"
+platform = "s60-3.2"
+soc = "rapido-isa"                           # isaaccessldd, ARMv6K EUser (TPIDRURW) [V 022.009]
+model = "nokia-e52-rm469"
+status = "profile-draft"  # boots to the first-boot wizard / agent (2026-11-11); not tried further
+
+[[types]]
+code = "RM-530"
+name = "E72"
+platform = "s60-3.2"
+soc = "rapido [I]"
+model = "nokia-e72-rm530"
+status = "profile-draft"  # boots to the first-boot wizard / agent (2026-11-11); not tried further
+
+[[types]]
+code = "RM-632"
+name = "E5-00"
+platform = "s60-3.2"
+soc = "rapido [I]"
+model = "nokia-e5-00-rm632"
+status = "profile-draft"  # boots to the first-boot wizard / agent (2026-11-11); not tried further
+
+[[types]]
+code = "RM-346"
+name = "E71"
+platform = "s60-3.1"
+soc = "freescale-mxc300 [I]"
+model = "nokia-e71-rm346"
+status = "profile-draft"  # does not boot yet (docs/devices.md bring-up notes)
+
+[[types]]
+code = "RM-424"
+name = "6720 classic"
+platform = "s60-3.2"
+soc = "rapido [I]"
+model = "nokia-6720-rm424"
+status = "profile-draft"  # does not boot yet (docs/devices.md bring-up notes)
+
+[[types]]
+code = "RM-505"
+name = "N97"
+platform = "s60-5.0"
+soc = "omap3430 [I]"
+model = "nokia-n97-rm505"
+status = "profile-draft"  # boots to the first-boot wizard / agent (2026-11-11); not tried further
+
+[[types]]
+code = "RM-484"
+name = "N86 8MP"
+platform = "s60-3.2"
+soc = "[I]"
+model = "nokia-n86-rm484"
+status = "profile-draft"  # boots to the first-boot wizard / agent (2026-11-11); not tried further
+
+[[types]]
+code = "RM-179"
+name = "N81 8GB"
+platform = "s60-3.1"
+soc = "omap2420 [I]"
+model = "nokia-n81-8gb-rm179"
+status = "profile-draft"  # does not boot yet (docs/devices.md bring-up notes)
+
+[[types]]
+code = "RM-223"
+name = "N81"
+platform = "s60-3.1"
+soc = "omap2420 [I]"
+model = ""
+status = "known"                             # archives held (Downloads)
+
+[[types]]
+code = "RM-159"
+name = "N95"
+platform = "s60-3.1"
+soc = "omap2420"
+model = "nokia-n95-rm159"
+status = "profile-draft"  # boots to the first-boot wizard / agent (2026-11-11); not tried further
+
+[[types]]
+code = "RM-559"
+name = "X6"
+platform = "s60-5.0"
+soc = "rapido [I]"
+model = ""
+status = "known"
+
+[[types]]
+code = "RM-645"
+name = "C5-00"
+platform = "s60-3.2"
+soc = "rapido [I]"
+model = ""
+status = "known"
+
+[[types]]
+code = "RM-626"
+name = "E7"
+platform = "symbian3"
+soc = "rapido-bcm2727 [I]"
+model = ""
+status = "known"
+
+[[types]]
+code = "RM-609"
+name = "E6"
+platform = "anna"
+soc = "rapido-bcm2727 [I]"
+model = ""
+status = "known"
+
+[[types]]
+code = "RM-243"
+name = "6120 classic"
+platform = "s60-3.1"
+soc = "freescale-mxc300 [I]"
+model = ""
+status = "known"
+
+[[types]]
+code = "RM-153"
+name = "N93"
+platform = "s60-3.0"
+soc = "omap2420"
+model = ""
+status = "known"
+
+[[types]]
+code = "RM-750"
+name = "500"
+platform = "anna"
+soc = "[I]"
+model = ""
+status = "known"

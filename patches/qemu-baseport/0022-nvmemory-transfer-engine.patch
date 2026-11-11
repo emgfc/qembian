@@ -1,0 +1,392 @@
+NVMemory media driver: a simple transfer engine (the N79's factory C: faulted the kernel)
+
+The original split/head/tail bookkeeping counted alignment overhead across passes and faulted
+("Illegal transfer operation!") on a write pattern the N79 factory user data layer produces at first boot;
+every pass also read and wrote the client buffer at offset 0, so a transfer over 256 KB repeated its
+first bytes. Now: one step = one sector-aligned window (at most KNVMemTransferBufferSize) at the current
+position, client offset = bytes done; a partial head or tail sector of a write or format is read first
+and merged; a short device transfer completes the request with KErrCorrupt.
+--- a/baseport/syborg/mednvmemory/syborg_mednvmemory.cpp
++++ b/baseport/syborg/mednvmemory/syborg_mednvmemory.cpp
+@@ -109,6 +109,14 @@
+ 	TUint32 iAlignmentOverhead;
+ 	TBool iReadModifyWrite;
+ 	TDfc iTransactionLaunchDfc;
++	// syborg-pg: the transfer engine (patches/qemu-baseport/0022): one step = one sector-aligned window of at
++	// most KNVMemTransferBufferSize bytes at iPos; a partial head or tail sector of a write/format is read first
++	void StartStep();
++	enum TPhase { EPhaseIdle, EPhaseRead, EPhaseRmwRead, EPhaseWrite };
++	TPhase iPhase;
++	TUint32 iStepHead;		// bytes of the first window sector before iPos
++	TUint32 iStepLen;		// client bytes in this step
++	TUint32 iStepSectors;	// window size in sectors
+ 	};
+ 
+ DPhysicalDeviceMediaNVMemory::DPhysicalDeviceMediaNVMemory()
+@@ -425,122 +433,68 @@
+ 
+ TInt DMediaDriverNVMemory::Read()
+ 	{
+-	__DEBUG_PRINT(">DMediaDriverNVMemory::Read() pos: %lx, size: %lx", iPos, iTotalLength);
+-	// Set our sector offset
+-	TUint32 transactionSectorOffset = (TUint32)(iPos / KDiskSectorSize); 
+-	TUint32 transactionLength = 0;
+-	TUint32 transactionDirection = NVMEM_TRANSACTION_READ;
+-	// Do we have an operation longer than our shared memory?
+-	if( iSplitted > 0 )
+-		{
+-		transactionLength = KNVMemTransferBufferSize;
+-		}
+-	else
+-		{
+-		// Do the whole operation in one go since we have enough room in our memory
+-		transactionLength = I64LOW(iTotalLength);
+-		// Read the "broken" tail sector
+-		if( iTail )
+-			{
+-			transactionLength += iTail;
+-			iAlignmentOverhead += iTail;
+-			}
+-		}
+-	// Read the "broken" head sector
+-	if( iHead > 0 )
+-		{
+-		transactionLength += iHead;
+-		iAlignmentOverhead += iHead;
+-		}
+-
+-	// We should be ok to continue
+-	ContinueTransaction( transactionSectorOffset, transactionLength/KDiskSectorSize, transactionDirection );
+-	__DEBUG_PRINT("<DMediaDriverNVMemory::Read()");
++	StartStep();
+ 	return KErrNone;
+ 	}
+ 
+ TInt DMediaDriverNVMemory::Write()
+ 	{
+-	__DEBUG_PRINT("DMediaDriverNVMemory::Write() pos: 0x%lx, size: 0x%lx", iPos, iTotalLength);
+-	TInt r = KErrNone;
+-	// Set our sector offset
+-	TUint32 transactionSectorOffset = (TUint32)(iPos / KDiskSectorSize); 
+-	TUint32 transactionLength = 0;
+-	TUint32 transactionDirection = NVMEM_TRANSACTION_WRITE;
+-	// Do we have an operation longer than our shared memory?
+-	if( iSplitted > 0 )
+-		{
+-		transactionLength = KNVMemTransferBufferSize;
+-		}
+-	else
++	StartStep();
++	return KErrNone;
++	}
++
++
++TInt DMediaDriverNVMemory::Format()
++	{
++	StartStep();		// zeroes; a partial sector keeps the bytes around the range (read first)
++	return KErrNone;
++	}
++
++void DMediaDriverNVMemory::StartStep()
++	{
++	Int64 remain = iTotalLength - iProsessedLength;
++	if (remain <= 0)
+ 		{
+-		// Do the whole operation in one go since we have enough room in our memory
+-		transactionLength = I64LOW(iTotalLength);
+-		if( iTail )
+-			{
+-			iReadModifyWrite = ETrue;
+-			// Read the "broken" tail sector
+-			transactionLength += iTail;
+-			iAlignmentOverhead += iTail;
+-			}
+-		}
+-	// Is there a need to read modify write the "broken" head sector of the operation
+-	if( iHead > 0 )
++		iPhase = EPhaseIdle;
++		CompleteRequest(KErrNone);
++		return;
++		}
++	TUint32 head = (TUint32)(iPos % KDiskSectorSize);
++	TUint32 room = KNVMemTransferBufferSize - head;
++	TUint32 n = remain < (Int64)room ? (TUint32)remain : room;
++	TUint32 window = (head + n + KDiskSectorSize - 1) & ~(KDiskSectorSize - 1);
++	iStepHead = head;
++	iStepLen = n;
++	iStepSectors = window / KDiskSectorSize;
++	TUint32 sector = (TUint32)(iPos / KDiskSectorSize);
++	TInt request = iCurrentRequest->Id();
++	if (request == DLocalDrive::ERead)
+ 		{
+-		iReadModifyWrite = ETrue;
+-		// If splitted operation we only need the broken sector
+-		if( iSplitted > 0 )
+-			{
+-			transactionLength = KDiskSectorSize;
+-			iAlignmentOverhead += iHead;
+-			}
+-		else
+-			{
+-			// Read the "broken" head sector in addition to everything else
+-			transactionLength += iHead;
+-			iAlignmentOverhead += iHead;
+-			}
++		iPhase = EPhaseRead;
++		ContinueTransaction(sector, iStepSectors, NVMEM_TRANSACTION_READ);
++		return;
+ 		}
+-	
+-	// Was there a need to read-modify before writing
+-	if( iReadModifyWrite )
++	if (head || (head + n) % KDiskSectorSize)
+ 		{
+-		transactionDirection = NVMEM_TRANSACTION_READ;
++		iPhase = EPhaseRmwRead;		// keep the rest of the partial sectors
++		ContinueTransaction(sector, iStepSectors, NVMEM_TRANSACTION_READ);
++		return;
+ 		}
++	if (request == DLocalDrive::EFormat)
++		memclr(iTransferBufferLin, window);
+ 	else
+ 		{
+-		// Handle format here
+-		if( iCurrentRequest->Id() == DLocalDrive::EFormat )
++		TPtr8 des(iTransferBufferLin, 0, n);
++		TInt r = iCurrentRequest->ReadRemote(&des, I64LOW(iProsessedLength));
++		if (r != KErrNone)
+ 			{
+-			// Not much handling just flow through since we have filled the shared memory with zeroes already
++			iPhase = EPhaseIdle;
++			CompleteRequest(r);
++			return;
+ 			}
+-		else
+-			{
+-			// Read from client
+-			TPtr8 targetDescriptor(iTransferBufferLin, transactionLength);
+-			r = iCurrentRequest->ReadRemote(&targetDescriptor,0);
+-			}
+-		}
+-	
+-	// We should be ok to continue
+-	ContinueTransaction( transactionSectorOffset, transactionLength/KDiskSectorSize, transactionDirection );
+-
+-	return r;
+-	}
+-
+-
+-TInt DMediaDriverNVMemory::Format()
+-	{
+-	__DEBUG_PRINT("DMediaDriverNVMemory::Format() pos: 0x%lx, size: 0x%lx", iPos, iTotalLength);
+-	memset( iTransferBufferLin, 0x00, KNVMemTransferBufferSize );
+-	// Stop the nonsense here. Write operations should be used for partial sector data removal operations
+-	if( iHead > 0 || iTail > 0 )
+-		{
+-		Kern::Fault("DMediaDriverNVMemory::Format: alignment violation!", 0);
+ 		}
+-	Write();
+-//	DoTransaction( m, NVMEM_TRANSACTION_WRITE );
+-	return KErrNone;
++	iPhase = EPhaseWrite;
++	ContinueTransaction(sector, iStepSectors, NVMEM_TRANSACTION_WRITE);
+ 	}
+ 
+ TInt DMediaDriverNVMemory::ContinueTransaction( TUint32 aTransactionSectorOffset, TUint32 aTransactionSectorCount, TUint32 aTransactionDirection )
+@@ -615,159 +569,52 @@
+ 
+ void DMediaDriverNVMemory::DoSessionEndDfc()
+ 	{
+-	__DEBUG_PRINT(">DMediaDriverNVMemory::DoSessionEndDfc()");
++	if (!iCurrentRequest || iPhase == EPhaseIdle)
++		return;
++	if (iLatestTransferSectorCount != iStepSectors)		// the device did not move the whole window
++		{
++		iPhase = EPhaseIdle;
++		CompleteRequest(KErrCorrupt);
++		return;
++		}
+ 	TInt r = KErrNone;
+-	// Check that we have a request in process
+-	if( iCurrentRequest )
++	switch (iPhase)
+ 		{
+-		// Transaction variables
+-		TUint32 transactionSectorOffset(0);
+-		TUint32 transactionLength(0);
+-		TUint32 transactionDirection( NVMEM_TRANSACTION_UNDEFINED );
+-		// How much did we actually transfer? 
+-		TUint32 latestTransferSize = (iLatestTransferSectorCount * KDiskSectorSize);
+-		__DEBUG_PRINT("DMediaDriverNVMemory::DoSessionEndDfc() latestTransferSize: %d", latestTransferSize );
+-		// Subtract alignment overhead
+-		latestTransferSize = latestTransferSize - iAlignmentOverhead;
+-		// For decision whether the buffer is ready for operation already
+-		TBool bufferReady(EFalse);
+-		// For decision whether we have finished the latest request
+-		TBool sessionComplete(EFalse);
+-
+-		// Was there a read-modify-write (RWM) for which we need to do some buffer manipulation before proceeding?
+-		// Note that in case of format we triggered to alignment violation in earlier method already and can not enter to following 
+-		// condition when there is a format operation going on
+-		if( iReadModifyWrite )
+-			{
+-			bufferReady = ETrue;
+-			iReadModifyWrite = EFalse;
+-			// Was it a splitted operation for which we only need to take care of the broken head sector.
+-			if( iSplitted > 0 )
+-				{
+-				// We have a sector here here filled with data from mass memory. Modify with client data.
+-				__DEBUG_PRINT("DMediaDriverNVMemory::DoSessionEndDfc() readremote splitted: %d head: %d", latestTransferSize, iHead );
+-				TPtr8 targetDescriptor(&iTransferBufferLin[iHead], KNVMemTransferBufferSize - iHead);
+-				r = iCurrentRequest->ReadRemote(&targetDescriptor,0);
+-				}
+-			// Else we need to take care of both head and tail
+-			else
+-				{
+-				// We have a piece of data read from mass memory. Modify with client data.
+-				__DEBUG_PRINT("DMediaDriverNVMemory::DoSessionEndDfc() readremote: %d head: %d", I64LOW(iTotalLength - iProsessedLength), iHead );
+-				TPtr8 targetDescriptor(&iTransferBufferLin[iHead], I64LOW(iTotalLength - iProsessedLength));
+-				r = iCurrentRequest->ReadRemote(&targetDescriptor,0);
+-//				latestTransferSize -= (KDiskSectorSize - iTail);
+-				iTail = 0;
+-				}
+-			}
+-		else
+-			{
+-			// Overhead is processed when we enter here
+-			iAlignmentOverhead = 0;
+-			// Update position
+-			iPos += latestTransferSize;
+-			// Save the information on how many bytes we transferred already
+-			iProsessedLength += latestTransferSize; 
+-			// Update the splitted information. We don't take head into account here anymore since it is already taken care of
+-			iSplitted = (iTotalLength - iProsessedLength + iTail) / KNVMemTransferBufferSize;
+-			// Check if we have done already
+-			if( iProsessedLength >= iTotalLength )
+-				{
+-				// If this was the final transfer for this request let's take tail into account as well (if not taken already)
+-				// iProsessedLength -= iTail;
+-				// latestTransferSize -= iTail;
+-				if( iProsessedLength > iTotalLength )
+-					{
+-					Kern::Fault("DMediaDriverNVMemory: Illegal transfer operation!", 0);
+-					}
+-				sessionComplete = ETrue;
+-				}
+-			}
+-
+-		TInt request = iCurrentRequest->Id();
+-
+-		// Set our sector offset
+-		transactionSectorOffset = (TUint32)(iPos / KDiskSectorSize); 
+-		
+-		if( bufferReady )
+-			{
+-			// Write as much as we read in RMW operation
+-			transactionLength = (iLatestTransferSectorCount * KDiskSectorSize);
+-			}
+-		else
+-			{
+-			// Do we have an operation longer than our shared memory?
+-			if( iSplitted > 0 )
+-				{
+-				transactionLength = KNVMemTransferBufferSize;
+-				}
+-			else
+-				{
+-				// Do the whole operation in one go since we have enough room in our memory
+-				transactionLength = I64LOW(iTotalLength - iProsessedLength);
+-				// Read the "broken" tail sector
+-				if( iTail > 0 && request == DLocalDrive::EWrite )
+-					{
+-					iReadModifyWrite = ETrue;
+-					// Read the "broken" tail sector
+-					transactionLength += iTail;
+-	   				iAlignmentOverhead = iTail;
+-	   				}
+-				}
+-			}
+-		
+-		// Was there a need to read-modify before writing
+-		if( iReadModifyWrite )
+-			{
+-			transactionDirection = NVMEM_TRANSACTION_READ;
+-			}
++	case EPhaseRead:
++		{
++		TPtrC8 des(iTransferBufferLin + iStepHead, iStepLen);
++		r = iCurrentRequest->WriteRemote(&des, I64LOW(iProsessedLength));
++		break;
++		}
++	case EPhaseRmwRead:
++		{
++		if (iCurrentRequest->Id() == DLocalDrive::EFormat)
++			memclr(iTransferBufferLin + iStepHead, iStepLen);
+ 		else
+ 			{
+-			if( request == DLocalDrive::ERead )
+-				{
+-				transactionDirection = NVMEM_TRANSACTION_READ;
+-				// Write to client
+-				__DEBUG_PRINT("DMediaDriverNVMemory::DoSessionEndDfc() WriteRemote: %d head: %d", latestTransferSize, iHead );
+-				TPtrC8 sourceDescriptor(&iTransferBufferLin[iHead], latestTransferSize);
+-				r = iCurrentRequest->WriteRemote( &sourceDescriptor, 0 );
+-				}
+-			// Head is processed
+-			iHead = 0;
+-			if( request == DLocalDrive::EWrite && !sessionComplete )
+-				{
+-				transactionDirection = NVMEM_TRANSACTION_WRITE;
+-				if( bufferReady )
+-					{
+-					// Actually no need for any actions here
+-					}
+-				else
+-					{
+-					// Prepare a buffer for transfer
+-					__DEBUG_PRINT("DMediaDriverNVMemory::DoSessionEndDfc() ReadRemote: %d head: %d", latestTransferSize, iHead );
+-					TPtr8 targetDescriptor(iTransferBufferLin, transactionLength);
+-					r = iCurrentRequest->ReadRemote(&targetDescriptor,0);
+-					}
+-				}
+-			if( request == DLocalDrive::EFormat )
+-				{
+-				transactionDirection = NVMEM_TRANSACTION_WRITE;
+-				}
++			TPtr8 des(iTransferBufferLin + iStepHead, 0, iStepLen);
++			r = iCurrentRequest->ReadRemote(&des, I64LOW(iProsessedLength));
+ 			}
+-		if( sessionComplete )
++		if (r == KErrNone)
+ 			{
+-			CompleteRequest( r );
+-			}
+-		else
+-			{
+-			ContinueTransaction( transactionSectorOffset, transactionLength/KDiskSectorSize, transactionDirection );
++			iPhase = EPhaseWrite;
++			ContinueTransaction((TUint32)(iPos / KDiskSectorSize), iStepSectors, NVMEM_TRANSACTION_WRITE);
++			return;
+ 			}
++		break;
+ 		}
+-	else
+-		{
+-		// Let's just flow through for now
++	default:		// EPhaseWrite
++		break;
+ 		}
+-
+-	__DEBUG_PRINT("<DMediaDriverNVMemory::DoSessionEndDfc()" );
++	if (r != KErrNone)
++		{
++		iPhase = EPhaseIdle;
++		CompleteRequest(r);
++		return;
++		}
++	iPos += iStepLen;
++	iProsessedLength += iStepLen;
++	StartStep();
+ 	}
+ 
+ 

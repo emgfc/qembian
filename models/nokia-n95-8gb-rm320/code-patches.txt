@@ -1,0 +1,25 @@
+# Byte patches applied to the composed hybrid ROM by tools/romcompose.py --patches.
+# Format: MODULE+0xOFFSET  ORIGINAL-BYTES  NEW-BYTES  # reason (offset from the module's code start, resolved per
+# firmware by tools/fw/patches.py; bytes in memory order; Thumb halfwords are LE; an absolute ADDR also works)
+# Every entry is a hack listed in docs/hacks.md.
+
+# H-keysound-nommf: eiksrvui.dll key-sound server creates CMdaAudioToneUtility (MMF) for each tone
+# sound; without the DSP bridge MMFAudioServer cannot start, NewL leaves -1, EikSrvs dies and the
+# Avkon chain restarts forever. Replace "blx CMdaAudioToneUtility::NewL" with "movs r0,#0; nop":
+# tone player stays NULL (the play paths check it). Key tones are silent.
+eiksrvui.dll+0x2d6e  01f0a2eb  0020c046   # eiksrvui.dll+? sound-info ConstructL  [H-keysound-nommf]
+eiksrvui.dll+0x33d0  01f070e8  0020c046   # eiksrvui.dll re-create on prepare  [H-keysound-nommf]
+
+# H-keysound-nommf (continued): the two tone "play" helpers dereference the (NULL) tone player
+# without a check (EikSrvs KeySoundServer KERN-EXEC 3 on the first key/notification tone).
+# Make them return at once.
+eiksrvui.dll+0x349c  c169  7047   # eiksrvui.dll tone play helper 1: ldr r1,[r0,#28] -> bx lr  [H-keysound-nommf]
+eiksrvui.dll+0x34d0  c169  7047   # eiksrvui.dll tone play helper 2: ldr r1,[r0,#28] -> bx lr  [H-keysound-nommf]
+
+# H-startuptone-nommf (docs/devices/nokia-n95-8gb-rm320/n95-startup-animation.md): Startup.exe CStartupTone::ConstructL creates a
+# CMdaAudioPlayerUtility for the startup tone; without the DSP bridge the MMF open blocks the main
+# thread in a synchronous controller call, the view server times out (ViewSrv 11, 10 s) and the
+# welcome animation is never shown. "blx NewFilePlayerL" -> "movs r0,#0; nop": no tone player,
+# Play() returns KErrNotReady, the (silent) key-sound fallback is used and the animation runs.
+startup.exe+0x252c  01f0aaec  0020c046   # startup.exe CStartupTone::ConstructL  [H-startuptone-nommf]
+

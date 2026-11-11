@@ -1,0 +1,25 @@
+# Firmware 20.0.012 of nokia-5800-rm356, written by tools/device.py firmware-add from the ROM store entry RM-356/20.0.012.
+# Merged over models/nokia-5800-rm356/model.toml. Not booted yet unless [status] says so.
+
+[firmware]
+version = "20.0.012"
+
+[[firmware.files]]
+role = "core"
+glob = "RM-356_20.0.012_prd.core.C00"
+
+[[firmware.files]]
+role = "rofs2"
+glob = "RM-356_20.0.012_prd.rofs2.V05"
+
+[[firmware.files]]
+role = "rofs3"
+glob = "RM-356_20.0.012_C01_prd.rofs3.fpsx"
+
+[firmware.identity]
+sw = { version = "20.0.012", date = "26-01-2009", type_code = "RM-356" }
+
+[status]
+level = "L0"
+updated = "2026-11-10"
+open = ["fresh boot reaches an 'Insert SIM card' note (2026-11-10); first-boot flow and idle not done"]

@@ -1,0 +1,15 @@
+// BOOTPROPS.DLL: P&S values the phone's own hardware components publish at boot (see bootprops.cpp)
+#include "../../variant.mmh"
+#include <kernel/kern_ext.mmh>
+target			VariantTarget(bootprops,dll)
+targettype		kext
+linkas			bootprops.dll
+OS_LAYER_SYSTEMINCLUDE_SYMBIAN
+userinclude		../../specific
+userinclude		../_shared		// boardconfig.h
+sourcepath		.
+source			bootprops.cpp
+noexportlibrary
+uid				0x1000008d 0x100039ea
+vendorid		0x70000001
+capability		all

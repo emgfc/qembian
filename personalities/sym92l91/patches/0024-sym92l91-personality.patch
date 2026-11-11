@@ -1,0 +1,38 @@
+Personality sym92l91: Symbian 9.2 exec tables and conventions with the 9.1 loader layout
+
+Early S60 3.1 builds (E71 RM-346, N81 8GB RM-179) have the 9.2 EUSER (exec numbering checks as sym92) but an
+F32 whose TCodeSegCreateInfo ends at iCodeRelocTable (380 bytes, no demand-paging fields): with the 9.2
+layout EStart's ProcessCreate fields are read 7 words early and efile faults 11 (EMainStartupNoEStart).
+sym91 has this layout too, but also the 9.1 SWI return through ip and export directories from ordinal 1,
+which break a 9.2 EUSER (efile KERN-EXEC 3 at 0.25 s on the E71).
+
+--- a/kernel/eka/kernel/sexecpers.cpp
++++ b/kernel/eka/kernel/sexecpers.cpp
+@@ -24,6 +24,7 @@
+ const TInt KPersonalitySym91 = 5;	// Symbian 9.1: the 9.2 numbering is a strict superset (personalities/sym91/README.md)
+ const TInt KPersonalitySym101 = 6;	// Symbian 10.1 (Belle): Symbian^3 + S10b..S114 (personalities/sym101/README.md)
+ const TInt KPersonalitySym102 = 7;	// Symbian 10.1 FP2 (Belle FP2): sym101 with S11/S12/Sd8 inserted (personalities/sym102/README.md)
++const TInt KPersonalitySym92L91 = 8;	// qembian: 9.2 tables and conventions, 9.1 loader layout (E71, N81 8GB: personalities/sym92l91/README.md)
+ 
+ TBool Exec92Enabled = EFalse;
+ TBool KernNestedAttachCountsAsLoaded = EFalse;	// scodeseg.cpp TraverseCodeSegs; Belle: ETrue
+@@ -345,6 +346,12 @@
+ 		KernLocalThreadDataIdOffset = 12;	// RThread::Id() of the current thread reads it (EUser ord 1793)
+ #endif
+ 		}
++	else if (pers == KPersonalitySym92L91)	// early 9.2 F32: TCodeSegCreateInfo without the demand-paging fields
++		{
++		ExecLoaderCodeSegSize = _FOFF(TCodeSegCreateInfo, iCodeRelocTable);		// 380
++		ExecLoaderCodeSegUserSize = ExecLoaderCodeSegSize;
++		ExecLoaderProcessTail = _FOFF(TProcessCreateInfo, iDebugAttributes) - sizeof(TCodeSegCreateInfo);	// 36
++		}
+ 	else if (pers == KPersonalitySym91)
+ 		{
+ 		ExecLoaderCodeSegSize = _FOFF(TCodeSegCreateInfo, iCodeRelocTable);		// 380
+@@ -417,5 +424,5 @@
+ 		}
+ 	Exec92Enabled = ETrue;
+ 	Kern::Printf("EXEC92: Symbian %s exec personality enabled (%d fast, %d slow; loader structs %d+%d)",
+-		pers == KPersonalitySym91 ? "9.1" : pers == KPersonalitySym94 ? "9.4" : pers == KPersonalitySymbian3 ? "^3" : pers == KPersonalitySym101 ? "10.1" : pers == KPersonalitySym102 ? "10.1 FP2" : "9.2", fastCount, slowCount, ExecLoaderCodeSegSize, ExecLoaderProcessTail);
++		pers == KPersonalitySym91 ? "9.1" : pers == KPersonalitySym94 ? "9.4" : pers == KPersonalitySymbian3 ? "^3" : pers == KPersonalitySym101 ? "10.1" : pers == KPersonalitySym102 ? "10.1 FP2" : pers == KPersonalitySym92L91 ? "9.2 (9.1 loader)" : "9.2", fastCount, slowCount, ExecLoaderCodeSegSize, ExecLoaderProcessTail);
+ 	}

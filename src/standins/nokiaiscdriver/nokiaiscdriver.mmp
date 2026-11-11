@@ -7,6 +7,7 @@ targettype		ldd
 sourcepath		.
 source			nokiaiscdriver.cpp
 noexportlibrary
+library			PlatformLib	// Interrupt:: for the QEMU modem port (iscpeer.inl)
 vendorid		0x70000001
 capability		all
-userinclude		../_shared	// src/standins/_shared: nokiastub.h, iscpeer.inl, isireplies.h, stubcert.h
+userinclude		../_shared	// src/standins/_shared: nokiastub.h, iscpeer.inl, stubcert.h

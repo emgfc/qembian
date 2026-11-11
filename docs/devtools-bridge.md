@@ -72,7 +72,7 @@ ESTART drive entry is more work than the agent's `put`).
 | No screensaver / no autolock | agent: `User::ResetInactivityTime()` every 10 s (public API, sure to work) [inferred effect on Screensaver/Autolock]; plus `RProperty` writes to the screensaver/keyguard P&S keys if the internal headers are found | 0.1 d | agent |
 | Backlight on | `CHWRMLight::LightOnL` (`hwrmlight.h` in the SDK [verified present]) — note our light driver is a stand-in, the fb never blanks (H-lcd-alwayson) so this only matters for SysAp's state | 0.1 d | agent |
 | P&S / CenRep read/write | agent `pget/pset CAT KEY` (`RProperty`), `crget` (`CRepository`, `centralrepository.h`) | 0.3 d | agent |
-| Files: ls/get/put/rm anywhere | agent (`RFs`, TCB) — replaces `n95-drive.sh` while the phone runs | in agent v1 | agent |
+| Files: ls/get/put/rm anywhere | agent (`RFs`, TCB) — replaces `drive.sh` while the phone runs | in agent v1 | agent |
 | Rerun without reboot | agent kill+put+run (seconds); **instant reset**: QMP `savevm`/`loadvm` of a post-boot state needs qcow2 drives (`-drive format=qcow2`); today's drives are raw [verified run-modern.sh] | 0.5 d | QMP, drive format |
 | Install SIS/SISX (later) | a patched `installserver.exe` on C: + agent calling the SW installer launcher API (`SwiUI::RSWInstSilentLauncher`, header not in the public SDK [verified: not found in the SDK]) — or just `put` the files the SIS would install | 2–4 d | install server |
 | Human TUI | `textual` app on the same session: screen pane (PNG), filtered serial pane, ps pane, command line with the MCP verbs | 2 d | everything above |
@@ -94,7 +94,7 @@ side cannot see, the host for anything that needs the CPU stopped.**
   List Management — a `STARTUP_ITEM_INFO` resource (`startupitem.rh` in the SDK [verified]) in
   `C:\private\101f875a\import\[UID].rsc`; the ROFS has that directory with one entry
   (`[A000028F].rsc`) [verified rofs1-tree.txt], so Starter does read it [inferred]. Place the
-  `.rsc` with `n95-drive.sh` once (or compose into the ROM). Fallback if the import list is
+  `.rsc` with `drive.sh` once (or compose into the ROM). Fallback if the import list is
   ignored: the LDD creates the process kernel-side the way `EXSTART` creates `efile.exe`
   (`Kern::ProcessCreate` on an XIP exe [verified exstart.cpp]); then the agent must be in our ROM
   region (`rom/` iby entry) instead of on C:.
@@ -138,7 +138,7 @@ The data/bss of a RAM-loaded exe is per process in the multiple model [inferred,
 3. Persistent gdb: `attach/break/continue/step/regs/mem/bt` with thread filter; app ELF
    auto-loaded from the `SYBCODE` line; build.sh gets a `DEBUG=1` (`-O0 -g`) variant.
 4. MCP server (stdio) exposing the above; every result a small JSON object; raw logs stay in
-   `build/runs/<label>/`. Deploy still `n95-drive.sh` with QEMU off; launch via menu keys or a
+   `build/runs/<label>/`. Deploy still `drive.sh` with QEMU off; launch via menu keys or a
    `_reg.rsc` (as today).
 
 **Phase 1 — guest agent v1, 2–3 days**

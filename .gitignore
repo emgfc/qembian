@@ -8,3 +8,13 @@ __pycache__/
 /roms/
 src/standins/_shared/isireplies.h
 /firmware/
+# N-Gage (EKA1): firmware, extractions, generated analysis, Ghidra project, third-party sources
+# (eka1/README.md says how to regenerate each)
+/eka1/ngage_rom/
+/eka1/extracted/
+/eka1/output/
+/eka1/analysis/*
+!/eka1/analysis/kernel-api-map.json
+!/eka1/analysis/kernel-api-map.tsv
+/eka1/tmp/
+/eka1/references/

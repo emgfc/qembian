@@ -1,0 +1,36 @@
+# Firmware 113.010.1508 of nokia-808-rm807 (device model v2: merged over models/nokia-808-rm807/model.toml). What belongs to this
+# firmware build: its files, identity and addresses. The model is the phone.
+
+[firmware]
+version = "113.010.1508"
+obtain = """
+Flash files of RM-807 113.010.1508 (Belle FP2): prd.core.fpsx, the Russian language pack 04.01, the generic
+customer variant C00.01 and the U11.01 user data. Put them in roms/RM-807/113.010.1508/
+(git-ignored).
+"""
+[[firmware.files]]
+role = "core"                              # SOS+CORE + SOS+ROFS1 [V partition names]
+glob = "RM-807_113.010.1508_79u_prd.core.fpsx"
+
+[[firmware.files]]
+role = "rofs2"                             # language pack
+glob = "RM-807_113.010.1508_04.01_Russian_*_prd.rofs2.fpsx"
+
+[[firmware.files]]
+role = "rofs3"                             # customer variant
+glob = "RM-807_*_C00.01_*_prd.rofs3.fpsx"   # generic customer variant
+
+[firmware.identity]                         # filled from the inventory
+sw = { version = "113.010.1508", date = "2012-10-15", type_code = "RM-807" }   # Resource/versions/sw.txt [V]
+langsw = {}
+drivers = []
+
+[firmware.rom]
+user_window_start = 0x804B2B80             # EDISP.DLL (probe.py header) [V]
+# User data layer: the C: drive the flasher writes after the ROM layers (factory content: installed apps,
+# Starter list, media). New session drives start as a copy (docs/devices.md "User data layer").
+[[firmware.files]]
+role = "uda"
+glob = "RM-807_*_U11.01_*.uda.fpsx"
+drive = "C"
+optional = true

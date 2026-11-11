@@ -58,13 +58,15 @@ time, never as edited copies:
 | `patches/qemu-baseport/` | the Syborg board support package | phone-like CPU, RAM, timers, RTC, display modes, keyboard |
 | `patches/qemu-modern/` | QEMU | CPU model details the phone firmware relies on |
 | `patches/elf2e32_next/` | elf2e32_next | post-linking GCC 14 output |
-| `devices/<id>/code-patches.txt` | the composed phone ROM | small byte patches where a stand-in cannot help (each one documented, original bytes verified before patching) |
+| `models/<id>/code-patches.txt` | the composed phone ROM | small byte patches where a stand-in cannot help (each one documented, original bytes verified before patching) |
 
-Every workaround is listed in `docs/hacks.md` and `devices/<id>/hacks.md`.
+Every workaround is listed in `docs/hacks.md` and `models/<id>/hacks.md`.
 
-**Devices.** Everything specific to a phone is declared in `devices/<id>/` (`device.toml`,
-keymap, modem replies, drive map, byte patches). One QEMU binary and one set of tools serve
-every phone. `docs/devices.md` describes the model, `docs/adding-a-device.md` the procedure.
+**Devices.** Everything specific to a phone is declared in `models/<id>/`: `model.toml` (the
+phone), one `firmware/<version>/firmware.toml` per firmware it runs, keymap, modem replies, drive
+map, byte patches. One QEMU binary and one set of tools serve every phone. Your phones are device
+instances (`tools/instance.py`: a name, a model and firmware, its own drives and snapshots), opened
+with `tools/sydb/sydb.py phone NAME`. `docs/devices.md` describes the model, `docs/adding-a-device.md` the procedure.
 
 ## Status
 
@@ -72,7 +74,9 @@ every phone. `docs/devices.md` describes the model, `docs/adding-a-device.md` th
   tested: start-up, home screen, menus, built-in applications, installed applications, audio,
   OpenGL ES.
 - Nokia N73 (RM-132, Symbian 9.1) reaches the home screen and its menu.
-- Nokia 5730 XpressMusic (RM-465, Symbian 9.3) boots but does not finish start-up yet.
+- Nokia 5730 XpressMusic (RM-465, Symbian 9.3) reaches the home screen and its menu.
+- Nokia N79 (RM-348, Symbian 9.3) reaches the home screen and its menu.
+- Nokia 5800 XpressMusic (RM-356, Symbian 9.4) reaches the home screen and its menu, with touch input.
 
 Devices other than the N95 are first bring-up steps, used mainly to exercise the kernel
 compatibility layer. Expect them to stop short of a usable phone.
@@ -103,9 +107,17 @@ conversion) were used. Compare yours with `sha256sum`:
 | 5730 RM-465, 101.48.128 | `rm465_10148128_prd.c00` | `5f11fc66e5588a98bbf4fdf47f2b774ffaeea25137a0ee2a2f7fa20543e98967` |
 | | `rm465_10148128_prd_prdapps.rofs2.v19` | `c2ff454a10b8d5675abbf1e57fa79fc511b509ad0e54b0d6ffd19b06ac493bb0` |
 | | `rm465_10148128_prd_prdapps.rofs3.v19` | `2b5ea8f95f42cdb7b6e93e158c2e03c7eeb5add8f2e3378a57c194e3c1a723d8` |
+| N79 RM-348, 30.019 | `RM-348_30.019_prd.core.fpsx` | `1445d909569751d0065001b903320ac303367053b89fc0fe5a5ff56dc2ce817b` |
+| | `RM-348_30.019_005_prd.language.fpsx` | `df7efb7ba9c7505ac4eee7997cc2c098f6d313bf7daacec0bfd8e70116ef66a5` |
+| | `RM-348_30.019_53.1_prd.customer.fpsx` | `b4d48439fa0934285f9f9031a7022c8de831bd895b8f2187b80127fe5daedaa7` |
+| 5800 RM-356, V 31.0.101 | `RM-356_31.0.101_prd.core.C00` | `bffaa4b9fb0e727934aa1ffb55ed48f98403f767227f4c746dc27cfe5ea834fb` |
+|  | `RM-356_31.0.101_prd.rofs2.V05` | `671054fe238ca5634b493f898ad1e415760c5b3b0fdc148c67af61c3fcb23812` |
+|  | `RM-356_31.0.101_C01_prd.rofs3.fpsx` | `1ce5ca18b5f923b64d10318a52fc61999e338f525d781692ea5611fff7407c1e` |
 
-The same list is in `devices/<id>/firmware.sha256`. `tools/device.py identify DIR` tells which
-profile a set of extracted images belongs to.
+`tools/fw/identify.py PATH` tells what a set of flash files (or an archive of them) is, and
+`tools/fw/store.py import PATH` files them into the ROM store `roms/<type code>/<version>/` (git-ignored),
+which records each file's sha256. `tools/device.py identify DIR` tells which profile a set of
+extracted images belongs to.
 
 ## Building
 
@@ -123,11 +135,13 @@ scripts/build-kernel.sh                 # the EKA2 kernel
 scripts/build-qemu-modern.sh --container   # QEMU with the Syborg board -> build/qemu-modern-ct/
 
 # per phone (N95 8GB shown)
-tools/fw/inventory.py --device nokia-n95-8gb-rm320 --fw-dir roms/<model>/<version>
-tools/device.py build nokia-n95-8gb-rm320 --kernel   # board support, stand-ins, composed ROM
+tools/fw/store.py import /path/to/RM-320-flash-files   # into roms/RM-320/35.0.001/
+tools/fw/inventory.py --device nokia-n95-8gb-rm320     # extract (build/firmware/...)
+tools/device.py build nokia-n95-8gb-rm320 --kernel     # board support, stand-ins, composed ROM
 
-# run it in a session of its own, with a window
-tools/sydb/sydb.py --session build/sydb-n95 start --fresh --gui
+# your phone: an instance with its own drives, in a window
+tools/instance.py create n95 nokia-n95-8gb-rm320
+tools/sydb/sydb.py phone n95 --fresh
 ```
 
 The container-built QEMU runs through `scripts/qemu-container.sh`, which the run scripts use

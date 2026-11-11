@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Quick facts about an inventoried firmware (docs/adding-a-device.md steps 2-3), one subcommand each.
-Works on build/devices/<id>/ as written by tools/fw/inventory.py (core-flat.img, core.json, rofs*.img);
+Works on build/roms/<id>/<fw>/ as written by tools/fw/inventory.py (core-flat.img, core.json, rofs*.img);
 prints only, nothing from the firmware leaves build/.
 
   probe.py [--device ID] header            ROM header, memory model, kernel limit, lowest user-side address
@@ -36,14 +36,22 @@ def core(dev):
     return p, romimg.Rom(data), files
 
 
-def model(base):
-    return {0xF8000000: 'moving (ARMv5; kernel.baseport "syborgmv")',
-            0x80000000: 'multiple (kernel.baseport "syborg")'}.get(base, 'unknown')
+def model(base, userdata=0):
+    """the memory model from the ROM header: the ROM base separates moving from the others; multiple and
+    flexible share base 0x80000000 and kernel data 0xC8000000, but ROM DLL data sits below 1 GB
+    (multiple) or just under 0x7f000000, the end of the flexible model's local data (N8)"""
+    if base == 0xF8000000:
+        return 'moving (ARMv5; kernel.baseport "syborgmv")'
+    if base == 0x80000000:
+        if userdata >= 0x70000000:
+            return 'flexible (DLL data at 0x%08x)' % userdata
+        return 'multiple (kernel.baseport "syborg")'
+    return 'unknown'
 
 
 def cmd_header(a):
     p, rom, files = core(a.device)
-    print('base       0x%08x  -> memory model %s' % (rom.base, model(rom.base)))
+    print('base       0x%08x, ROM DLL data 0x%08x  -> memory model %s' % (rom.base, rom.userdata, model(rom.base, rom.userdata)))
     print('size       0x%08x' % rom.size)
     print('kernel data 0x%08x, kernel limit 0x%08x' % (rom.kerndata, rom.kernlimit))
     print('primary 0x%08x, secondary 0x%08x, variant 0x%08x, extensions 0x%08x' % (rom.primary, rom.secondary, rom.variant, rom.extension))
@@ -197,7 +205,7 @@ def cmd_estart(a):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
-    ap.add_argument('--device', help='device id or alias (default: $SYBORG_DEVICE / devices/default)')
+    ap.add_argument('--device', help='device id or alias (default: $SYBORG_DEVICE / the registry default)')
     sub = ap.add_subparsers(dest='cmd', required=True)
     sub.add_parser('header')
     s = sub.add_parser('stubs'); s.add_argument('--vs', help='compare with this device')

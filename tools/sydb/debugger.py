@@ -108,11 +108,11 @@ class Debugger:
             m = re.match(r'^(\d*)\^(\w+),?(.*)$', line)
             if m:
                 tok = int(m.group(1)) if m.group(1) else None
+                if m.group(2) == 'running':     # before the waiter wakes: it may test .running at once
+                    self.running = True
                 with self.cv:
                     self.results[tok] = (m.group(2), m.group(3))
                     self.cv.notify_all()
-                if m.group(2) == 'running':
-                    self.running = True
                 continue
             if line.startswith('*running'):
                 self.running = True

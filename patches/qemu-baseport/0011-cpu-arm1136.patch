@@ -19,9 +19,9 @@ diff -ru a/baseport/syborg/specific/interrupts.cia b/baseport/syborg/specific/in
  	// Enter an idle state and wait for interrupts
  	asm("mov r0, #0");
  	asm("mcr p15, 0, r0, c7, c0, 4");	// ARMv6 CP15 wait-for-interrupt (a NOP on ARMv7)
-+#ifndef __CPU_ARM1136__
++#if !defined(__CPU_ARM1136__) && !defined(__CPU_ARM1176__)
  	asm(".word 0xe320f003");		// ARMv7 WFI (qembian: modern QEMU halts only on this)
-+#endif	// on ARM1136 the CP15 WFI above halts (QEMU WFI_v6); the v7 encoding is UNPREDICTABLE there
++#endif	// on ARM1136/ARM1176 the CP15 WFI above halts (QEMU WFI_v6); the v7 encoding is UNPREDICTABLE there
  	asm("bx lr");
  }
  

@@ -1,0 +1,19 @@
+// SURFACEMANAGERDRIVER.LDD: Symbian Foundation surface manager (EPL), hardware independent: the
+// Symbian^3 user-side surfacemanager.dll speaks the same control numbers (0 CreateSurface .. 11
+// GetSurfaceManagerAttrib, checked against the N8's DLL). Source copied into the epocroot by
+// scripts/setup-epocroot.sh from the pinned oss.FCL.sf.os.graphics.
+#include "../../variant.mmh"
+#include <kernel/kern_ext.mmh>
+target			VariantTarget(surfacemanagerdriver,ldd)
+targettype		ldd
+linkas			surfacemanagerdriver.ldd
+OS_LAYER_SYSTEMINCLUDE_SYMBIAN
+sourcepath		../../../../../../os/graphics/graphicshwdrivers/surfacemgr/src
+userinclude		../../../../../../os/graphics/graphicshwdrivers/surfacemgr/inc
+userinclude		../../../../../../os/graphics/graphicshwdrivers/surfacemgr/src
+source			surfacemanagerdriver.cpp
+source			extension.cpp
+epocallowdlldata
+uid				0x100000af
+vendorid		0x70000001
+capability		all

@@ -1,0 +1,40 @@
+# Firmware 30.019 of nokia-n79-rm348 (device model v2: merged over models/nokia-n79-rm348/model.toml). What belongs to this
+# firmware build: its files, identity and addresses. The model is the phone.
+
+[firmware]
+version = "30.019"
+obtain = """
+Flash files of an RM-348 software version: prd.core.fpsx (SOS+CORE + SOS+ROFS1), prd.language.fpsx
+(ROFS2) and prd.customer.fpsx (ROFS3). Import them with tools/fw/store.py import DIR
+(roms/RM-348/<version>/, git-ignored).
+"""
+[[firmware.files]]
+role = "core"                              # SOS+CORE + SOS+ROFS1 [V partition names]
+glob = "RM-348_*_prd.core.fpsx"
+
+[[firmware.files]]
+role = "rofs2"                             # language pack
+glob = "RM-348_*_prd.language.fpsx"
+
+[[firmware.files]]
+role = "rofs3"                             # customer variant
+glob = "RM-348_*_prd.customer.fpsx"
+
+[firmware.identity]                         # filled from the inventory (tools/device.py identify)
+sw = { version = "30.019", date = "11-06-2009", type_code = "RM-348" }   # Resource/versions/sw.txt [V]
+langsw = {}
+drivers = ["wlanldd.ldd", "naviscrollldd.ldd"]
+[firmware.identity.sha256]
+"core-flat.img" = "1808f521651c863ed005228b966cd7c1197018354fce0a279c6a129a9848b00d"
+"rofs1.img" = "6e86800510e3c30d8aa2065032f9902dbc036b2ab35545779a8c0a4c5c1d84bb"
+"rofs2.img" = "5e13ccda24bb128d8d5d4bba640e156bedc9bd2d3c598f54707627de694ab93f"
+
+[firmware.rom]
+user_window_start = 0x8028DFA0             # ecomp.fsy (probe.py header) [V]
+# User data layer: the C: drive the flasher writes after the ROM layers (factory content: installed apps,
+# Starter list, media). New session drives start as a copy (docs/devices.md "User data layer").
+[[firmware.files]]
+role = "uda"
+glob = "RM-348_*_U001.uda.fpsx"
+drive = "C"
+optional = true

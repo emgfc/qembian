@@ -5,7 +5,7 @@ ELF), and .data/.bss at the kernel data address. Both depend on the kernel build
 ($SYBORG_DEVICE profile, kernel.baseport): the multiple-model build (syborg) has ekern code at
 0x80003000 and data at 0xC8000000; the moving-model one (syborgmv, N73) puts the ROM at 0xF8000000,
 kernel data at 0x64000000, and ekern after the firmware image. So the addresses are read from the
-device's kernel-side ROM (build/devices/<id>/kernel-side.img), whose files keep
+device's kernel-side ROM (build/roms/<id>/<fw>/kernel-side.img), whose files keep
 their addresses in the composed ROM. Computed from the ELF so a rebuilt kernel needs no edits."""
 import os, re, subprocess, sys
 

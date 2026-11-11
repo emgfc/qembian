@@ -1,0 +1,12 @@
+syvg: src/syvg/vg2.cpp sizes a call's path data from the path's own datatype and segments (friend).
+
+--- a/riPath.h
++++ b/riPath.h
+@@ -64,6 +64,7 @@
+ class Path
+ {
+ public:
++	friend struct SyvgPath;	//qembian (src/syvg/vg2.cpp): sizes of a call's path data on the host
+ 	Path(VGint format, VGPathDatatype datatype, RIfloat scale, RIfloat bias, int segmentCapacityHint, int coordCapacityHint, VGbitfield caps);	//throws bad_alloc
+ 	~Path();
+ 

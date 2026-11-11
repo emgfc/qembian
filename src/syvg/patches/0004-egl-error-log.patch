@@ -1,0 +1,19 @@
+qembian: log every failing EGL call (line in riMiniEGL.cpp, error) through hostgl.cpp khrEglError.
+
+--- a/riMiniEGL.cpp	2026-11-07 16:34:15.957068965 +0100
++++ b/riMiniEGL.cpp	2026-11-07 16:34:28.204351106 +0100
+@@ -759,11 +759,13 @@
+ 		return RETVAL; \
+     } \
+ 
++void khrEglError(int line, int error);	/* qembian: hostgl.cpp logs failing EGL calls */
+ #define EGL_IF_ERROR(COND, ERRORCODE, RETVAL) \
+-	if(COND) { eglSetError(egl, ERRORCODE); OSReleaseMutex(); return RETVAL; } \
++	if(COND) { khrEglError(__LINE__, ERRORCODE); eglSetError(egl, ERRORCODE); OSReleaseMutex(); return RETVAL; } \
+ 
+ #define EGL_RETURN(ERRORCODE, RETVAL) \
+ 	{ \
++		khrEglError(__LINE__, ERRORCODE); \
+ 		eglSetError(egl, ERRORCODE); \
+ 		OSReleaseMutex(); \
+ 		return RETVAL; \

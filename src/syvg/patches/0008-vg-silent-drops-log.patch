@@ -1,0 +1,40 @@
+qembian: log the fills the RI drops without an error (non-invertible paint matrix) through hostgl.cpp khrVgNote;
+KHR_VGTRACE=N builds log the first N API calls by name (khrVgTrace).
+
+--- a/riApi.cpp
++++ b/riApi.cpp
+@@ -57,7 +57,16 @@
+ #define RI_NO_RETVAL
+ 
+ //this must be the first line in an API function
++/* qembian: KHR_VGTRACE=N (diagnostic builds) logs the first N VG/VGU calls by name (hostgl.cpp) */
++#if KHR_VGTRACE
++void khrVgTrace(const char* fn);
++#define KHR_VGTRACE_CALL(fn) khrVgTrace(fn)
++#else
++#define KHR_VGTRACE_CALL(fn)
++#endif
++
+ #define RI_GET_CONTEXT(RETVAL) \
++	KHR_VGTRACE_CALL(__FUNCTION__); \
+ 	OSAcquireMutex(); \
+ 	VGContext* context = (VGContext*)eglvgGetCurrentVGContext(); \
+ 	if(!context) \
+@@ -2548,6 +2557,8 @@
+ * \note		
+ *//*-------------------------------------------------------------------*/
+ 
++void khrVgNote(const char* what);	/* qembian: hostgl.cpp, once per message */
++
+ static bool drawPath(VGContext* context, VGPath path, const Matrix3x3& userToSurfaceMatrix, VGbitfield paintModes)
+ {
+ 	//set up rendering surface and mask buffer
+@@ -2585,6 +2596,8 @@
+ 			((Path*)path)->fill(userToSurface, rasterizer);	//throws bad_alloc
+ 			rasterizer.fill();	//throws bad_alloc
+ 		}
++		else
++			khrVgNote("fill not drawn: the surface-to-paint matrix (path-user-to-surface x fill-paint-to-user) is not invertible");
+ 	}
+ 
+ 	if(paintModes & VG_STROKE_PATH && context->m_strokeLineWidth > 0.0f)

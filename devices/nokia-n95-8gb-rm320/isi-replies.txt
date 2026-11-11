@@ -1,5 +1,0 @@
-# Fake-modem canned replies of the N95 8GB (RM-320) on top of platform/isi/replies-bb5.txt
-# (the N95 has no own ones today); names: platform/isi/names.txt.
-# tools/isi.py gen-header turns both into build/devices/<id>/gen/isireplies.h.
-# NET_MODEM_REG_STATUS (0A 00) deliberately unanswered: the proposed reply made NOKIATSY panic
-# "IsiMessage: OFFS -9" (subblock shorter than its parser expects); nothing waits for it.

@@ -112,8 +112,11 @@ public:
 			TInt hr = iF->iCtlHook(&Kern::CurrentThread(), aFn, a1, a2, w);
 			if (hr != KStubNotHandled)
 				{
-				Kern::Printf("SYBSTUB: %S u%d ctl %d a1=%08x a2=%08x [%08x %08x %08x %08x] hook %d",
-							 &iF->iName, iUnit, aFn, a1, a2, w[0], w[1], w[2], w[3], hr);
+				// our private controls (0x7f00..0x7fff: host GL transport, vsync) run every frame:
+				// logging them costs emulated serial output per call; errors are still logged
+				if (aFn < 0x7f00 || aFn > 0x7fff || hr < 0)
+					Kern::Printf("SYBSTUB: %S u%d ctl %d a1=%08x a2=%08x [%08x %08x %08x %08x] hook %d",
+								 &iF->iName, iUnit, aFn, a1, a2, w[0], w[1], w[2], w[3], hr);
 				return hr;
 				}
 			}

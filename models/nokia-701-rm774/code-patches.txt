@@ -1,0 +1,16 @@
+# Byte patches applied to the composed hybrid ROM by tools/romcompose.py --patches.
+# Format: MODULE+0xOFFSET  ORIGINAL-BYTES  NEW-BYTES  # reason (offset from the module's code start, resolved per
+# firmware by tools/fw/patches.py; bytes in memory order; Thumb halfwords are LE; an absolute ADDR also works)
+
+# H-fmradio-none: no FM radio here. The radio HAL (radiohalserver.dll) opens Bluetooth HCI direct access,
+# which needs a Bluetooth stack we do not have; it leaves -2 and radioadaptationserver.exe reports -2 to
+# its launcher. fmradioaudiocontrol.dll (made by Lac.dll for the audio server, untrapped) left with it,
+# !AudioServer panicked -2, Wserv's tactile feedback waited for ever and start-up stopped
+# (personalities/sym102/README.md). fmradioaudiocontrol.dll (code identical on 701 and 808):
+# +0x126 ConstructL "beq ok" after Connect -> "b ok": keep the unconnected session instead of leaving;
+# +0x422 its only send helper "push; blx RSessionBase::DoSendReceive; pop" -> "movs r0,#4; mvns r0,r0;
+# bx lr": every radio audio control returns KErrNotSupported (a send on the null handle would panic the
+# audio server KERN-EXEC 0). The radio server still starts and dies on its own, as on the N8.
+fmradioaudiocontrol.dll+0x126  0bd0  0be0   # fmradioaudiocontrol.dll+0x126 ConstructL: connect failure not fatal  [H-fmradio-none]
+fmradioaudiocontrol.dll+0x422  10b5fff7  0420c043   # fmradioaudiocontrol.dll+0x422 send helper -> KErrNotSupported  [H-fmradio-none]
+fmradioaudiocontrol.dll+0x426  70ee  7047   # (continued: bx lr)  [H-fmradio-none]

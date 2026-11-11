@@ -1,0 +1,22 @@
+# Firmware unknown of nokia-n95-8gb-rm321 (device model v2: merged over models/nokia-n95-8gb-rm321/model.toml). What belongs to this
+# firmware build: its files, identity and addresses. The model is the phone.
+
+[firmware]
+version = ""                                 # fill from the RM-321 flash files (tools/fw/identify.py DIR)
+[[firmware.files]]
+role = "core"
+glob = "RM-321_*.C0R"
+[[firmware.files]]
+role = "rofx"
+glob = "RM-321_*.v1?"
+optional = true
+
+[firmware.identity]                          # fill from the RM-321 firmware (tools/device.py identify DIR)
+sw = { version = "", date = "", type_code = "RM-321" }
+langsw = {}
+drivers = []
+no_drivers = ["wlanldd.ldd", "wlanpdd.pdd"]  # the China variant has no WLAN
+[firmware.identity.sha256]
+"core-flat.img" = ""
+"rofs1.img" = ""
+"rofs2.img" = ""

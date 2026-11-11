@@ -287,7 +287,7 @@ Charging/alarm lists (resources 6/7) wait for 211 instead.
 ### 5.5 Fix proposals
 
 **(a) Fake-modem replies (preferred; the real mechanism, no code patch).** Add canned replies to
-`platform/isi/replies-bb5.txt + devices/<id>/isi-replies.txt` (regenerates `build/devices/<id>/gen/isireplies.h`); the table matches on
+`platform/isi/replies-bb5.txt + models/<id>/isi-replies.txt` (regenerates `build/roms/<id>/<fw>/gen/isireplies.h`); the table matches on
 (resource, request id) regardless of the request data, which is fine because steps 1 and 3 accept
 the same answer:
 

@@ -2,7 +2,7 @@
 
 What was found while adding the N73 (first Symbian 9.1 device) and where `docs/adding-a-device.md`
 did not help, so the flow gets better with each phone. [V] = checked in the firmware or by a run,
-[I] = inferred. Firmware: `roms/RM-132_Nokia-N73/3.0717.1.4.1/` (RM-132 v3.0717.1.4.1 western, git-ignored).
+[I] = inferred. Firmware: `roms/RM-132/3.0717.1.4.1/` (RM-132 v3.0717.1.4.1 western, git-ignored).
 
 ## Firmware container
 

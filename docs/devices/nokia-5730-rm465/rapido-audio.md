@@ -83,7 +83,7 @@ Ord-1 table (read directly by user code, so the pointer must be readable in the 
 the pointer, so a NULL pointer would KERN-EXEC 3. Cheapest valid pointer: a 0x50-byte const block in
 the stand-in LDD itself, which is XIP in ROM and readable from user mode [inferred].
 
-## Proposed reply line (devices/nokia-5730-rm465/isi-replies.txt)
+## Proposed reply line (models/nokia-5730-rm465/isi-replies.txt)
 
 ```
 reply F3 30 31 len=34                                     # RAPIDO DSP start: 4 x {addr, size} = 0 (cdspcontrolserver ConstructL waits; Aamm 0x807bb98a reads u32 @12..40)
@@ -154,6 +154,9 @@ waits, the fallback is `v = 1` in ctl 5 (skips F3 entirely; ctls 7/6 never come)
 
 ## Playback requests (silent)
 
+The ring-buffer side of playback (ctl 8's out words, F3 0x34/0x35 pacing, 0x36/0x37) was worked out
+on the N8: `docs/devices/nokia-n8-rm596/rapido-audio.md`. Its `ring_units` stand-in config is off here.
+
 Follow-up (static reading only). Blocker seen: `!CdspControlServer` after MdaifDriver ctl 8 sends
 F3 0x32 `00 00 | 00 02 | 00 01 | 00 03 | 02 00 | 00 00` and waits for 0x33.
 
@@ -219,7 +222,7 @@ The reply fields and their checks:
 All getters come from isimessage.dll (ords 22/23). "02 00" is valid whether it is read big-endian
 (0x0200) or little-endian (0x0002) [verified set].
 
-### Reply lines (devices/nokia-5730-rm465/isi-replies.txt)
+### Reply lines (models/nokia-5730-rm465/isi-replies.txt)
 
 ```
 reply F3 32 33 00 00 00 02 02 00                          # DSP stream setup: @10/@12 echo, @14 rate code 0x0200 (Aamm 0x807bca9a panics on 0); cdsp slot 6 = AsyncStop only

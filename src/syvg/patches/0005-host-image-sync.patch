@@ -1,0 +1,155 @@
+qembian: images rendered on the host GPU (render targets) are read back into guest memory before
+the CPU reads or changes their pixels (src/khr/hostgl.cpp khrHostSync).
+
+--- a/riImage.h	2026-11-07 16:37:16.478955987 +0100
++++ b/riImage.h	2026-11-07 16:37:16.502141507 +0100
+@@ -210,6 +210,7 @@
+ void	khrHostImageTarget(Surface* s, Image* image);
+ class Image;
+ void	khrHostImageFree(Image* i);
++void	khrHostSync(const Image* i);	//qembian: pixels rendered on the host GPU back into guest memory
+ class Image
+ {
+ public:
+@@ -230,6 +231,9 @@
+ 	unsigned int		generation() const					{ const Image* r = this; while(r->m_parent) r = r->m_parent; return r->m_gen; }
+ 	unsigned int		m_gen;
+ 	unsigned int		m_hostGen;	//generation on the host (0: not uploaded)
++	bool				m_hostAhead;	//qembian: the host texture is newer than m_data (rendered into)
++	bool				m_hostLive;	//qembian: bound as a render target on the host now
++	Image*				root()							{ Image* r = this; while(r->m_parent) r = r->m_parent; return r; }
+ 	VGbitfield			getAllowedQuality() const			{ return m_allowedQuality; }
+ 	void				addInUse()							{ m_inUse++; }
+ 	void				removeInUse()						{ RI_ASSERT(m_inUse > 0); m_inUse--; }
+--- a/riImage.cpp	2026-11-07 16:37:16.478921561 +0100
++++ b/riImage.cpp	2026-11-07 16:37:16.502406924 +0100
+@@ -440,6 +440,8 @@
+ Image::Image(const Color::Descriptor& desc, int width, int height, VGbitfield allowedQuality) :
+ 	m_gen(1),
+ 	m_hostGen(0),
++	m_hostAhead(false),
++	m_hostLive(false),
+ 	m_desc(desc),
+ 	m_width(width),
+ 	m_height(height),
+@@ -475,6 +477,8 @@
+ Image::Image(const Color::Descriptor& desc, int width, int height, int stride, RIuint8* data) :
+ 	m_gen(1),
+ 	m_hostGen(0),
++	m_hostAhead(false),
++	m_hostLive(false),
+ 	m_desc(desc),
+ 	m_width(width),
+ 	m_height(height),
+@@ -505,6 +509,8 @@
+ Image::Image(Image* parent, int x, int y, int width, int height) :
+ 	m_gen(1),
+ 	m_hostGen(0),
++	m_hostAhead(false),
++	m_hostLive(false),
+ 	m_desc(Color::formatToDescriptor(VG_sRGBA_8888)),	//dummy initialization, will be overwritten below (can't read from parent->m_desc before knowing the pointer is valid)
+ 	m_width(width),
+ 	m_height(height),
+@@ -611,6 +617,7 @@
+ 
+ void Image::clear(const Color& clearColor, int x, int y, int w, int h)
+ {
++	khrHostSync(this);	//qembian
+ 	touched();	//qembian
+ 	RI_ASSERT(m_data);
+ 	RI_ASSERT(m_referenceCount > 0);
+@@ -718,6 +725,8 @@
+ 
+ void Image::blit(const Image& src, int sx, int sy, int dx, int dy, int w, int h, bool dither)
+ {
++	khrHostSync(this);	//qembian
++	khrHostSync(&src);	//qembian
+ 	touched();	//qembian
+ 	//img=>img: vgCopyImage
+ 	//img=>user: vgGetImageSubData
+@@ -792,6 +801,7 @@
+ 
+ void Image::blit(const Surface* src, int sx, int sy, int dx, int dy, int w, int h)
+ {
++	khrHostSync(this);	//qembian
+ 	touched();	//qembian
+ 	//fb=>img: vgGetPixels
+ 	//fb=>user: vgReadPixels
+@@ -1260,6 +1270,7 @@
+ 
+ void Image::makeMipMaps()
+ {
++	khrHostSync(this);	//qembian
+ 	RI_ASSERT(m_data);
+ 	RI_ASSERT(m_referenceCount > 0);
+ 
+@@ -1369,6 +1380,8 @@
+ 
+ void Image::colorMatrix(const Image& src, const RIfloat* matrix, bool filterFormatLinear, bool filterFormatPremultiplied, VGbitfield channelMask)
+ {
++	khrHostSync(this);	//qembian
++	khrHostSync(&src);	//qembian
+ 	touched();	//qembian
+ 	RI_ASSERT(src.m_data);	//source exists
+ 	RI_ASSERT(m_data);	//destination exists
+@@ -1488,6 +1501,8 @@
+ 
+ void Image::convolve(const Image& src, int kernelWidth, int kernelHeight, int shiftX, int shiftY, const RIint16* kernel, RIfloat scale, RIfloat bias, VGTilingMode tilingMode, const Color& edgeFillColor, bool filterFormatLinear, bool filterFormatPremultiplied, VGbitfield channelMask)
+ {
++	khrHostSync(this);	//qembian
++	khrHostSync(&src);	//qembian
+ 	touched();	//qembian
+ 	RI_ASSERT(src.m_data);	//source exists
+ 	RI_ASSERT(m_data);	//destination exists
+@@ -1562,6 +1577,8 @@
+ 
+ void Image::separableConvolve(const Image& src, int kernelWidth, int kernelHeight, int shiftX, int shiftY, const RIint16* kernelX, const RIint16* kernelY, RIfloat scale, RIfloat bias, VGTilingMode tilingMode, const Color& edgeFillColor, bool filterFormatLinear, bool filterFormatPremultiplied, VGbitfield channelMask)
+ {
++	khrHostSync(this);	//qembian
++	khrHostSync(&src);	//qembian
+ 	touched();	//qembian
+ 	RI_ASSERT(src.m_data);	//source exists
+ 	RI_ASSERT(m_data);	//destination exists
+@@ -1661,6 +1678,8 @@
+ 
+ void Image::gaussianBlur(const Image& src, RIfloat stdDeviationX, RIfloat stdDeviationY, VGTilingMode tilingMode, const Color& edgeFillColor, bool filterFormatLinear, bool filterFormatPremultiplied, VGbitfield channelMask)
+ {
++	khrHostSync(this);	//qembian
++	khrHostSync(&src);	//qembian
+ 	touched();	//qembian
+ 	RI_ASSERT(src.m_data);	//source exists
+ 	RI_ASSERT(m_data);	//destination exists
+@@ -1785,6 +1804,8 @@
+ 
+ void Image::lookup(const Image& src, const RIuint8 * redLUT, const RIuint8 * greenLUT, const RIuint8 * blueLUT, const RIuint8 * alphaLUT, bool outputLinear, bool outputPremultiplied, bool filterFormatLinear, bool filterFormatPremultiplied, VGbitfield channelMask)
+ {
++	khrHostSync(this);	//qembian
++	khrHostSync(&src);	//qembian
+ 	touched();	//qembian
+ 	RI_ASSERT(src.m_data);	//source exists
+ 	RI_ASSERT(m_data);	//destination exists
+@@ -1827,6 +1848,8 @@
+ 
+ void Image::lookupSingle(const Image& src, const RIuint32 * lookupTable, VGImageChannel sourceChannel, bool outputLinear, bool outputPremultiplied, bool filterFormatLinear, bool filterFormatPremultiplied, VGbitfield channelMask)
+ {
++	khrHostSync(this);	//qembian
++	khrHostSync(&src);	//qembian
+ 	touched();	//qembian
+ 	RI_ASSERT(src.m_data);	//source exists
+ 	RI_ASSERT(m_data);	//destination exists
+@@ -2092,6 +2115,7 @@
+ 
+ void Surface::blit(const Image& src, int sx, int sy, int dx, int dy, int w, int h, const Array<Rectangle>& scissors)
+ {
++	khrHostSync(&src);	//qembian
+ 	//img=>fb: vgSetPixels
+ 	//user=>fb: vgWritePixels
+ 	computeBlitRegion(sx, sy, dx, dy, w, h, src.getWidth(), src.getHeight(), getWidth(), getHeight());
+@@ -2275,6 +2299,7 @@
+ 
+ void Surface::mask(const Image* src, VGMaskOperation operation, int x, int y, int w, int h)
+ {
++	khrHostSync(src);	//qembian
+ 	RI_ASSERT(w > 0 && h > 0);
+ 
+ 	if(operation == VG_CLEAR_MASK || operation == VG_FILL_MASK)

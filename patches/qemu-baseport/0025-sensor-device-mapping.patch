@@ -1,0 +1,37 @@
+Accelerometer device (QEMU syborg-sensor): mapping and constant
+
+One page after the modem's 4 (physical 0xc001d000, linear KHwBasePeripherals + 0x1d000, mapped in table
+order right after the modem), no IRQ: the accelerometer stand-in (src/standins/accelerometer) samples X/Y/Z,
+which the host sets (Turn view, sydb accel). Copy the files into the syborgfx and syborgmv variants as well.
+
+--- a/baseport/syborg/bootstrap/syborg.inc
++++ b/baseport/syborg/bootstrap/syborg.inc
+@@ -57,6 +57,7 @@
+ KHwNVMemoryDevice			EQU		KHwBaseRegisters + 0x10000
+ KHwBasePlatform		EQU     KHwBaseRegisters + 0x11000
+ KHwBaseModem		EQU     KHwBaseRegisters + 0x19000	; syborg-pg: fake modem, 4 pages (after the platform's 8)
++KHwBaseSensor		EQU     KHwBaseRegisters + 0x1d000	; qembian: accelerometer, 1 page (after the modem)
+ 
+ ;-----------------------------------------------------------------------------
+ ; Module linear bases
+--- a/baseport/syborg/bootstrap/syborg.s
++++ b/baseport/syborg/bootstrap/syborg.s
+@@ -192,6 +192,7 @@
+ 		HW_MAPPING		KHwNVMemoryDevice,		1,	HW_MULT_4K
+ 		HW_MAPPING		KHwBasePlatform,    		8,	HW_MULT_4K
+ 		HW_MAPPING		KHwBaseModem,    		4,	HW_MULT_4K	; syborg-pg: linear = KHwBasePeripherals + 0x19000
++		HW_MAPPING		KHwBaseSensor,    		1,	HW_MULT_4K	; qembian: linear = KHwBasePeripherals + 0x1d000
+ 	
+ 		DCD     0   ; terminator
+ 
+--- a/baseport/syborg/specific/syborg.h
++++ b/baseport/syborg/specific/syborg.h
+@@ -57,6 +57,8 @@
+ const TUint KHwSVPPlatformDevice		= KHwBasePeripherals + 0x11*KHwLinSeparation;
+ // syborg-pg: the fake BB5 modem (QEMU syborg-modem), after the platform device's 8 pages: two ports of 2 pages
+ const TUint KHwBaseModem			= KHwBasePeripherals + 0x19*KHwLinSeparation;
++// qembian: the accelerometer (QEMU syborg-sensor), after the modem's 4 pages: X/Y/Z set by the host
++const TUint KHwBaseSensor			= KHwBasePeripherals + 0x1d*KHwLinSeparation;
+ 	
+ enum TSyborgInterruptId
+ {

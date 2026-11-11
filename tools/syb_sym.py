@@ -10,26 +10,27 @@
   syb_sym.py lit ADDR                   decode a TLitC16/TLitC8 at ADDR (or pointed to by ADDR)
   syb_sym.py fn MODULE ADDR|NAME        print one decompiled function (runs Ghidra if needed)
   syb_sym.py mod MODULE                 module summary (range, entry, exports, imports)
-  syb_sym.py reindex                    rebuild the cache (build/devices/<id>/symindex.json)
+  syb_sym.py reindex                    rebuild the cache (build/roms/<id>/<fw>/symindex.json)
 
 ADDR is hex (0x prefix optional). Module names are file names (case-insensitive).
-The index is built from build/devices/<id>/core.json + core-flat.img + the S60 SDK import libraries; Ghidra
-function starts are taken from build/devices/<id>/ghidra/*.c when present.
+The index is built from build/roms/<id>/<fw>/core.json + core-flat.img + the S60 SDK import libraries; Ghidra
+function starts are taken from build/roms/<id>/<fw>/ghidra/*.c when present.
 """
 import bisect, json, os, re, struct, subprocess, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, 'tools'))
-import device as devmodel  # tools/device.py ($SYBORG_DEVICE / devices/default)
+import device as devmodel  # tools/device.py ($SYBORG_DEVICE / the registry default)
 sys.path.insert(0, os.path.join(ROOT, 'tools'))
 import dso_ordinals  # noqa: E402
 
-N95 = devmodel.paths(devmodel.load())['dir']   # the device's extracted firmware (build/devices/<id>)
+N95 = devmodel.paths(devmodel.load())['dir']   # the device's extracted firmware (build/roms/<id>/<fw>/)
 IMG = os.path.join(N95, 'core-flat.img')
 JSN = os.path.join(N95, 'core.json')
 IDX = os.path.join(N95, 'symindex.json')
 GHI = os.path.join(N95, 'ghidra')
-SDK = os.environ.get('S60_SDK_LIB', os.path.expanduser('~/work/S60_3rd_FP1/Epoc32/release/armv5/lib'))
+SDK = os.path.expanduser(os.environ.get('S60_SDK_LIB') or devmodel.get(devmodel.load(), 'firmware.sdk_lib')
+                         or '~/work/S60_3rd_FP1/Epoc32/release/armv5/lib')   # ordinals differ per platform
 B = 0x80000000
 
 
@@ -63,7 +64,7 @@ class Rom:
 
     def _ours(self):
         """Our kernel-side files sit below the N95 user window in the hybrid ROM: resolve them from
-        our own image (build/devices/<id>/ours.json) and ekern's ELF symbols, not from the N95 index."""
+        our own image (build/roms/<id>/<fw>/ours.json) and ekern's ELF symbols, not from the N95 index."""
         self.ours_end, self.ours, self.ksyms = 0, [], []
         man = os.path.join(N95, 'hybrid-manifest.txt')
         oj = os.path.join(N95, 'ours.json')
@@ -77,7 +78,8 @@ class Rom:
                 self.ours.append((im['code'], im['code'] + im['codesize'], f['path'].split('/')[-1]))
         self.ours.sort()
         ek = [o for o in self.ours if o[2].lower() == 'ekern.exe']
-        sym = os.path.join(ROOT, 'build', 'epocroot', 'epoc32', 'release', 'armv5', 'udeb', '_syborg_ekern.exe.sym')
+        bp = devmodel.get(devmodel.load(), 'kernel.baseport', 'syborg')   # syborgmv, syborgfx, ...
+        sym = os.path.join(ROOT, 'build', 'epocroot', 'epoc32', 'release', 'armv5', 'udeb', '_%s_ekern.exe.sym' % bp)
         if ek and os.path.exists(sym):
             out = subprocess.run(['nm', '-n', '-C', '--defined-only', sym], capture_output=True, text=True).stdout
             for ln in out.splitlines():
@@ -107,6 +109,8 @@ class Rom:
             im = f.get('image')
             if not im or not im['codesize']:
                 continue
+            if not (B <= im['code'] and im['code'] + im['codesize'] <= B + len(d)):
+                continue    # a file whose header did not parse as an XIP image (garbage code/size)
             name = f['path'].split('/')[-1]
             dso = os.path.splitext(name)[0].lower() + '.dso'
             names = {}
@@ -116,7 +120,7 @@ class Rom:
                 except Exception:
                     names = {}
             exps = []
-            if im['expcount'] and im['expdir'] >= B:
+            if im['expcount'] and B <= im['expdir'] and im['expdir'] + 4 * im['expcount'] <= B + len(d):
                 for k, a in enumerate(struct.unpack_from('<%dI' % im['expcount'], d, im['expdir'] - B), 1):
                     if a:
                         exps.append([k, a, names.get(k, (None,))[0] or '%s_ord%d' % (os.path.splitext(name)[0], k)])

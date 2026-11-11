@@ -1,0 +1,42 @@
+Display HAL: answer the flipped (turned by 90 degrees) mode query
+
+The screen driver (CScreenDeviceHelper::DeviceOrientationsAvailable) asks HAL EDisplayOffsetBetweenLines for
+the current mode with TSurfaceId's EHalFlippedFlag (0x80000000); our driver refused the negative mode with
+KErrArgument, so the screen device offered only 0 and 180 degrees and WSERV refused direct screen access in
+a landscape scene ("** Current Rotation Mode not supported by the DSA device"; Assassin's Creed's intro
+video retried for ever). Answer with width and height swapped and the stride of a turned line.
+Copy the file into the syborgfx and syborgmv variants as well.
+
+--- a/baseport/syborg/fb/syborg_fb.cpp
++++ b/baseport/syborg/fb/syborg_fb.cpp
+@@ -238,6 +238,13 @@
+ 
+ TInt DLcdPowerHandler::GetSpecifiedDisplayModeInfo(TInt aMode, TVideoInfoV01& aInfo)
+ {
++  // syborg-pg: the flipped flag (TSurfaceId::TScreenSurfaceUsage::EHalFlippedFlag) asks for the mode
++  // turned by 90 degrees. The screen driver reports 90/270 orientations only if this answers
++  // (CScreenDeviceHelper::DeviceOrientationsAvailable), and WSERV refuses direct screen access in a turned
++  // scene otherwise ("Current Rotation Mode not supported by the DSA device": games' intro videos)
++  const TInt KFlipped = (TInt)0x80000000;
++  TBool flipped = (aMode & KFlipped) != 0;
++  aMode &= ~KFlipped;
+   if(aMode < 0 || aMode >= KConfigLcdNumberOfDisplayModes)
+ 	return KErrArgument;
+   
+@@ -256,6 +263,16 @@
+ 
+ 	  aInfo.iBitsPerPixel       = KConfigBitsPerPixel;
+ 	}
++  if(flipped)
++	{
++	  TInt w = aInfo.iSizeInPixels.iWidth;
++	  aInfo.iSizeInPixels.iWidth = aInfo.iSizeInPixels.iHeight;
++	  aInfo.iSizeInPixels.iHeight = w;
++	  w = aInfo.iSizeInTwips.iWidth;
++	  aInfo.iSizeInTwips.iWidth = aInfo.iSizeInTwips.iHeight;
++	  aInfo.iSizeInTwips.iHeight = w;
++	  aInfo.iOffsetBetweenLines = aInfo.iSizeInPixels.iWidth * 4;	// 32 bpp frame buffer, a turned line
++	}
+   return KErrNone;
+ }
+ 

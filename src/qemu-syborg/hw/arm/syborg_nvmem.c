@@ -172,11 +172,22 @@ static const Property syborg_nvmem_properties[] = {
     DEFINE_PROP_UINT32("sector-size", SyborgNvmemState, sector_size, 512),
 };
 
+/* a machine reset: no transfer set up, no shared buffer, no interrupt */
+static void syborg_nvmem_reset(DeviceState *dev)
+{
+    SyborgNvmemState *s = SYBORG_NVMEM(dev);
+    s->offset = s->size = s->direction = 0;
+    s->shm_base = s->shm_size = 0;
+    s->status = s->enabled = 0;
+    qemu_set_irq(s->irq, 0);
+}
+
 static void syborg_nvmem_class_init(ObjectClass *oc, const void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(oc);
 
     dc->realize = syborg_nvmem_realize;
+    device_class_set_legacy_reset(dc, syborg_nvmem_reset);
     dc->vmsd = &vmstate_syborg_nvmem;
     device_class_set_props(dc, syborg_nvmem_properties);
 }

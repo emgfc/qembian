@@ -15,7 +15,7 @@
 //   ctl 5 -> TInt                 partial display active
 //   ctl 10 (screen by value)      select screen: only 0
 //   ctl 11 -> 26 words            capabilities (table below; 23 words on the N73, whose
-//                                 CDisplayDriver keeps 0x5c bytes for them: board config disp_caps)
+//                                 CDisplayDriver keeps 0x5c bytes for them: board config d_display.caps)
 //   ctl 26 -> TInt                current rotation index
 //   ctl 31 -> TInt                scan-line bytes
 //   req 0x8001 (sub)              panel self-test: sub 0 only
@@ -36,25 +36,29 @@
 // defaults are the N95's): caps block size, native panel orientation, scan-line bytes (ctl 31 and the
 // LCD HAL's stride), panel rows (partial display), and which rotation indexes the panel accepts.
 const TInt KMaxCapsWords = 28;		// KCaps below
-static TInt CapsWords = 26;			// disp_caps
-static TBool NativeLandscape = ETrue;	// disp_native=landscape|portrait
-static TInt FbPitch = 1280;			// disp_pitch
-static TUint PanelRows = 240;			// disp_rows
+static TInt CapsWords = 26;			// d_display.caps
+static TBool NativeLandscape = ETrue;	// d_display.native=landscape|portrait
+static TInt FbPitch = 1280;			// d_display.pitch
+static TUint PanelRows = 240;			// d_display.rows
+static TBool PartialCtls = ETrue;		// d_display.partial: controls 3..5 are the partial display mode
 static void ReadDisplayConfig()
 	{
 	char b[16];
-	CapsWords = BoardConfigInt("disp_caps", 26);
+	CapsWords = BoardConfigInt("d_display.caps", 26);
 	if (CapsWords < 1 || CapsWords > KMaxCapsWords)
 		CapsWords = 26;
-	if (BoardConfig("disp_native", b, sizeof(b)) > 0)
+	if (BoardConfig("d_display.native", b, sizeof(b)) > 0)
 		NativeLandscape = b[0] == 'l';
-	FbPitch = BoardConfigInt("disp_pitch", 1280);
-	PanelRows = BoardConfigInt("disp_rows", NativeLandscape ? 240 : 320);
+	FbPitch = BoardConfigInt("d_display.pitch", 1280);
+	PanelRows = BoardConfigInt("d_display.rows", NativeLandscape ? 240 : 320);
+	// the N95/5800 driver's partial (power save) display mode; the N8's driver has none, and Belle's
+	// TV-out behaviour plugin uses control 3 for something else (args 1,0,1,1; it panics on an error)
+	PartialCtls = BoardConfigInt("d_display.partial", 1) != 0;
 	Kern::Printf("SYBSTUB: DisplayDriver %s panel, %d caps words, stride %d, %d panel rows",
 				 NativeLandscape ? "landscape" : "portrait", CapsWords, FbPitch, PanelRows);
 	}
 
-static TUint32 KCaps[KMaxCapsWords] =		// N95 26 words, N73 23, 5730 27 (disp_caps); words 26.. unknown, 0
+static TUint32 KCaps[KMaxCapsWords] =		// N95 26 words, N73 23, 5730 27 (d_display.caps); words 26.. unknown, 0
 	{
 	1,				// +0  display present
 	0,				// +4  caller is the window server (ScDv ignores it)
@@ -65,7 +69,7 @@ static TUint32 KCaps[KMaxCapsWords] =		// N95 26 words, N73 23, 5730 27 (disp_ca
 	0, 0,			// +16 partial-width updates, +20 update retry strategy (0 on the N95)
 	0, 0,			// +24/+28 current height/width (real 240/320, swapped after rotation; ScDv
 					//         does not need them, left 0 as before)
-	240,			// +32 max partial-display lines (power_save_display_mode reports it; = disp_rows)
+	240,			// +32 max partial-display lines (power_save_display_mode reports it; = d_display.rows)
 	0, 1, 1,		// +36/+40/+44 rotation 90/180/270 (the N95 panel cannot do 90; a portrait panel
 					//             gets 1, 1, 1 in Install)
 	0,				// +48 EColor4K
@@ -124,14 +128,26 @@ static void SetPartial(TBool aOn, TUint aStart, TUint aEnd, TBool aFullColour)
 // the same way. Hack H-gles-host.
 //   ctl 0x7f10 -> 2 words          {1 = device present and host GL ready (0 = software), caller's thread id}
 //   ctl 0x7f11 {cmd, len, out, outLen}  run a command buffer; out/outLen: where SYGL_READ results go
+//   ctl 0x7f12 a1 = SyglKick*        run the buffers it names in place (the device reads and writes
+//                                    the caller's memory through its page tables): no copies
+//   ctl 0x7f13 -> 1 word             the device's register page mapped user-writable (or 0): the
+//                                    caller writes SyglKick addresses to KICK itself, no kernel call
+// Host objects (surfaces, textures) belong to a process (the owner id ctl 0x7f10 returns); when a
+// process's last DisplayDriver channel closes (exit, kill, panic) the stand-in sends
+// SYGL_OWNER_FREE for it, so the device's tables do not fill up with the dead.
+// Trust: the device follows any address a kick names through the page tables without checking
+// page permissions, so any process with the register page could read or write kernel memory
+// through the read-back area. Fine for an emulator running the owner's firmware.
 const TUint KHwBaseGl = KHwBasePeripherals + 0x0f * KHwLinSeparation;
-enum { KGlId = 0, KGlCaps = 1, KGlBuf = 2, KGlLen = 3, KGlExec = 4, KGlOut = 5, KGlOutLen = 6 };
+enum { KGlId = 0, KGlCaps = 1, KGlBuf = 2, KGlLen = 3, KGlExec = 4, KGlOut = 5, KGlOutLen = 6, KGlKick = 7 };
 const TUint32 KGlDeviceId = 0xc51d0011;
 const TInt KGlBufSize = 1 << 20;		// commands; and as much again for read-backs (bands: hw.c)
 static DPlatChunkHw* GlChunk;
 static TPhysAddr GlPhys;
 static TInt GlState;					// 0 unknown, 1 ready, -1 none
 static DMutex* GlLock;
+static DPlatChunkHw* GlUserRegs;		// the register page, user-writable (ctl 0x7f13)
+static TInt GlUserRegsState;			// 0 not tried, 1 mapped, -1 failed
 
 static TInt GlReady()
 	{
@@ -154,6 +170,69 @@ static TInt GlReady()
 			Kern::Printf("SYBSTUB: DisplayDriver no host GL device: software rendering");
 		}
 	return GlState > 0;
+	}
+
+// a command buffer from the kernel itself (OWNER_FREE at channel close)
+static void GlRunKernel(const TUint32* aWords, TInt aCount)
+	{
+	if (!GlReady())
+		return;
+	NKern::ThreadEnterCS();
+	Kern::MutexWait(*GlLock);
+	memcpy((TUint8*)GlChunk->LinearAddress(), aWords, aCount * 4);
+	WriteReg(KHwBaseGl, KGlBuf, GlPhys);
+	WriteReg(KHwBaseGl, KGlLen, aCount * 4);
+	WriteReg(KHwBaseGl, KGlOut, GlPhys + KGlBufSize);
+	WriteReg(KHwBaseGl, KGlOutLen, 0);
+	WriteReg(KHwBaseGl, KGlExec, 1);
+	Kern::MutexSignal(*GlLock);
+	NKern::ThreadLeaveCS();
+	}
+
+// open DisplayDriver channels per process: the host objects go with the last one
+const TInt KGlOwners = 64;
+static struct { TUint32 iPid; TInt iCount; } GlOwners[KGlOwners];
+static NFastMutex GlOwnersLock;
+
+static void GlOwnerOpened(TUint32 aPid)
+	{
+	NKern::FMWait(&GlOwnersLock);
+	TInt freeSlot = -1;
+	for (TInt i = 0; i < KGlOwners; ++i)
+		{
+		if (GlOwners[i].iCount && GlOwners[i].iPid == aPid)
+			{
+			GlOwners[i].iCount++;
+			NKern::FMSignal(&GlOwnersLock);
+			return;
+			}
+		if (!GlOwners[i].iCount && freeSlot < 0)
+			freeSlot = i;
+		}
+	if (freeSlot >= 0)				// table full: that process's objects stay until eglTerminate
+		{
+		GlOwners[freeSlot].iPid = aPid;
+		GlOwners[freeSlot].iCount = 1;
+		}
+	NKern::FMSignal(&GlOwnersLock);
+	}
+
+static void GlOwnerClosed(TUint32 aPid)
+	{
+	TBool last = EFalse;
+	NKern::FMWait(&GlOwnersLock);
+	for (TInt i = 0; i < KGlOwners; ++i)
+		if (GlOwners[i].iCount && GlOwners[i].iPid == aPid)
+			{
+			last = --GlOwners[i].iCount == 0;
+			break;
+			}
+	NKern::FMSignal(&GlOwnersLock);
+	if (last && GlState > 0)
+		{
+		const TUint32 cmd[3] = { 9 /* SYGL_OWNER_FREE */, 3, aPid };
+		GlRunKernel(cmd, 3);
+		}
 	}
 
 static TInt GlSubmit(DThread* aClient, const TUint32* aW)
@@ -188,6 +267,8 @@ static TInt GlSubmit(DThread* aClient, const TUint32* aW)
 
 static TInt DisplayCtl(DThread* aClient, TInt aFn, TAny* a1, TAny*, const TUint32* aWords)
 	{
+	if (!PartialCtls && aFn >= 3 && aFn <= 5)
+		return KStubNotHandled;		// not this driver's partial mode: the table / generic answer
 	switch (aFn)
 		{
 	case 0x7f10:	// {ready, owner}: owner = the caller's process id (hw.c's surface ids and texture
@@ -197,6 +278,37 @@ static TInt DisplayCtl(DThread* aClient, TInt aFn, TAny* a1, TAny*, const TUint3
 		}
 	case 0x7f11:
 		return GlSubmit(aClient, aWords);
+	case 0x7f12:	// in place: the device translates the caller's addresses while this write runs
+		{
+		if (!GlReady())
+			return KErrNotSupported;
+		WriteReg(KHwBaseGl, KGlKick, (TUint32)a1);
+		TUint32 res = ReadReg(KHwBaseGl, KGlKick);
+		return res == 0 ? KErrNone : res == 0xffffffffu ? KErrBadDescriptor : KErrGeneral;
+		}
+	case 0x7f13:
+		{
+		TUint32 lin = 0;
+		if (GlReady())
+			{
+			NKern::ThreadEnterCS();
+			Kern::MutexWait(*GlLock);
+			if (GlUserRegsState == 0)
+				{
+				TPhysAddr phys = Epoc::LinearToPhysical(KHwBaseGl);
+				TInt r = phys == KPhysAddrInvalid ? KErrNotFound
+						: DPlatChunkHw::New(GlUserRegs, phys, 0x1000, EMapAttrUserRw | EMapAttrFullyBlocking);
+				GlUserRegsState = r == KErrNone ? 1 : -1;
+				Kern::Printf("SYBSTUB: DisplayDriver host GL registers for user mode: %d (phys %08x lin %08x)", r,
+							 phys, r == KErrNone ? GlUserRegs->LinearAddress() : 0);
+				}
+			Kern::MutexSignal(*GlLock);
+			NKern::ThreadLeaveCS();
+			if (GlUserRegsState > 0)
+				lin = GlUserRegs->LinearAddress();
+			}
+		return Kern::ThreadRawWrite(aClient, a1, &lin, sizeof(lin));
+		}
 	case 3:		// {startRow, endRow, fullColour}: start < end < panel rows
 		if (aWords[0] >= aWords[1] || aWords[1] >= PanelRows)
 			return KErrArgument;
@@ -212,7 +324,7 @@ static TInt DisplayCtl(DThread* aClient, TInt aFn, TAny* a1, TAny*, const TUint3
 		return Kern::ThreadRawWrite(aClient, a1, &PartialActive, sizeof(TInt));
 	case 10:	// screen index by value
 		return (TInt)a1 == 0 ? KErrNone : KErrNotSupported;
-	case 11:	// capabilities: exactly the client's block size (disp_caps words)
+	case 11:	// capabilities: exactly the client's block size (d_display.caps words)
 		return Kern::ThreadRawWrite(aClient, a1, KCaps, CapsWords * sizeof(TUint32));
 	case 31:	// scan-line bytes (r_display export 77 on the N95): the frame buffer stride, as on the
 				// device (N95: 320 x 4 at every rotation; lcd_n95 programs the same pitch)
@@ -554,9 +666,21 @@ static void DsbEnd(DThread* aClient, TAny* aChannel, TRequestStatus* aStatus, TI
 class DDisplayChannel : public DNokiaStubChannel
 	{
 public:
-	DDisplayChannel(DNokiaStubFactory* aF) : DNokiaStubChannel(aF) {}
+	DDisplayChannel(DNokiaStubFactory* aF) : DNokiaStubChannel(aF), iPid(0) {}
+	virtual TInt DoCreate(TInt aUnit, const TDesC8* aInfo, const TVersion& aVer)
+		{
+		TInt r = DNokiaStubChannel::DoCreate(aUnit, aInfo, aVer);
+		if (r == KErrNone)
+			{
+			iPid = Kern::CurrentThread().iOwningProcess->iId;	// = the owner id of ctl 0x7f10
+			GlOwnerOpened(iPid);
+			}
+		return r;
+		}
 	virtual ~DDisplayChannel()
 		{
+		if (iPid)
+			GlOwnerClosed(iPid);
 		VsyncWaitersComplete(this, KErrCancel);
 		DsbCancelPending(this, KErrCancel);
 		if (Dsb.iChunk && Dsb.iOwner == this)
@@ -591,6 +715,8 @@ public:
 			}
 		return DNokiaStubChannel::Request(aFn, a1, a2);
 		}
+private:
+	TUint32 iPid;		// the process that opened the channel
 	};
 
 class DDisplayFactory : public DNokiaStubFactory

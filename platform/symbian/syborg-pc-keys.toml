@@ -1,6 +1,6 @@
 # The Syborg baseport keyboard table as shipped (external/qemu-syborg baseport syborg_keyboard.h):
 # PC set-1 code (E0-prefixed = bit 7) -> EStdKey name or character literal. Device keymaps
-# (devices/<id>/keymap.toml set1 entries) are laid over it by tools/device.py gen keymap-header.
+# (models/<id>/keymap.toml set1 entries) are laid over it by tools/device.py gen keymap-header.
 [slots]
 "01" = "EStdKeyEscape"
 "02" = "'1'"

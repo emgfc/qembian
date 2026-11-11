@@ -1,5 +1,5 @@
 # ISI resource and message names (Nokia BB5 modems; shared by every BB5 device).
-# Format and tools: docs/tools.md "Modem (ISI)"; replies are per device (devices/<id>/isi-replies.txt).
+# Format and tools: docs/tools.md "Modem (ISI)"; replies are per device (models/<id>/isi-replies.txt).
 # ISI resource/message names and the fake modem's simple reply table.
 #
 #   res  ID NAME [evidence]                 resource (ISI resource byte, hex)
@@ -10,10 +10,11 @@
 # Evidence: verified = seen in N95 code/logs; ref = name from public reference headers (names only,
 # no code copied); inferred = guessed from usage. Special-case replies (echoing request data, IMEI,
 # light, MTC state machine) stay in src/standins/stubs/iscpeer.inl.
-# tools/isi.py turns the reply lines into build/devices/<id>/gen/isireplies.h (scripts/build-standins.sh).
+# tools/isi.py turns the reply lines into build/roms/<id>/<fw>/gen/isireplies.h (scripts/build-standins.sh).
 
 res 09 PN_SIM                 verified
 res 0A PN_NETWORK             verified
+res C8 PN_MODEM_NETWORK       ref       # the Symbian^3 TSY's network resource (same messages as PN_NETWORK)
 res 0B PN_AUDIO?              inferred  # Aamm.DLL (MmfAudioServer !AudioServer thread); dispatch 0x8088108a
 res 15 PN_MTC                 verified
 res 77 PN_AUDIO_ROUTE?        inferred  # Lac_ord11 -> Aamm_ord71 before every play; Aamm receiver 0x80881488
@@ -30,6 +31,7 @@ res 47 PN_LIGHT_CTRL?         inferred  # SALightsService FUN_8091ee7e: req 06 [
 res 54 PN_UNKNOWN_54          inferred
 res 59 PN_UNKNOWN_59          inferred  # 4th self-test step, 10 s timeout in NokiaDSY
 res 62 PN_EPOC_INFO           ref
+res 8C PN_UICC                ref       # Belle FP2 (701, 808) SIM access: TSY ch 7, SAServer ch 35
 res D9 PN_PIPE                ref
 res DB PN_NAMESERVICE         verified
 res F3 PN_DSP_MDAIF?           inferred  # 5730 RAPIDO audio DSP setup (Aamm.DLL); docs/devices/nokia-5730-rm465/rapido-audio.md
@@ -42,6 +44,8 @@ msg 09 3C SIM_IMSI_EQUAL_RESP?            inferred  # {FA, cause}: 2A equal, 2B 
 msg 0A 00 NET_MODEM_REG_STATUS_GET_REQ    verified
 msg 0A 0B NET_RSSI_GET_REQ                verified
 msg 0A 36 NET_RAT_REQ                     verified
+msg C8 00 NET_MODEM_REG_STATUS_GET_REQ    verified  # the Symbian^3 TSY sends the network messages to PN_MODEM_NETWORK
+msg C8 36 NET_RAT_REQ                     verified
 msg 0B 00 AUDIO_REQ_00?                   inferred  # resp 01 = ok (byte 10 stored), 02 = failure
 msg 0B 14 AUDIO_REQ_14?                   inferred  # resp 15: Aamm passes only the tid on (0x80881110 is 0x16)
 msg 0B 19 AUDIO_REQ_19?                   inferred  # resp 1A: observer OK (0x808110ca)

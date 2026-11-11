@@ -1,6 +1,6 @@
 # Phone skin: an emulator window with hardware buttons
 
-**Status 2026-11-06: step 1 done and part of step 2.** `tools/sydb/sydb.py phone [--scale 2]`
+**Status 2026-11-06: step 1 done and part of step 2.** `tools/sydb/sydb.py phone [--scale S]` (default: fit the monitor)
 (`tools/sydb/phone.py`, PyQt6) shows the live screen over VNC (`<session>/vnc.sock`, minimal RFB
 3.8 client, raw 32 bpp) and has these controls:
 - buttons for the front keys, the slide-out keypad, and Power/volume on the side; real

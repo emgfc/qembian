@@ -1,0 +1,14 @@
+Bootstrap: the flexible memory model (Symbian^3 ROMs, N8) uses the multiple model's MMU permission table
+(same BTP entries, domain 0; bootcpu.inc defines CLIENT_DOMAIN/UNC_PERM for both).
+
+--- a/baseport/syborg/bootstrap/syborg.s	2026-11-07 12:03:11.043995987 +0100
++++ b/baseport/syborg/bootstrap/syborg.s	2026-11-07 12:03:11.046512080 +0100
+@@ -566,7 +566,7 @@
+ 
+ ; These entries specify the standard MMU permissions for various areas
+ 		
+-	IF  CFG_MMMultiple
++	IF  CFG_MMMultiple :LOR: CFG_MMFlexible	; qembian: the flexible model (Symbian^3) uses the same table
+ ;	IF  CFG_MMFlexible
+ 	    IF CFG_ARMV7 :LOR: CFG_MemoryTypeRemapping	; qembian: ARM1176 (ARMv6 with remapping) too
+ 		BTP_ENTRY   CLIENT_DOMAIN, PERM_RORO, MEMORY_FULLY_CACHED,       	1,  1,  0,  0   ; ROM

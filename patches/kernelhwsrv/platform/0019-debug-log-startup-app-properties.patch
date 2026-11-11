@@ -1,0 +1,15 @@
+Log two more property categories (debug builds): KPSUidStartupApp 0x100058F4 (the Symbian^3 UI
+start-up list publishes the start-up animation phase there) and KPSUidUikon 0x101F8773.
+
+--- a/kernel/eka/kernel/sproperty.cpp	2026-11-07 15:27:47.978497832 +0100
++++ b/kernel/eka/kernel/sproperty.cpp	2026-11-07 15:27:47.998889516 +0100
+@@ -1006,7 +1006,8 @@
+ #ifdef _DEBUG
+ 	// N95 hybrid debug (docs/hacks.md): log startup-category properties (KPSUidStartup)
+ 	// startup (KPSUidStartup), system (KUidSystemCategory: SIM status etc.), phone/telephony
+-	if (iCategory == 0x101f8766 || iCategory == 0x101f75b6 || iCategory == 0x101f8789)
++	if (iCategory == 0x101f8766 || iCategory == 0x101f75b6 || iCategory == 0x101f8789 ||
++		iCategory == 0x100058f4 || iCategory == 0x101f8773)	// + startup app (S^3 start-up animation phase), Uikon
+ 		Kern::Printf("SYBPROP: %O sets %08x/%x = %d", TheCurrentThread, iCategory, iKey, aValue);
+ #endif
+ 	if (aProcess && !CheckSetRights(aProcess, __PLATSEC_DIAGNOSTIC_STRING("Checked whilst trying to Set a Publish and Subscribe Property")))

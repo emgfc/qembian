@@ -30,6 +30,13 @@ summarise "$LOGS/kernel-ksrt-$VAR.log"
 echo ">> [2/2] kernelhwsrv package [$CFG]"
 ( cd "$K" && sbs -s package_definition.xml -c "$CFG" -k -j "$(nproc)" -f "$LOGS/kernel-pkg-$VAR.log" "$@" ) || true
 summarise "$LOGS/kernel-pkg-$VAR.log"
+# the package build keeps going past components that do not build with this toolchain; the kernel
+# itself must not be one of them (e.g. personality tables missing from kernel/execpers_map.h)
+if grep -q 'kernel/eka/kernel/[^ ]*: error:' "$LOGS/kernel-pkg-$VAR.log"; then
+  grep 'kernel/eka/kernel/[^ ]*: error:' "$LOGS/kernel-pkg-$VAR.log" | head -5
+  echo "!! the kernel did not compile (if execpers_map.h is stale: python3 tools/device.py build ID --kernel regenerates it)" >&2
+  exit 1
+fi
 
 R="${EPOCROOT}epoc32/release/armv5/$VAR"
 for f in _template_ekern.exe euser_v5.dll efile.exe efsrv.dll eshell.exe ewsrv.exe econs.dll elocal.fsy domainsrv.exe; do

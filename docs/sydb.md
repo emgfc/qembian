@@ -6,29 +6,62 @@ phase 3's basic debugger works. Done: session daemon, agent (files, processes, a
 P&S), CLI, MCP server (43 tools), live agent update, persistent gdb with kernel DWARF and app ELF
 symbols placed from the kernel's `SYBCODE:` line. IPC strace via the kernel's KIPC trace works. Not yet:
 exec-call strace (phase-2 LDD), XIP
-symbol ELFs for Nokia code in gdb backtraces, snapshots, SIS install.
+symbol ELFs for Nokia code in gdb backtraces, snapshots. SIS install: `sydb sis install` (below).
 
 ## Pieces
 
 | Piece | Where | What |
 |---|---|---|
-| daemon | `tools/sydb/daemon.py` | one per session dir (`build/sydb`). It starts QEMU (`run-modern.sh -name sydb`; syb_run/syb_gdb kill only `sybtool` QEMUs, so they don't collide with it) and serves JSON on `ctl.sock`. The session dir holds: serial0 → `serial.log` (timestamped), serial1 → `agent.sock`, QMP → `qmp.sock`, gdbstub → tcp port in `gdb.port`, and the phone drives in `drives/` |
-| CLI | `tools/sydb/sydb.py` | `sydb <cmd>`; `--json` for raw replies; `--session DIR` for a second phone |
+| daemon | `tools/sydb/daemon.py` | one per session dir (an instance's directory, or any `--session DIR`). It starts QEMU (`run-modern.sh -name sydb`; syb_run/syb_gdb kill only `sybtool` QEMUs, so they don't collide with it) and serves JSON on `ctl.sock`. The session dir holds: serial0 → `serial.log` (timestamped), serial1 → `agent.sock`, QMP → `qmp.sock`, gdbstub → tcp port in `gdb.port`, and the phone drives in `drives/` |
+| CLI | `tools/sydb/sydb.py` | `sydb <cmd>`; `--json` for raw replies; `--instance NAME` or `--session DIR` picks the phone (below) |
+| instances | `tools/instance.py` | the user's phones: create, clone, rename, delete, set, list (below) |
 | MCP | `tools/sydb/mcp.py` | stdio JSON-RPC, 43 tools (`session_*`, `log_tail`, `events`, `fs_*`, `app_*`, `proc_*`, `ui_*`, `sys_*`, `dbg_*`, `qemu_hmp`); registered for Claude Code in `.mcp.json` |
 | agent | `src/n95apps/devagent/devagent.cpp` | `devagent.exe`, All-TCB, serial unit 1 (`RBusDevComm`), line protocol (header of the file) |
 | TCB helper | `src/n95apps/devagent/dafs.cpp` | `dafs.exe`, ALL caps, EUSER/EFSRV only. Moves files into `\sys\`/`\resource\`, and does the agent self-update |
 
 Build the agent pair with `src/n95apps/devagent/build.sh` (`--debug` = `-O0 -g`).
 
+## Which phone: instances and sessions
+
+A **session** is a directory the daemon runs a phone in: `drives/` (C: `nvmemory.img`, E: `nvmemory2.img`,
+`rtc-offset`), snapshots, catches, logs, sockets. A **device instance** is a session directory with an
+`instance.toml` (device model v2, [device-model-v2.md](device-model-v2.md) 2.3): one named virtual phone
+with a model, one of the model's firmwares, a ROM variant, settings (`gl`, `audio`, `scale`: the
+defaults of `sydb phone` / `start` for it) and optional `[overrides]` of run-time profile values
+(`board`, `gl.host`, `modem`, `[[overrides.standins]]` config; anything composed into the ROM is
+refused). Instances live in `build/instances/<name>/` (`$QEMBIAN_HOME/instances` when set); instances
+of one model and firmware share one composed ROM.
+
+```
+tools/instance.py list                                   # your phones (primary, running)
+tools/instance.py create n8-test nokia-n8-rm596@025.007  # a model + firmware (or a firmware's id: nokia-n8-rm596-v25)
+tools/instance.py clone n95 n95-copy                     # config + drives (sparse/reflink copies), no snapshots
+tools/instance.py set n95 settings.audio wav | set NAME rom_variant audio-exp | set NAME firmware FW --keep-drives|--wipe-drives
+tools/instance.py rename OLD NEW | delete NAME --yes | check | show NAME | get NAME rom|dir|device|drives
+```
+
+A sydb command picks its phone, in this order: `--instance NAME`; `sydb phone NAME`; `--session DIR`
+(when DIR has an `instance.toml` it is that instance); else the **primary** instance of
+`$SYBORG_DEVICE` (default: `models/registry.toml` `default`, the N95), made as
+`build/instances/<device id>` at its first start. One instance per device is primary
+(`instance.py set NAME primary true`), so `SYBORG_DEVICE=ID sydb ...` keeps opening the same phone.
+An instance sets `SYBORG_DEVICE` and `SYBORG_INSTANCE` for everything it starts, so `tools/device.py`
+in the daemon, `run-modern.sh` and the other tools load its device with its overrides. A session
+refuses another phone's drives (the `device` mark file); `--fresh` wipes them.
+
+Agents and tests: a throw-away session (`--session build/sydb-<name>`) or an ephemeral instance
+(`instance.py create NAME DEVICE --ephemeral --replace`, what `tests/device-smoke.sh` does), never
+the user's instances (`instance.py list`: the ones not marked ephemeral).
+
 ## Quick start
 
 ```
 src/n95apps/devagent/build.sh
-tools/sydb/sydb.py start --seed build/runs/mtc-drives    # first time: copy a phone past first boot
-tools/sydb/sydb.py start                                 # later: reuse build/sydb/drives
+tools/sydb/sydb.py --session build/sydb-x start --seed build/seeds/nokia-n95-8gb-rm320   # a phone past first boot
+tools/sydb/sydb.py --session build/sydb-x start          # later: reuse <session>/drives
 ```
 `start` (re)installs the agent when seeding (`sydb install` does it alone, session stopped). It
-then waits for the idle screen and the agent (Starter starts it at about 21 s).
+then waits for the idle screen and the agent (the boot hook starts it about 1 s into the boot).
 
 ```
 sydb ps [PREFIX] | threads [PREFIX] | kill PID|NAME
@@ -46,35 +79,83 @@ sydb hmp 'info registers' | status | stop
 ```
 Key aliases: `lsk rsk ok menu star hash clear back` (F5, F7, F6, F8, numpad *, F10, backspace, F7).
 
-## Autostart: Starter's dynamic startup list
+## Autostart: the EStart hook
 
-The agent starts the way an installed S60 app with a startup entry does. It is a record in the
-N95 Starter's dynamic startup list, and Starter starts it at about 21 s (right after the global
-state reaches 0xCB). Found with sydb itself: the IPC trace of a boot shows Starter reading
-`c:\private\100059C9\start.dat`, and `Starter.exe` / `StarterClient.dll` /
-`SWInstStartupTask.dll` give the rest:
+Nokia's EStart starts a few programs by bare name right after mounting the drives (`HALSettings.exe
+INITIALISE` on 9.2 and later, `LanguageSelection.exe` on 9.1), and the loader searches C: before Z:.
+`sydb install` puts `boothook.exe` on C: under that name (read from the firmware's EStart): it starts
+`c:\sys\bin\devagent.exe` (unless one is already running), then runs the real `z:\sys\bin\<name>`
+with the same command line and returns its exit value. The hook carries EStart's SID (0x10272C04)
+because the real HALSettings accepts INITIALISE only from EStart. The agent comes up about 1 s into the boot, before the window server; commands that
+need a server that is not up yet return its connect error.
 
-- **Store:** `c:\private\100059C9\start.dat`, DES-ECB with a fixed 8-byte key from Starter. The
-  last block is padded with `'0'`, which is stripped on reading. Plaintext records:
-  `path;recovery;type;w2;base64(MD5(exe));}`. Starter backs it up via `start.tmp` and
-  `bckupstart.dat` while rewriting.
-- **API:** session to `StarterServer` (StarterClient ord9 = connect, version 0.0.0).
-  - op 5 add, args {12-byte struct w0 recovery, w1 type, w2} + path (ord5/ord11);
-  - op 6 remove, arg path (ord7);
-  - op 8 path (ord3; the installer calls it too).
-
-  Add computes the EXE's MD5 itself and replaces an older record for the same path. The
-  installer's `SWInstStartupTask.dll` is the normal client.
-- **At boot:** on state 0xCB, if FeatureManager feature 0x421 is supported, Starter starts each
-  record of type 1, 7 or 8 whose EXE still has the recorded MD5 (recovery is forced to 0 on
-  `e:`).
+One mechanism on every phone, deliberately not configurable. Why Starter's dynamic startup list
+(used before) was dropped, and the alternatives: docs/agent-autostart.md.
 
 | Command | What |
 |---|---|
-| `sydb install` / `uninstall` (session stopped) | copy/delete the EXEs; write/remove the record in `start.dat` offline (`tools/sydb/startlist.py`, same format, byte-identical to what Starter writes) |
-| `sydb startup add|rm|check PATH [w0 w1 w2]` (running) | the StarterServer requests, as the installer makes them (defaults 0 1 0) |
-| `sydb startup list` | decrypted records |
-| `sydb update-agent` | re-registers the new binary (its MD5 changed) |
+| `sydb install` / `uninstall` (session stopped) | copy/delete `devagent.exe`, `dafs.exe` and the hook (`HALSettings.exe` / `LanguageSelection.exe`) on C:; `install` also removes an older install's agent record from Starter's `start.dat` |
+| `sydb update-agent` | replaces the agent (and `dafs.exe`, the hook) on a running phone |
+| `sydb startup add|rm|check|list PATH [w0 w1 w2]` (running, 9.1-9.3) | Starter's dynamic startup list (`c:\private\100059C9\start.dat`, DES-ECB records `path;recovery;type;w2;base64(MD5(exe));}`, `tools/sydb/startlist.py`) through the StarterServer requests an installer makes; kept for tests of installed-app start-up, not used by the agent |
+
+## Installing .sis / .sisx: `sydb sis install`
+
+```
+sydb sis install game.sisx [--drive E] [--lang N] [--keep] [--timeout S]
+```
+Copies `build/n95apps/sisinst.exe` to `C:\sys\bin`, the package to `E:\sydb\` (`C:\data\sydb\` without
+an E:), runs it and waits. `sisinst.exe` (`src/n95apps/devagent/sisinst.cpp`, All-TCB) calls the native
+installer API `Swi::Launcher::Install` (sishelper.dll) with its own UI handler instead of the phone's
+installer UI: every question the install server asks comes to it, is logged with its parameters and
+answered yes:
+
+| Question | Answer |
+|---|---|
+| install?, upgrade?, uninstall? | yes |
+| capabilities to grant | yes (the list is logged) |
+| language | `--lang` if offered, else English, else the first |
+| drive | `--drive` if it has room, else the drive with the most free space (sizes logged) |
+| options | all selected |
+| text (licence, notes) | logged in full (200-character pieces), continue |
+| security warning (signature result), OCSP result | yes (result logged; a package the install server refuses stays refused) |
+| question: incompatible package, overwrite a file | yes |
+| missing dependency, dependency break, applications in use | continue / close them |
+| errors (cannot overwrite, capabilities cannot be granted, ...) | logged |
+
+Large packages: copy them into the stopped session's drive image (disk to disk, no serial link),
+then install them in place on the phone:
+```
+sydb stop
+sydb drive put E ~/games/ 'E:\installs'      # files of the directory; creates E:\installs
+sydb start            # or: sydb phone --install
+sydb sis install 'E:\installs\'               # every .sis/.sisx in it, a summary at the end
+```
+`sydb drive ls|put|get|mkdir|rm LETTER ...` maps the letter to the session's image through the
+profile's `[[board.drives]]` (N8: E: = `nvmemory2.img`, 1 GB) and refuses while the session runs. Items of
+`sis install` may be local files or directories (copied over the agent link, deleted after unless
+`--keep`), phone files or phone directories (installed in place, left there).
+
+The log is printed, kept as `<session>/sis/NAME.log` and in the serial log (`SISINST:` lines, also when
+the helper dies half-way). Exit 0 = installed; otherwise the result is named (-10254 security error,
+-10149 no space, -46 permission denied, -3 a step was refused). Interface: Symbian Foundation appinstall
+(EPL) `msisuihandlers.h`/`launcher.h` (`~/work/symbian/oss.FCL.sf.mw.appinstall`), import library from
+`src/n95apps/devagent/sishelper.def` (the legacy, pre-USIF ordinals). Tested on the N8 Delight (Belle
+Refresh, whose install server is patched to accept any signature): a self-signed test package and an S60
+3rd Edition example (which raised the "incompatible" question); the app runs. Not yet tried on 9.2-9.4
+phones (their sishelper.dll has 85 exports; ordinals 3 and 16 are expected to be the same), and a stock
+install server still refuses packages without a trusted signature (result -10254).
+
+All our on-phone programs (`src/n95apps/devagent`) construct drtaeabi's `TCppRTExceptionsGlobals` in
+their thread entry, as the SDK's EXE startup does: without it the first leave in any thread of the
+process died in `__cxa_allocate_exception` (seen in the installer's `!UISS` thread).
+
+## Host GPU settings
+
+`sydb gl` prints the host GPU device's settings and statistics (kicks and time in the device,
+compositions, asynchronous read-backs, fills, live surfaces and textures, GL errors); `sydb gl set
+msaa=0|2|4|8|16 filter=auto|nearest|linear compose=host|guest [--save]` changes them while the phone
+runs. Defaults come from the profile's `[gl.host]` (docs/devices.md). `SYBORG_GL_STATS=1` in the
+environment of `sydb start` prints the timings to `qemu.err` every 5 s.
 
 ## Catch, snapshots and forks (time travel)
 
@@ -84,9 +165,17 @@ sessions. Built 2026-11-06 to hunt a timing-dependent Hitchcock crash: breakpoin
 watchpoints on hot paths changed the timing and hid it, while the catch breakpoints are on cold
 paths and caught it in the first run.
 
+Limitation (2026-11-07): the host GPU device (syborg-gl) saves nothing into a snapshot. Devices
+whose screen is drawn on the host (the N8: OpenVG through src/khr, composition through gcebe) come
+back from `snap restore` / `fork` with a black screen and silently dropped draws, because the guest
+still refers to host surfaces and textures that no longer exist. Fix designed in
+docs/gpu-host-review.md 1.1 (save the objects and their pixels, or an epoch register the guest
+checks); not built while nobody uses snapshots on the N8. Devices without host drawing are fine.
+
 ```
 sydb catch add --kind panic --thread Carousel --action freeze --snapshot   # rule 1
 sydb catch add --category KERN-EXEC --reason 3                             # any thread, dump only
+sydb catch add --at 0x8252d4a8 --max 2 --action freeze  # break rule: a cold kernel/user address (dump each time)
 sydb catch list | hits | show ID | rm [ID] | resume
 sydb snap save [NAME] [--stopped] | snap list | snap rm NAME
 sydb fork catch-1 [--into DIR] [--run]     # resume the snapshot as build/sydb-fork-catch-1, paused
@@ -98,17 +187,23 @@ sydb pause | resume
 ```
 
 - **Triggers:** hardware breakpoints through the persistent gdb on `User::Panic(const TDesC16&, TInt)`
-  (EUser 0x803a9f8a). That is user mode, before the panic exec call, so the thread is still alive
+  (EUser ordinal 650, its address taken from the device's syb_sym index: N95 0x803a9f8a). That is user mode, before the panic exec call, so the thread is still alive
   with exact registers; `User::RaiseException` (USER-EXEC 3) and CBase/USER panics end there. The
   other breakpoint is `DThread::Die(TExitType, TInt, const TDesC8&)`, the kernel's single exit path,
   which also sees exits the kernel decides (KERN-EXEC 3 for exceptions, KERN-EXEC 0, kills by other
   threads). There, user registers come from the kernel's own `ThreadUserContextTables` (exact for
   exceptions; for exec calls r4-r11 and pc). A Die that follows a caught User::Panic is skipped.
+- **Paused starts:** gdb puts its breakpoints into the target only when *it* resumes it, so
+  `sydb resume` continues through gdb whenever gdb is attached and holds the machine (a QMP `cont`
+  behind its back would run with no breakpoints and catch nothing). A `--at` rule is inserted in
+  the same stop as the panic/die breakpoints.
+- **Break-rule registers** are the kernel's at that address: an argument already moved off `r0`
+  is in the frame (`fp`/`sp`), not in the dump's `r0`.
 - **Rules:** kind (panic, kill, terminate, exit = any abnormal exit, any), thread regex on
   `process::thread`, exact category, exact reason, action dump (continue) or freeze (hold; inspect
   with `dbg`, then `catch resume`), `--snapshot`, `--once`. A stop that matches no rule continues at
   once. Only thread deaths stop the machine, so normal running is unaffected.
-- **Dump** (`build/sydb/catches/NNN-thread.{txt,json,stack.bin}`, event `catch.hit`): registers, `at`
+- **Dump** (`<session>/catches/NNN-thread.{txt,json,stack.bin}`, event `catch.hit`): registers, `at`
   and `caller` symbolised, and a call-stack scan. The scan takes the words on the user stack
   whose preceding instruction is a BL/BLX/`mov lr,pc` and symbolises them against ROM modules (syb_sym)
   and RAM code segments (`SYBCODE` lines), followed by the log tail.
@@ -127,21 +222,24 @@ sydb pause | resume
 
 ## Phone window
 
-`sydb phone [--scale 2]` opens an emulator window like the Android emulator's: the live screen
+`sydb phone NAME [--fresh] [--scale S] [--keep]` boots instance NAME (`SYBORG_DEVICE=ID sydb phone`:
+the device's primary instance; `--fresh` = empty drives, a factory-fresh phone) and opens its window
+in one command; the session ends when the window closes, and also when
+the window's process dies any other way (the daemon watches it; QEMU dies with the daemon), unless
+`--keep`. Scale, sound and GLES default to the instance's settings (scale 1, sound on the host
+speakers, GLES on the host GPU); `--scale F`, `--audio`, `--gl` override them. The window is an emulator window like the Android emulator's: the live screen
 (read straight from guest RAM, which sessions back with a shared file `/dev/shm/sydb-<hash>.ram`
 (`status` → `ram`); the window follows the fb registers for base, pitch, rotation, partial band and
-blanking, ~60 frames/s, pixel-identical to QEMU's screendump; `SYDB_VNC=1` or an older session falls
-back to VNC on `<session>/vnc.sock`), the phone's keys with real press/release (hold Menu = task
+blanking, ~60 frames/s, pixel-identical to QEMU's screendump; sessions serve no VNC), the phone's keys with real press/release (hold Menu = task
 switcher, hold Power = switch off), the host keyboard (its keys show pressed on the phone while held), and a side toolbar: Power, Vol +/-,
 **Landscape (media slide)** (taps F13, the phone switches its layout, the view turns so it stays
 upright; Ctrl+Left/Right toggles it too), **Keypad slide** (shows the number keys; no slide event to
 the phone yet), Shot, Snapshot, Pause, Reset. **Multimedia** (F20), **Gallery** (F21) and the media
-keys send the N95's own key codes. `sydb phone --device` (or `start --device`) runs on your
-run-gui phone in place (build/n95/drive-c.img, drive-e.img, rtc-offset; ROM hybrid-exp.img, which
-plays the startup jingle; session build/sydb-device; `--install` adds the sydb agent to its C:).
-Restoring a snapshot in such a session writes the device images. It starts a session if none is running, with sound
-on the host speakers (`--audio host`: `$AUDIO` or pipewire, like run-gui). `sydb start` keeps sound in
-`<session>/audio.wav` unless given `--audio host` (or a QEMU audiodev driver). GLES runs on the host
+keys send the N95's own key codes. The N95 that `scripts/run-gui.sh` and the old `sydb --device`
+ran is the instance `n95-gui` (ROM variant `audio-exp`, which plays the startup jingle; `--install`
+adds the sydb agent to its C:). `sydb phone` starts a session if none is running, with sound on the
+host speakers (`--audio host`: `$AUDIO` or pipewire). `sydb start` keeps sound in
+`<session>/audio.wav` unless the instance's `settings.audio` or `--audio` says otherwise. GLES runs on the host
 GPU by default (`--gl soft` for the software rasteriser, H-gles-host). Details:
 [phone-skin.md](phone-skin.md).
 

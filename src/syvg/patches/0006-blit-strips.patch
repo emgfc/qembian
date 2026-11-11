@@ -1,0 +1,35 @@
+qembian: Image::blit copies same-format rows directly and splits big areas into strips of rows
+(the RI allocates a 20-byte float colour per pixel of the area: alf ran out of heap on 360x640).
+
+--- a/riImage.cpp	2026-11-07 20:19:59.106430008 +0100
++++ b/riImage.cpp	2026-11-07 20:19:59.127355113 +0100
+@@ -739,6 +739,29 @@
+ 	if(w <= 0 || h <= 0)
+ 		return;	//zero area
+ 
++	//qembian: same format: rows copied as they are, no per-pixel float conversion
++	if(m_desc.format == src.m_desc.format && m_desc.bitsPerPixel >= 8 && !(m_desc.bitsPerPixel & 7))
++	{
++		int bpp = m_desc.bitsPerPixel >> 3;
++		bool up = (&src == this || (m_parent ? m_parent : this) == (src.m_parent ? src.m_parent : &src)) && dy > sy;
++		for(int k=0;k<h;k++)
++		{
++			int j = up ? h - 1 - k : k;
++			memmove(m_data + (m_storageOffsetY + dy + j) * m_stride + (m_storageOffsetX + dx) * bpp,
++			        src.m_data + (src.m_storageOffsetY + sy + j) * src.m_stride + (src.m_storageOffsetX + sx) * bpp, w * bpp);
++		}
++		return;
++	}
++	//qembian: big areas in strips of rows: the temporary below is 20 bytes per pixel (4.6 MB for
++	//360x640), more than a heap may give, and without exceptions a failed new is a crash
++	if(w * h > 8192 && !overlaps(&src))
++	{
++		int rows = 8192 / w > 0 ? 8192 / w : 1;
++		for(int y=0;y<h;y+=rows)
++			blit(src, sx, sy + y, dx, dy + y, w, h - y < rows ? h - y : rows, dither);
++		return;
++	}
++
+ 	Array<Color> tmp;
+ 	tmp.resize(w*h);	//throws bad_alloc
+ 

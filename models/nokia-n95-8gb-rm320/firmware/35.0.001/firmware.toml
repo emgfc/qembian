@@ -1,0 +1,40 @@
+# Firmware 35.0.001 of nokia-n95-8gb-rm320 (device model v2: merged over models/nokia-n95-8gb-rm320/model.toml). What belongs to this
+# firmware build: its files, identity and addresses. The model is the phone.
+
+[firmware]
+version = "35.0.001"                       # RM-320_35.0.001_PR.C0R (docs/devices/nokia-n95-8gb-rm320/n95-firmware-inventory.md)
+obtain = """
+Flash files of your own phone's software version (the files a Nokia Software Updater / Phoenix
+install left on disk, or an archive copy). Needed: the main C0R image and the language pack (.v1x).
+Import them into the ROM store: tools/fw/store.py import DIR (roms/RM-320/<version>/, git-ignored).
+"""
+[[firmware.files]]
+role = "core"                              # SOS+CORE (demand-paged XIP ROM) + SOS+ROFS inside the same container
+glob = "RM-320_*.C0R"
+
+[[firmware.files]]
+role = "rofx"                              # ROFS2 (language/variant pack)
+glob = "RM-320_*.v1?"
+optional = true
+
+# What the extracted firmware must say about itself before anything is composed (tools/device.py
+# identify; device.py build refuses a mismatch). The code patches' addresses are only valid for this
+# exact build: romcompose also checks every patch's original bytes.
+[firmware.identity]
+sw = { version = "V 35.0.001", date = "11-11-09", type_code = "RM-320" }        # Z:\resource\versions\sw.txt (ROFS1)
+langsw = { version = "V SPP 31.31 49 BL", type_code = "RM-159" }                # langsw.txt of the language pack (ROFS2) [V]: labelled for the N95 classic
+drivers = ["wlanldd.ldd", "wlanpdd.pdd"]                                         # hardware.wlan = true: the WLAN drivers must be in the core image
+[firmware.identity.sha256]                                                       # the extracted images (build/roms/<id>/<fw>/), not the flash files
+"core-flat.img" = "0f071a15a9bfc0fd011558e0dd51eb9822f3110b76254fcd8dda8f313fc725c1"
+"rofs1.img" = "920e23d2b341f0927edaa1074823ee8b71da5b262fa85f812c19f4c29bbac98a"
+"rofs2.img" = "06283f40e5ea0b6d13063b67d4ff1d5148c1ceadebe38994ad229dcb53c49878"
+
+[firmware.rom]
+user_window_start = 0x80320000             # [V] blob gap below the N95 user side (src/sygl/build.sh SYGL_BASE)
+# User data layer: the C: drive the flasher writes after the ROM layers (factory content: installed apps,
+# Starter list, media). New session drives start as a copy (docs/devices.md "User data layer").
+[[firmware.files]]
+role = "uda"
+glob = "RM320_*_U01_uda.fpsx"
+drive = "C"
+optional = true

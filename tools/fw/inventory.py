@@ -1,17 +1,25 @@
 #!/usr/bin/env python3
 """Firmware inventory of a device (docs/adding-a-device.md step 2), from its profile's [firmware]:
-find the flash files, check them against devices/<id>/firmware.sha256, extract the partitions
+find the flash files, check them against the ROM store's record (rom.toml sha256), extract the partitions
 (tools/fiasco.py), unpage the core image (tools/rom_unpage.py), list its files (tools/romimg.py ->
 core.json), write the kernel-side driver list (input for [[standins]]), the ABI reports when the SDK
 and our build are there (tools/swi_map.py, tools/xip_imports.py), and identify the result.
-Nothing from the firmware is committed: everything goes to build/devices/<id>/ (or --out).
+Nothing from the firmware is committed. The flash files come from the ROM store entry of the profile's
+firmware (tools/fw/store.py; --fw-dir for files outside the store), the extraction goes to the shared
+cache build/firmware/<RM>/<version>/<packs>/ (or --out) and its items are linked into the device's build
+directory build/roms/<id>/<firmware key>/ (tools/device.py paths dir), where the device's ROM is composed.
 
-  tools/fw/inventory.py [--device ID] [--fw-dir DIR] [--out DIR] [--no-abi]
-FW_DIR / N95_FW_DIR or firmware/<id>/ hold the flash files when --fw-dir is not given.
+  tools/fw/inventory.py [--device ID] [--fw-dir DIR] [--out DIR] [--no-abi] [--uda-only]
+The user data layer ([[firmware.files]] role = "uda", drive = "C") becomes uda-<drive>.img, a sparse
+image of its file system (tools/fw/uda.py); new session drives start as a copy (docs/devices.md).
+--uda-only does only that step (a device inventoried before the layer was declared).
+Without a store entry: --fw-dir DIR names the directory of the flash files (import them into the store
+with tools/fw/store.py to share the extraction).
 """
 import argparse, glob, hashlib, json, os, shutil, struct, subprocess, sys, zlib
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(ROOT, 'tools'))
+sys.path.insert(0, os.path.join(ROOT, 'tools', 'fw'))
 import device as devmodel
 
 
@@ -24,46 +32,32 @@ def sha256(p):
 
 
 def sos_inflate(pdir, pname):
-    """A compressed SOS* partition (N73 SOS*CORE): the partition image header (the FIASCO record's
-    payload, flashed at the record location) holds the length of a raw prefix at +0x1C; the raw
-    deflate stream starts right after it and runs into the chunks (the SOS_XZIP loader copies the
-    prefix and inflates the rest into RAM). Returns (image, rest): the ROM image (from the end of the
-    record payload) and the partition bytes after the stream (N73: ROFS1 follows uncompressed)."""
+    """a compressed SOS* partition extracted by tools/fiasco.py (record payload .hdr + chunks .bin) ->
+    (ROM image, the bytes after the deflate stream: the N73's ROFS1); tools/fw/identity.py inflate_sos"""
+    import identity
     hdrs = sorted(glob.glob(os.path.join(pdir, glob.escape(pname) + '@*.hdr')))
     bins = sorted(glob.glob(os.path.join(pdir, glob.escape(pname) + '@*.bin')))
     if not hdrs or not bins:
         raise SystemExit('%s: no record payload/chunks for %s in %s' % ('inventory', pname, pdir))
-    hdr, body = open(hdrs[0], 'rb').read(), open(bins[0], 'rb').read()
     hloc, bloc = int(hdrs[0].rsplit('@', 1)[1][:-4], 16), int(bins[0].rsplit('@', 1)[1][:-4], 16)
-    if hloc + len(hdr) != bloc or hdr[:4] != b'\xa3\x95\x97\x80':
+    hdr, body = open(hdrs[0], 'rb').read(), open(bins[0], 'rb').read()
+    if hloc + len(hdr) != bloc:
         raise SystemExit('%s: unexpected SOS header layout (hdr @%x+%x, data @%x)' % (pname, hloc, len(hdr), bloc))
-    raw = struct.unpack_from('<I', hdr, 0x1c)[0]
-    d = hdr + body
-    z = zlib.decompressobj(-15)
-    out = z.decompress(d[raw:]) + z.flush()
-    if not z.eof:
-        raise SystemExit('%s: deflate stream does not end' % pname)
-    img = out[len(hdr) - raw:]           # the image starts where the record payload ends
-    base = struct.unpack_from('<I', img, 0x8c)[0]
-    if base not in (0x80000000, 0xF8000000):
-        raise SystemExit('%s: no ROM header at the expected place (iRomBase 0x%08x)' % (pname, base))
-    print('%s: raw prefix 0x%x, inflated 0x%x -> ROM image 0x%x bytes (base 0x%08x)' % (pname, raw, len(out), len(img), base))
-    return img, z.unused_data
+    try:
+        img, rest = identity.inflate_sos(hdr, body)
+    except ValueError as e:
+        raise SystemExit('%s: %s' % (pname, e))
+    print('%s: ROM image 0x%x bytes (base 0x%08x)' % (pname, len(img), struct.unpack_from('<I', img, 0x8c)[0]))
+    return img, rest
 
 
 def rofs_slice(data, what):
     """the first ROFS/ROFx image in data (sector aligned), cut to its iImageSize"""
-    off = 0
-    while True:
-        cand = [i for i in (data.find(b'ROFS', off), data.find(b'ROFx', off)) if i >= 0]
-        if not cand:
-            break
-        off = min(cand)
-        size = struct.unpack_from('<I', data, off + 0x24)[0]
-        if 0 < size <= len(data) - off:		# a header, not the four bytes inside some file
-            return data[off:off + size]
-        off += 4
-    raise SystemExit('%s: no ROFS image found' % what)
+    import identity
+    img = identity.rofs_slice(data)
+    if img is None:
+        raise SystemExit('%s: no ROFS image found' % what)
+    return img
 
 
 def run(cmd, out=None):
@@ -73,62 +67,119 @@ def run(cmd, out=None):
         raise SystemExit('failed: %s' % ' '.join(cmd))
 
 
+def paths_dir(prof):
+    return devmodel.paths(prof)['dir']
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     ap.add_argument('--device'); ap.add_argument('--fw-dir'); ap.add_argument('--out')
     ap.add_argument('--no-abi', action='store_true', help='skip the SWI/import reports')
+    ap.add_argument('--uda-only', action='store_true', help='only extract the user data layer')
     a = ap.parse_args()
     prof = devmodel.load(a.device)
     dev = prof['_id']
-    fw = a.fw_dir or os.environ.get('FW_DIR') or os.environ.get('N95_FW_DIR') or os.path.join(ROOT, 'firmware', dev)
-    out = a.out or devmodel.paths(prof)['dir']
+    fd = devmodel.firmware_dirs(prof)		# the ROM store entry and the shared extraction cache (device-model-v2)
+    fw = a.fw_dir or (fd and fd['store'])
+    if not fw:
+        raise SystemExit('%s: firmware not in the ROM store (tools/fw/store.py import DIR, or --fw-dir DIR)' % dev)
+    out = a.out or (fd and fd['cache']) or devmodel.paths(prof)['dir']
     os.makedirs(os.path.join(out, 'abi'), exist_ok=True)
     py = [sys.executable, '-I']
     # 1. the flash files, by role
     files = {}
     for f in devmodel.get(prof, 'firmware.files', []):
+        if a.uda_only and f.get('role') != 'uda':
+            continue
         hits = sorted(glob.glob(os.path.join(fw, f['glob'])))
         if not hits:
             if f.get('optional'):
                 continue
             raise SystemExit('%s: no %s (%s) in %s' % (dev, f['role'], f['glob'], fw))
         files[f['role']] = (hits[0], f)
-    # 2. checksums against the profile's record
+    # 2. checksums against the store's record of the files (written at import: a file changed since is not
+    # the one identified); the profile's [firmware.identity] is checked on the extraction (step 6)
     sums = {os.path.basename(p): sha256(p) for p, _ in files.values()}
-    with open(os.path.join(out, 'firmware.sha256'), 'w') as fo:
-        for n, h in sums.items():
-            fo.write('%s  %s\n' % (h, n))
-    rec = devmodel.device_file(prof, devmodel.get(prof, 'firmware.checksums', 'firmware.sha256'))
-    if os.path.exists(rec):
-        want = {l.split()[1].split('/')[-1]: l.split()[0] for l in open(rec) if l.strip()}
-        for n, h in sums.items():
-            print('%-40s %s' % (n, 'sha256 ok' if want.get(n) == h else 'NOT the profile\'s file (%s)' % h[:16]))
-    # 3. partitions -> core-flat.img, rofs1.img, rofs2.img
+    want = {f['name']: f.get('sha256') for f in devmodel.store_entries().get(devmodel.firmware_id(prof) or '', {}).get('files', [])}
+    for n, h in sums.items():
+        if n in want:
+            print('%-40s %s' % (n, 'sha256 ok' if want[n] == h else 'CHANGED since the store import (%s)' % h[:16]))
+    # 3a. the user data layer -> uda-<drive>.img (a FAT drive, not ROM partitions)
+    import uda as udamod
+    for role, (p, f) in list(files.items()):
+        if role != 'uda':
+            continue
+        del files[role]
+        dst = os.path.join(out, 'uda-%s.img' % f.get('drive', 'C').lower())
+        try:
+            facts = udamod.write_image(p, dst)
+        except udamod.UdaError as e:
+            if 'no data chunks' in str(e):     # an erase-only UDA (e.g. N81 21.0.010): the factory C: is blank
+                print('user data layer: %s erases the drive only (no data): C: starts blank' % os.path.basename(p))
+                continue
+            raise SystemExit('%s: %s' % (dev, e))
+        print('user data layer: %s -> %s: %s %d MB, %d MB of data' % (os.path.basename(p), os.path.relpath(dst, ROOT),
+              facts['type'], facts['size'] >> 20, facts['data'] >> 20))
+    if a.uda_only:
+        if not a.out and fd:
+            devmodel.link_firmware(prof)
+        return 0
+    # 3. partitions -> core-flat.img, rofs1.img, rofs2.img, rofs3.img. Where each image is inside a file is read
+    #    from the file (tools/fw/layout.py: partition names, compression, ROFS magic, the ROM header's paging);
+    #    the profile's roles only select the files.
+    import layout
+    wrote = set()
+    def part_file(pdir, pname):
+        stem = pname.replace('+', '_')		# tools/fiasco.py writes "SOS+CORE" as SOS_CORE@<loc>.bin
+        src = sorted(glob.glob(os.path.join(pdir, glob.escape(stem) + '@*.bin')))
+        if not src:
+            raise SystemExit('%s: partition %s not extracted in %s' % (dev, pname, pdir))
+        return stem, src[0]
+    def rofs_out(name, data, what):
+        img = data if data[:4] in (b'ROFS', b'ROFx') else rofs_slice(data, what)	# RAPIDO NAND: 0xC00 prefix
+        open(os.path.join(out, name), 'wb').write(img)
+        wrote.add(name)
+    plans = {}
     for role, (p, f) in files.items():
         pdir = os.path.join(out, role)
         run(py + [os.path.join(ROOT, 'tools', 'fiasco.py'), p, '--out', pdir], os.path.join(out, '%s-partitions.txt' % role))
-        parts = f.get('partitions', {})
-        rest = None
-        for kind, pname in parts.items():
-            src = sorted(glob.glob(os.path.join(pdir, glob.escape(pname) + '@*.bin')))
-            if not src:
-                raise SystemExit('%s: partition %s not in %s' % (dev, pname, p))
-            if kind == 'core' and f.get('compression') == 'sos-deflate':
-                img, rest = sos_inflate(pdir, pname)
+        plans[role] = layout.plan(p)
+        print('%s: %s' % (os.path.basename(p), plans[role]))
+    langs = [r for r in files if 'lang' in plans[r] and 'core' not in plans[r]]
+    for role, (p, f) in files.items():
+        pl, pdir = plans[role], os.path.join(out, role)
+        if 'core' in pl:
+            pname, compressed = pl['core']
+            stem, src = part_file(pdir, pname)
+            rest = None
+            paged = not compressed and layout.rom_is_paged(open(src, 'rb').read(0x10000))
+            declared = devmodel.get(prof, 'firmware.rom.paged', None)
+            if declared is not None and not compressed and bool(declared) != paged:
+                print('WARNING: [firmware.rom] paged = %s, the core says %s' % (declared, paged))
+            if compressed:
+                img, rest = sos_inflate(pdir, stem)
                 open(os.path.join(out, 'core-flat.img'), 'wb').write(img)
-            elif kind == 'core' and not devmodel.get(prof, 'firmware.rom.paged', True):
-                shutil.copyfile(src[0], os.path.join(out, 'core-flat.img'))
-            elif kind == 'core':
-                run(py + [os.path.join(ROOT, 'tools', 'rom_unpage.py'), src[0], os.path.join(out, 'core-flat.img')])
-            elif kind == 'rofs':		# rofs1 from the core file, rofs2 from 'rofx', else the role's name
-                name = {'core': 'rofs1', 'rofx': 'rofs2'}.get(role, role) + '.img'
-                data = open(src[0], 'rb').read()
-                img = data if data[:4] in (b'ROFS', b'ROFx') else rofs_slice(data, pname)	# RAPIDO NAND: 0xC00 prefix
-                open(os.path.join(out, name), 'wb').write(img)
-            elif kind == 'rofs-after-core':		# ROFS1 in the same partition, after the compressed core
-                if rest is None:
-                    raise SystemExit('%s: rofs-after-core needs a compressed core partition first' % dev)
-                open(os.path.join(out, 'rofs1.img'), 'wb').write(rofs_slice(rest, pname))
+            elif paged:
+                run(py + [os.path.join(ROOT, 'tools', 'rom_unpage.py'), src, os.path.join(out, 'core-flat.img')])
+            else:
+                shutil.copyfile(src, os.path.join(out, 'core-flat.img'))
+            r1 = pl.get('rofs1')
+            if r1 == 'after-core':
+                rofs_out('rofs1.img', rest, pname)
+            elif r1:
+                rofs_out('rofs1.img', open(part_file(pdir, r1)[1], 'rb').read(), r1)
+            else:
+                raise SystemExit('%s: %s has a core but no ROFS1' % (dev, os.path.basename(p)))
+            if 'lang' in pl and not langs:		# a language ROFS inside the core's file, no separate one
+                rofs_out('rofs2.img', open(part_file(pdir, pl['lang'])[1], 'rb').read(), pl['lang'])
+        elif 'lang' in pl:
+            rofs_out('rofs2.img', open(part_file(pdir, pl['lang'])[1], 'rb').read(), pl['lang'])
+        if 'cust' in pl:
+            rofs_out('rofs3.img', open(part_file(pdir, pl['cust'])[1], 'rb').read(), pl['cust'])
+        if not pl:
+            print('%s: no core or ROFS image in it (role %s)' % (os.path.basename(p), role))
+    if not os.path.exists(os.path.join(out, 'core-flat.img')):
+        raise SystemExit('%s: no core image among the firmware files' % dev)
     core = os.path.join(out, 'core-flat.img')
     run(py + [os.path.join(ROOT, 'tools', 'romimg.py'), core, '--images', '--json', os.path.join(out, 'core.json')],
         os.path.join(out, 'core-files.txt'))
@@ -149,7 +200,7 @@ def main():
     sdk = os.environ.get('SDK_EUSER', os.path.join(os.environ.get('S60_SDK_LIB', os.path.expanduser('~/work/S60_3rd_FP1/Epoc32/release/armv5/lib')), 'euser.dso'))
     ours = os.path.join(ROOT, 'build', 'epocroot', 'epoc32', 'release', 'armv5', 'udeb', '_syborg_euser.dll.sym')
     if not a.no_abi and os.path.exists(sdk) and os.path.exists(ours):
-        eu = [l.split()[0] for l in open(os.path.join(out, 'core-files.txt')) if l.rstrip().endswith('Sys/Bin/EUser.dll')][0]
+        eu = [l.split()[0] for l in open(os.path.join(out, 'core-files.txt')) if l.rstrip().lower().endswith('sys/bin/euser.dll')][0]   # case differs (701: euser.dll)
         abi = os.path.join(out, 'abi')
         run(py + [os.path.join(ROOT, 'tools', 'swi_map.py'), '--rom-image', core, '--at', eu, '--names', sdk,
                   '--names', os.path.join(k, 'eabi', 'euseru.def'), '-o', os.path.join(abi, 'n95-euser-swi.json')])
@@ -166,6 +217,9 @@ def main():
     print('identity: sw.txt %s %s %s' % (sw.get('version'), sw.get('date'), sw.get('type_code')))
     for n, d, probs in matches:
         print('  %s %s%s' % ('MATCH' if n == 0 else '  -  ', d, '' if n == 0 else ': ' + '; '.join(probs[:2])))
+    if not a.out and fd:
+        devmodel.link_firmware(prof)		# the cache's items linked into build/roms/<id>/<key>/
+        print('linked into %s' % os.path.relpath(paths_dir(prof), ROOT))
     return 0
 
 

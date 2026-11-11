@@ -1,0 +1,31 @@
+# Firmware 101.003 of nokia-e5-00-rm632, written by tools/device.py firmware-add from the ROM store entry RM-632/101.003.
+# Merged over models/nokia-e5-00-rm632/model.toml. Not booted yet unless [status] says so.
+
+[firmware]
+version = "101.003"
+
+[[firmware.files]]
+role = "core"
+glob = "rm632_101.003_prd.core.fpsx"
+
+[[firmware.files]]
+role = "rofs2"
+glob = "rm632_101.003_07.01_German_QW3_prd.rofs2.fpsx"
+
+[[firmware.files]]
+role = "rofs3"
+glob = "rm632_101.003_C00.01_DEFAULT_prd.rofs3.fpsx"
+
+[[firmware.files]]
+role = "uda"
+glob = "rm632_101.003_U001.000_prd.uda.fpsx"
+drive = "C"
+optional = true
+
+[firmware.identity]
+sw = { version = "101.003", date = "27-Jun-2012", type_code = "RM-632" }
+
+[status]
+level = "L0-untested"
+updated = "2026-11-10"
+open = ["not booted on this firmware yet"]

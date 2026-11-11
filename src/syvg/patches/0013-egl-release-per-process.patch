@@ -1,0 +1,18 @@
+syvg: syvgReleaseEGL() frees the calling guest process's EGL instance when the process has gone.
+
+--- a/riMiniEGL.cpp
++++ b/riMiniEGL.cpp
+@@ -605,6 +605,13 @@
+ 
+ }
+ 
++/* qembian (syvg): the calling guest process has gone: its EGL instance (displays, surfaces, contexts and
++   the contexts' VG objects) goes too */
++void syvgReleaseEGL()
++{
++	releaseEGL();
++}
++
+ /*-------------------------------------------------------------------*//*!
+ * \brief	Given a display ID, return the corresponding object, or NULL
+ *			if the ID hasn't been initialized.

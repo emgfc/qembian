@@ -122,10 +122,18 @@ static bool syborg_fb_update_display(void *opaque)
         bool eight = partial && !(s->partial_mode & 2);
         bool rows = s->partial_mode & 4;
 
+        /* the host-composed screen when the guest composes on the host (syborg-gl), else guest memory */
+        uint32_t hw = 0, hh = 0;
+        const uint8_t *hpx = NULL;
+        bool host = syborg_gl_frame(&hw, &hh, &hpx) && hw == pw && hh == ph;
         for (uint32_t y = 0; y < ph; y++) {
             uint32_t *row = rot ? s->pic + y * pw : (uint32_t *)(dst + y * dstride);
-            address_space_read(&address_space_memory, s->base + y * pitch,
-                               MEMTXATTRS_UNSPECIFIED, row, pw * 4);
+            if (host) {
+                memcpy(row, hpx + (size_t)y * pw * 4, pw * 4);
+            } else {
+                address_space_read(&address_space_memory, s->base + y * pitch,
+                                   MEMTXATTRS_UNSPECIFIED, row, pw * 4);
+            }
             if (partial) {
                 bool row_out = rows && (y < s->partial_start || y > s->partial_end);
                 for (uint32_t x = 0; x < pw; x++) {
@@ -302,11 +310,31 @@ static const Property syborg_fb_properties[] = {
     DEFINE_PROP_UINT32("refresh-rate", SyborgFbState, refresh_rate, 60),
 };
 
+/* a machine reset: the panel as at power on (no frame buffer, no interrupts), the old picture gone; the
+   size, rotation support and vsync (properties) stay */
+static void syborg_fb_reset(DeviceState *dev)
+{
+    SyborgFbState *s = SYBORG_FB(dev);
+    s->base = s->orientation = s->blank = s->bpp = 0;
+    s->color_order = s->byte_order = s->pixel_order = s->row_pitch = s->enabled = 0;
+    s->int_enable = s->int_status = 0;
+    s->need_int = 1;
+    memset(s->palette, 0, sizeof(s->palette));
+    s->partial_start = s->partial_end = s->partial_mode = 0;
+    s->frame_count = 0;
+    if (s->pic) {
+        memset(s->pic, 0, (size_t)s->width * s->height * 4);
+    }
+    syborg_fb_update_irq(s);
+    syborg_fb_invalidate(s);
+}
+
 static void syborg_fb_class_init(ObjectClass *oc, const void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(oc);
 
     dc->realize = syborg_fb_realize;
+    device_class_set_legacy_reset(dc, syborg_fb_reset);
     dc->vmsd = &vmstate_syborg_fb;
     device_class_set_props(dc, syborg_fb_properties);
 }

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Generate the glue between the N95's libgles_cm.dll and our GLES/EGL blob (docs/gpu-roadmap.md).
 
-  gen-gles-glue.py --blob-addr 0x80320000 --patches devices/<id>/gl/gles-patches.txt --asm OUT.S --names OUT.c
+  gen-gles-glue.py --blob-addr 0x80320000 --patches models/<id>/gl/gles-patches.txt --asm OUT.S --names OUT.c
 
 Inputs: src/sygl/libgles_cm.ordinals (ordinal -> name, from the SDK's libgles_cm.dso),
-build/devices/<id>/core-flat.img + build/devices/<id>/symindex.json (export addresses of the ROM's libgles_cm.dll).
+<build dir>/core-flat.img + <build dir>/symindex.json (tools/device.py paths dir) (export addresses of the ROM's libgles_cm.dll).
 
   patches  one ARM "b BLOB+4*(ord-1)" over the first word of each of the 175 libgles_cm entry points
            (romcompose.py --patches format; the original word is verified at compose time). The
@@ -27,13 +27,14 @@ B = 0x80000000
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--blob-addr', type=lambda x: int(x, 0), required=True)
-    ap.add_argument('--ordinals', default=os.path.join(ROOT, 'devices/default/gl/libgles_cm.ordinals'))
-    ap.add_argument('--img', default=os.path.join(ROOT, 'build/devices/nokia-n95-8gb-rm320/core-flat.img'))   # build.sh passes the device's
-    ap.add_argument('--symindex', default=os.path.join(ROOT, 'build/devices/nokia-n95-8gb-rm320/symindex.json'))
+    # src/sygl/build.sh passes the device's files (models/<id>/gl/, tools/device.py paths dir)
+    ap.add_argument('--ordinals', required=True)
+    ap.add_argument('--img', required=True)
+    ap.add_argument('--symindex', required=True)
     ap.add_argument('--patches')
     ap.add_argument('--asm')
     ap.add_argument('--names')
-    ap.add_argument('--imports-list', default=os.path.join(ROOT, 'devices/default/gl/n95imports.txt'))
+    ap.add_argument('--imports-list', required=True)
     ap.add_argument('--imports')
     ap.add_argument('--imports-asm')
     a = ap.parse_args()

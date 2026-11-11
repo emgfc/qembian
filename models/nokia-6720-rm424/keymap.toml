@@ -1,0 +1,305 @@
+# Nokia N79 (RM-348) keys -> EStdKey scan codes -> host keys.
+# Scan codes: the N79's keypad_exp.dll 32-bit matrix table at 0x8010b710 (RM-348 30.019) [V]; matrix
+# indexes in the comments. Power is not in the matrix (power-key path, as on the N95/5730) [I].
+# Entries and host keys follow the N95 keymap (same ITU-T keypad layout); the N79 has no Edit, Gallery
+# or media keys. EStdKeyDeviceF (matrix 89) is a key the N95 does not have [I: which one].
+schema = 1
+device = "nokia-n79-rm348"
+
+[aliases]
+select = "ok"
+back = "rsk"
+
+[[keys]]
+key = "lsk"
+label = "LSK"
+scancode = "EStdKeyDevice0"
+host = ["f5"]
+set1 = 0x3f
+group = "front"
+row = 0
+col = 0   # matrix 13
+
+[[keys]]
+key = "ok"
+label = "OK"
+scancode = "EStdKeyDevice3"
+host = ["f6", "ret"]
+set1 = 0x40
+group = "nav"
+row = 1
+col = 1   # matrix 76
+
+[[keys]]
+key = "rsk"
+label = "RSK"
+scancode = "EStdKeyDevice1"
+host = ["f7"]
+set1 = 0x41
+group = "front"
+row = 0
+col = 2   # matrix 14
+
+[[keys]]
+key = "menu"
+label = "Menu"
+scancode = "EStdKeyApplication0"
+host = ["f8"]
+set1 = 0x42
+group = "front"
+row = 1
+col = 0   # matrix 26
+
+[[keys]]
+key = "up"
+label = "^"
+scancode = "EStdKeyUpArrow"
+host = ["up"]
+set1 = 0xc8
+group = "nav"
+row = 0
+col = 1   # matrix 24
+
+[[keys]]
+key = "down"
+label = "v"
+scancode = "EStdKeyDownArrow"
+host = ["down"]
+set1 = 0xd0
+group = "nav"
+row = 2
+col = 1   # matrix 37
+
+[[keys]]
+key = "left"
+label = "<"
+scancode = "EStdKeyLeftArrow"
+host = ["left"]
+set1 = 0xcb
+group = "nav"
+row = 1
+col = 0   # matrix 50
+
+[[keys]]
+key = "right"
+label = ">"
+scancode = "EStdKeyRightArrow"
+host = ["right"]
+set1 = 0xcd
+group = "nav"
+row = 1
+col = 2   # matrix 63
+
+[[keys]]
+key = "call"
+label = "Call"
+scancode = "EStdKeyYes"
+host = ["f2"]
+set1 = 0x3c
+group = "front"
+row = 2
+col = 0   # matrix 28
+
+[[keys]]
+key = "end"
+label = "End"
+scancode = "EStdKeyNo"
+host = ["f3"]
+set1 = 0x3d
+group = "front"
+row = 2
+col = 2   # matrix 15
+
+[[keys]]
+key = "clear"
+label = "C"
+scancode = "EStdKeyBackspace"
+host = ["backspace"]
+set1 = 0x0e
+group = "front"
+row = 2
+col = 1   # matrix 39
+
+[[keys]]
+key = "1"
+label = "1"
+scancode = "'1'"
+host = ["1"]
+set1 = 0x02
+group = "keypad"
+row = 0
+col = 0   # matrix 77
+
+[[keys]]
+key = "2"
+label = "2"
+scancode = "'2'"
+host = ["2"]
+set1 = 0x03
+group = "keypad"
+row = 0
+col = 1   # matrix 93
+
+[[keys]]
+key = "3"
+label = "3"
+scancode = "'3'"
+host = ["3"]
+set1 = 0x04
+group = "keypad"
+row = 0
+col = 2   # matrix 105
+
+[[keys]]
+key = "4"
+label = "4"
+scancode = "'4'"
+host = ["4"]
+set1 = 0x05
+group = "keypad"
+row = 1
+col = 0   # matrix 106
+
+[[keys]]
+key = "5"
+label = "5"
+scancode = "'5'"
+host = ["5"]
+set1 = 0x06
+group = "keypad"
+row = 1
+col = 1   # matrix 78
+
+[[keys]]
+key = "6"
+label = "6"
+scancode = "'6'"
+host = ["6"]
+set1 = 0x07
+group = "keypad"
+row = 1
+col = 2   # matrix 90
+
+[[keys]]
+key = "7"
+label = "7"
+scancode = "'7'"
+host = ["7"]
+set1 = 0x08
+group = "keypad"
+row = 2
+col = 0   # matrix 91
+
+[[keys]]
+key = "8"
+label = "8"
+scancode = "'8'"
+host = ["8"]
+set1 = 0x09
+group = "keypad"
+row = 2
+col = 1   # matrix 103
+
+[[keys]]
+key = "9"
+label = "9"
+scancode = "'9'"
+host = ["9"]
+set1 = 0x0a
+group = "keypad"
+row = 2
+col = 2   # matrix 79
+
+[[keys]]
+key = "0"
+label = "0"
+scancode = "'0'"
+host = ["0"]
+set1 = 0x0b
+group = "keypad"
+row = 3
+col = 1   # matrix 92
+
+[[keys]]
+key = "star"
+label = "*"
+scancode = "'*'"
+host = ["f9"]
+set1 = 0x43
+group = "keypad"
+row = 3
+col = 0   # matrix 80
+
+[[keys]]
+key = "star-kp"
+scancode = "'*'"
+host = ["kp_multiply"]
+set1 = 0x37
+group = "hidden"   # matrix 80
+
+[[keys]]
+key = "hash"
+label = "#"
+scancode = "EStdKeyHash"
+host = ["f10", "backslash"]
+set1 = 0x44
+group = "keypad"
+row = 3
+col = 2   # matrix 104
+
+[[keys]]
+key = "power"
+label = "Power"
+scancode = "EStdKeyDevice2"
+host = ["f4"]
+set1 = 0x3e
+group = "side"
+
+[[keys]]
+key = "volup"
+label = "Vol +"
+scancode = "EStdKeyIncVolume"
+host = ["f11"]
+set1 = 0x57
+group = "side"   # matrix 115
+
+[[keys]]
+key = "voldown"
+label = "Vol -"
+scancode = "EStdKeyDecVolume"
+host = ["f12"]
+set1 = 0x58
+group = "side"   # matrix 102
+
+[[keys]]
+key = "camera-half"
+label = "Cam ½"
+scancode = "EStdKeyApplication19"
+host = ["f15"]
+set1 = 0x5f
+group = "side"   # matrix 94
+
+[[keys]]
+key = "camera"
+label = "Camera"
+scancode = "EStdKeyApplication1A"
+host = ["f16"]
+set1 = 0x55
+group = "side"   # matrix 107
+
+[[keys]]
+key = "multimedia"
+label = "Multimedia"
+scancode = "EStdKeyApplication6"
+host = ["f20"]
+set1 = 0x5a
+group = "front"
+row = 1
+col = 2   # matrix 82
+
+[[keys]]
+key = "devicef"
+label = "DevF"
+scancode = "EStdKeyDeviceF"
+host = []
+group = "hidden"   # matrix 89 [I: which physical key]

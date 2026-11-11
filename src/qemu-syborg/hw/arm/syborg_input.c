@@ -230,11 +230,23 @@ static const Property kbd_properties[] = {
     DEFINE_PROP_STRING("keymap", SyborgKeyboardState, keymap),
 };
 
+/* a machine reset: no queued or held keys, no interrupt (the keymap stays) */
+static void kbd_reset(DeviceState *dev)
+{
+    SyborgKeyboardState *s = SYBORG_KEYBOARD(dev);
+    s->int_enabled = 0;
+    s->count = s->head = 0;
+    memset(s->held, 0, sizeof(s->held));
+    memset(s->held_x, 0, sizeof(s->held_x));
+    kbd_update(s);
+}
+
 static void kbd_class_init(ObjectClass *oc, const void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(oc);
 
     dc->realize = kbd_realize;
+    device_class_set_legacy_reset(dc, kbd_reset);
     dc->vmsd = &vmstate_kbd;
     device_class_set_props(dc, kbd_properties);
 }
@@ -421,11 +433,24 @@ static const Property ptr_properties[] = {
     DEFINE_PROP_BOOL("input", SyborgPointerState, input, false),
 };
 
+/* a machine reset: no queued events, nothing pressed, no interrupt */
+static void ptr_reset(DeviceState *dev)
+{
+    SyborgPointerState *s = SYBORG_POINTER(dev);
+    s->int_enabled = 0;
+    s->count = s->head = 0;
+    memset(&s->cur, 0, sizeof(s->cur));
+    memset(&s->pending, 0, sizeof(s->pending));
+    s->dz = 0;
+    ptr_update(s);
+}
+
 static void ptr_class_init(ObjectClass *oc, const void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(oc);
 
     dc->realize = ptr_realize;
+    device_class_set_legacy_reset(dc, ptr_reset);
     dc->vmsd = &vmstate_ptr;
     device_class_set_props(dc, ptr_properties);
 }

@@ -1,8 +1,13 @@
 // Copyright (c) 2026 qembian contributors. Licensed under the Eclipse Public License v1.0.
 //
-// Fake modem peer behind the Nokia N95 ISC channel interface used by IscApi.dll.
-// Built twice: nokiaiscdriver.ldd ("NokiaISCDriver", channels = units 0..31) and
-// nokiaiscdriverextension.ldd ("NokiaISCDriverExtension", channels 32..63, unit = channel - 32).
+// The ISC/ISA channel driver in front of the fake modem. The modem itself (every ISI answer, indications,
+// delayed replies, power off) is QEMU's syborg-modem device (src/qemu-syborg/hw/arm/syborg_modem.c,
+// reply table generated at launch by tools/device.py qemu-args): this driver forwards what IscApi sends
+// (ISI messages, subscriptions, channel open/close) to its port and delivers what comes back, so a modem
+// change needs no ROM rebuild.
+// Built as nokiaiscdriver.ldd ("NokiaISCDriver", channels = units 0..31, modem port 0),
+// nokiaiscdriverextension.ldd ("NokiaISCDriverExtension", channels 32..63, unit = channel - 32, port 1)
+// and the Symbian^3 isaaccessldd.ldd (channels 0..63, port 0).
 //
 // Protocol: docs/devices/nokia-n95-8gb-rm320/n95-isc-isi-protocol.md and -2.md (IscApi controls, ISI framing, boot replies).
 //   ctl 0  {status*}                     modem link init          -> complete KErrNone
@@ -16,12 +21,11 @@
 //   ctl 22                               max data size (return value) -> 4096
 //   ctl 33 / 35                          cancel receive / connection notify
 // ISI frame: [0]media [1]rdev [2]sdev [3]resource [4..5]len-6 (LE) [6]robj [7]sobj [8]tid [9]msgid [10..]
-// The peer answers like a modem in NORMAL state with no SIM. Every send and delivery is logged
-// ("ISCPEER:") as the reference for completing the protocol.
+// The modem answers like one in NORMAL state with no SIM. Every send and delivery is logged here
+// ("ISCPEER: ch N send/deliver"), the modem's own notes come back as log frames ("ISCPEER: ...").
 
 #include <kernel/kernel.h>
 #include "syborg.h"
-#include "boardconfig.h"
 
 #ifndef ISC_CHANNEL_BASE
 #define ISC_CHANNEL_BASE 0
@@ -30,40 +34,77 @@
 #define ISC_LDD_NAME "NokiaISCDriver"
 #endif
 _LIT(KLddName, ISC_LDD_NAME);
+// ISC_ISA_ACCESS: the Symbian^3 "ISA Access" front end (N8 isaaccessldd.ldd, logical device "IADDriver"):
+// one device for channels 0..63, the channel in DoCreate's info descriptor, other control numbers,
+// cancels through DoCancel (docs/devices/nokia-n8-rm596/isa-access.md). The ISI content is the same.
+#ifdef ISC_ISA_ACCESS
+const TInt KMaxChannels = 64;
+#else
+const TInt KMaxChannels = 32;
+#endif
 
+// A channel object, not a channel number, is what the modem talks to: several clients open the same ISC
+// channel (the 701's audio server, DSP controller and audio engine all on 36), each with its own replies,
+// subscriptions and open/close. Each object takes a handle 1..KMaxHandles-1; the port sees
+// handle << 8 | channel number and answers the same value.
+const TInt KMaxHandles = 64;
 const TInt KMaxMsg = 256;
 const TInt KQueueLen = 16;
 const TInt KMaxSubs = 128;
-const TUint8 KDevApe = 0x6C;		// PN_DEV_SOS
-const TUint8 KResMtc = 0x15, KResSim = 0x09, KResSec = 0x08;
+// syborg-modem: port 0 at KHwBaseModem (IRQ EIntModem0), port 1 0x2000 further (EIntModem1); per port
+// registers 0x00..0x24, TX buffer +0x1000, RX buffer (head frame) +0x1800 (syborg_modem.c)
+const TInt KModemPort = ISC_CHANNEL_BASE >= 32 ? 1 : 0;
+const TUint KModemBase = KHwBaseModem + KModemPort * 0x2000;
+const TInt KModemIrq = KModemPort ? EIntModem1 : EIntModem0;
+enum { KMTxChannel = 0x04, KMTxLen = 0x08, KMTxGo = 0x0C, KMRxCount = 0x10, KMRxChannel = 0x14, KMRxLen = 0x18,
+	KMRxKind = 0x1C, KMRxPop = 0x20, KMIntEnable = 0x24, KMTxBuf = 0x1000, KMRxBuf = 0x1800 };
+enum { KMSend = 1, KMSubscribe = 2, KMOpen = 3, KMClose = 4 };		// TX kinds
+enum { KMDeliver = 1, KMLog = 2 };									// RX kinds
+static inline volatile TUint32& ModemReg(TInt aOff) { return *(volatile TUint32*)(KModemBase + aOff); }
 
 class DIscPeerChannel;
 
+class DIscPeerFactory;
 class DIscPeerFactory : public DLogicalDevice
 	{
 public:
-	DIscPeerFactory()
+	DIscPeerFactory() : iRxDfc(RxDfcFn, this, 1)
 		{
 		iVersion = TVersion(255, 255, 0xffff);
+#ifdef ISC_ISA_ACCESS
+		iParseMask = KDeviceAllowInfo;			// unit KNullUnit, channel in the info descriptor
+#else
 		iParseMask = KDeviceAllowUnit | KDeviceAllowInfo;
 		iUnitsMask = 0xffffffffu;
+#endif
 		}
 	virtual TInt Install()
 		{
 		TInt r = Kern::MutexCreate(iLock, KLddName, KMutexOrdGeneral0);
 		if (r != KErrNone)
 			return r;
-		Kern::Printf("ISCPEER: install %S (fake modem, channels %d..%d)", &KLddName, ISC_CHANNEL_BASE, ISC_CHANNEL_BASE + 31);
+		iRxDfc.SetDfcQ(Kern::DfcQue1());
+		r = Interrupt::Bind(KModemIrq, Isr, this);
+		if (r != KErrNone)
+			return r;
+		ModemReg(KMIntEnable) = 1;
+		Interrupt::Enable(KModemIrq);
+		Kern::Printf("ISCPEER: install %S (channels %d..%d, QEMU modem port %d)", &KLddName, ISC_CHANNEL_BASE, ISC_CHANNEL_BASE + KMaxChannels - 1, KModemPort);
 		return SetName(&KLddName);
 		}
 	virtual void GetCaps(TDes8&) const {}
 	virtual TInt Create(DLogicalChannelBase*& aChannel);
 public:
+	void Drain();					// deliver what the modem queued (caller holds iLock)
+	static void Isr(TAny* aPtr);
+	static void RxDfcFn(TAny* aPtr);
 	DMutex* iLock;
-	DIscPeerChannel* iChannels[32];
+	DIscPeerChannel* iChannels[KMaxHandles];	// by handle (0 unused)
+	TDfc iRxDfc;
 	};
 
 struct SMsg { TInt iLen; TUint8 iData[KMaxMsg]; };
+
 
 class DIscPeerChannel : public DLogicalChannelBase
 	{
@@ -72,15 +113,17 @@ public:
 	virtual ~DIscPeerChannel();
 	virtual TInt DoCreate(TInt aUnit, const TDesC8* aInfo, const TVersion& aVer);
 	virtual TInt Request(TInt aFn, TAny* a1, TAny* a2);
+	void Queue(const TUint8* aMsg, TInt aLen);
+	TInt Channel() const { return iChannel; }
 private:
 	TInt Control(TInt aFn, TAny* a1);
-	void Queue(const TUint8* aMsg, TInt aLen);
-	void Reply(TUint8 aRes, TUint8 aTid, TUint8 aMsgId, const TUint8* aData, TInt aLen);
-	void MtcStateInd();
-	void ProfileInds();
+#ifdef ISC_ISA_ACCESS
+	TInt ControlIsa(TInt aFn, TAny* a1);
+	void CancelIsa(TInt aReq);
+#endif
+	void Forward(TInt aKind, const TUint8* aData, TInt aLen);
 	void TryDeliver();
 	void HandleSend(const TUint8* m, TInt aLen);
-	TBool Subscribed(TUint8 aRes, TUint8 aMsgId) const;
 	void Log(const char* aWhat, const TUint8* m, TInt aLen) const;
 	TInt ReadArgs(TAny* a1, TUint32* aW, TInt aWords);
 private:
@@ -97,8 +140,10 @@ private:
 	TRequestStatus* iFlowStatus;	// pending NotifyFlowControlStatus
 	TUint8 iSubs[KMaxSubs];
 	TInt iSubsLen;
-	TBool iMtcIndSent;
-	TUint32 iIndSent;		// [modem].indications already sent on this channel (bit per entry)
+	TInt iSlot;				// handle: index in iF->iChannels (-1: none)
+	TBool iNeededRaw;		// ISA: the receive "needed length" is a raw TUint16*, ISC: a TPtr8*
+	TRequestStatus* iDataRxStatus;		// ISA DataReceive: parked
+	TRequestStatus* iCustomStatus[3];	// ISA async custom functions: parked
 	};
 
 TInt DIscPeerFactory::Create(DLogicalChannelBase*& aChannel)
@@ -107,20 +152,38 @@ TInt DIscPeerFactory::Create(DLogicalChannelBase*& aChannel)
 	return aChannel ? KErrNone : KErrNoMemory;
 	}
 
-TInt DIscPeerChannel::DoCreate(TInt aUnit, const TDesC8*, const TVersion&)
+TInt DIscPeerChannel::DoCreate(TInt aUnit, const TDesC8* aInfo, const TVersion&)
 	{
 	iClient = &Kern::CurrentThread();	// a channel never outlives its owning thread
 	iUnit = aUnit;
+#ifdef ISC_ISA_ACCESS
+	TBuf8<1> ch;						// IscApi: TBuf8<1>{channel} in user memory
+	if (!aInfo || Kern::ThreadDesRead(iClient, aInfo, ch, 0) != KErrNone || ch.Length() != 1 || ch[0] >= KMaxChannels)
+		return KErrArgument;
+	iChannel = ch[0];
+#else
+	(void)aInfo;
 	iChannel = ISC_CHANNEL_BASE + aUnit;
-	if (aUnit >= 0 && aUnit < 32)
+#endif
+	iSlot = -1;
+	if (iChannel - ISC_CHANNEL_BASE >= 0 && iChannel - ISC_CHANNEL_BASE < KMaxChannels)
 		{
 		NKern::ThreadEnterCS();
 		Kern::MutexWait(*iF->iLock);
-		iF->iChannels[aUnit] = this;
+		for (TInt h = 1; h < KMaxHandles && iSlot < 0; ++h)
+			if (!iF->iChannels[h])
+				iSlot = h;
+		if (iSlot > 0)
+			{
+			iF->iChannels[iSlot] = this;
+			Forward(KMOpen, NULL, 0);		// the modem starts this object's state afresh
+			}
 		Kern::MutexSignal(*iF->iLock);
 		NKern::ThreadLeaveCS();
 		}
-	Kern::Printf("ISCPEER: channel %d opened by %O", iChannel, iClient);
+	if (iSlot < 0)
+		Kern::Printf("ISCPEER: channel %d: no free handle, the modem will not answer it", iChannel);
+	Kern::Printf("ISCPEER: channel %d opened by %O (handle %d)", iChannel, iClient, iSlot);
 	return KErrNone;
 	}
 
@@ -128,8 +191,11 @@ DIscPeerChannel::~DIscPeerChannel()
 	{
 	NKern::ThreadEnterCS();
 	Kern::MutexWait(*iF->iLock);
-	if (iUnit >= 0 && iUnit < 32 && iF->iChannels[iUnit] == this)
-		iF->iChannels[iUnit] = NULL;
+	if (iSlot > 0 && iF->iChannels[iSlot] == this)
+		{
+		iF->iChannels[iSlot] = NULL;
+		Forward(KMClose, NULL, 0);
+		}
 	Kern::MutexSignal(*iF->iLock);
 	NKern::ThreadLeaveCS();
 	Kern::Printf("ISCPEER: channel %d closed", iChannel);
@@ -158,6 +224,17 @@ void DIscPeerChannel::Log(const char* aWhat, const TUint8* m, TInt aLen) const
 
 TInt DIscPeerChannel::Request(TInt aFn, TAny* a1, TAny* a2)
 	{
+#ifdef ISC_ISA_ACCESS
+	if (aFn == (TInt)KMaxTInt)			// RBusLogicalChannel::DoCancel(n): a1 = the request number
+		{
+		NKern::ThreadEnterCS();
+		Kern::MutexWait(*iF->iLock);
+		CancelIsa((TInt)a1);
+		Kern::MutexSignal(*iF->iLock);
+		NKern::ThreadLeaveCS();
+		return KErrNone;
+		}
+#endif
 	if (aFn < 0 || aFn == (TInt)KMaxTInt)
 		{
 		// IscApi never uses DoRequest/DoCancel; log and complete requests so nothing hangs.
@@ -171,11 +248,117 @@ TInt DIscPeerChannel::Request(TInt aFn, TAny* a1, TAny* a2)
 		}
 	NKern::ThreadEnterCS();				// DMutex use requires a critical section
 	Kern::MutexWait(*iF->iLock);
+#ifdef ISC_ISA_ACCESS
+	TInt r = ControlIsa(aFn, a1);
+#else
 	TInt r = Control(aFn, a1);
+#endif
 	Kern::MutexSignal(*iF->iLock);
 	NKern::ThreadLeaveCS();
 	return r;
 	}
+
+#ifdef ISC_ISA_ACCESS
+static void DoneIsa(DThread* aT, TRequestStatus*& aS, TInt aR)
+	{
+	if (aS)
+		Kern::RequestComplete(aT, aS, aR);	// sets aS = NULL
+	}
+
+// ISA control numbers (iscapi.dll export -> DoControl n, a1 -> struct of words); where an ISC control
+// does the job, forwarded to Control() with the ISC number (same argument word positions)
+TInt DIscPeerChannel::ControlIsa(TInt aFn, TAny* a1)
+	{
+	TUint32 w[3];
+	switch (aFn)
+		{
+	case 0:		// Open {status*, TUint16* iChannel, resources}: the client waits for it
+		{
+		ReadArgs(a1, w, 3);
+		TUint16 ch = (TUint16)iChannel;
+		if (w[1])
+			Kern::ThreadRawWrite(iClient, (TAny*)w[1], &ch, 2);	// RIscApi::iChannel (0xFFFF before)
+		return Control(1, a1);			// ISC open: logs the resources, completes w[0]
+		}
+	case 29:	// synchronous Open {TUint16* iChannel}
+		{
+		ReadArgs(a1, w, 1);
+		TUint16 ch = (TUint16)iChannel;
+		return w[0] ? Kern::ThreadRawWrite(iClient, (TAny*)w[0], &ch, 2) : KErrArgument;
+		}
+	case 1:		// Close(TRequestStatus&) {status*}
+		return Control(14, a1);
+	case 12:	// Close(): non-zero panics IADUserApiPanic 4
+	case 30:	// close of a synchronous channel: non-zero panics 30
+		return KErrNone;
+	case 13:	// Send {const TDesC8*}
+		return Control(17, a1);
+	case 2:		// Send(TRequestStatus&, msg) {status*, const TDesC8*}
+		{
+		ReadArgs(a1, w, 2);
+		TBuf8<KMaxMsg> m;
+		TInt r = Kern::ThreadDesRead(iClient, (TAny*)w[1], m, 0);
+		if (r == KErrNone)
+			HandleSend(m.Ptr(), m.Length());
+		TRequestStatus* s = (TRequestStatus*)w[0];
+		DoneIsa(iClient, s, r);
+		return KErrNone;
+		}
+	case 14:	// DataSend {const TDesC8*}: data channels go nowhere
+		return KErrNone;
+	case 4:		// DataSend(TRequestStatus&, data) {status*, const TDesC8*}
+		{
+		ReadArgs(a1, w, 1);
+		TRequestStatus* s = (TRequestStatus*)w[0];
+		DoneIsa(iClient, s, KErrNone);
+		return KErrNone;
+		}
+	case 3:		// Receive {status*, TDes8*, TUint16* needed}
+		iNeededRaw = ETrue;
+		return Control(4, a1);
+	case 5:		// DataReceive {status*, ...}: park
+		ReadArgs(a1, w, 1);
+		if (iDataRxStatus)
+			{
+			TRequestStatus* s = (TRequestStatus*)w[0];
+			DoneIsa(iClient, s, KErrInUse);
+			}
+		else
+			iDataRxStatus = (TRequestStatus*)w[0];
+		return KErrNone;
+	case 6:		// NotifyConnectionStatus {status*, TInt*}: park
+		return Control(7, a1);
+	case 7:		// NotifyFlowControlStatus {status*, TInt*}: park
+		return Control(8, a1);
+	case 8: case 9: case 10:	// async custom functions {status*, arg}: park
+		ReadArgs(a1, w, 1);
+		iCustomStatus[aFn - 8] = (TRequestStatus*)w[0];
+		return KErrNone;
+	case 15:	// ConnectionStatus [inferred]: 0 = connected
+	case 16:	// FlowControlStatus [inferred]: 0 = off
+	case 22:	// ResetBuffers [inferred]
+		return KErrNone;
+	case 18:	// MaximumDataSize
+		return Control(22, a1);
+	case 19:	// custom function 23: subscribe to indications {const TDesC8* (res, msg) pairs}
+		return Control(23, a1);
+	default:
+		Kern::Printf("ISCPEER: ch %d ISA ctl %d a1=%08x ignored", iChannel, aFn, a1);
+		return KErrNone;
+		}
+	}
+
+// DoCancel(n): n = the control number of the request to cancel, 0 = all
+void DIscPeerChannel::CancelIsa(TInt aReq)
+	{
+	if (aReq == 0 || aReq == 3) DoneIsa(iClient, iRxStatus, KErrCancel);
+	if (aReq == 0 || aReq == 5) DoneIsa(iClient, iDataRxStatus, KErrCancel);
+	if (aReq == 0 || aReq == 6) DoneIsa(iClient, iConnStatus, KErrCancel);
+	if (aReq == 0 || aReq == 7) DoneIsa(iClient, iFlowStatus, KErrCancel);
+	for (TInt i = 0; i < 3; ++i)
+		if (aReq == 0 || aReq == 8 + i) DoneIsa(iClient, iCustomStatus[i], KErrCancel);
+	}
+#endif
 
 TInt DIscPeerChannel::Control(TInt aFn, TAny* a1)
 	{
@@ -257,12 +440,7 @@ TInt DIscPeerChannel::Control(TInt aFn, TAny* a1)
 		Kern::ThreadDesRead(iClient, (TAny*)w[0], subs, 0);
 		iSubsLen = subs.Length();
 		Log("subscribe (res,msgid pairs)", iSubs, iSubsLen);
-		if (Subscribed(KResMtc, 0xC0) && !iMtcIndSent)
-			{
-			MtcStateInd();
-			iMtcIndSent = ETrue;
-			}
-		ProfileInds();
+		Forward(KMSubscribe, iSubs, iSubsLen);		// the modem sends the indications it owes this channel
 		return KErrNone;
 		}
 	case 22:	// IscApi export 10: maximum data transfer size of this channel (return value).
@@ -288,14 +466,6 @@ TInt DIscPeerChannel::Control(TInt aFn, TAny* a1)
 		}
 	}
 
-TBool DIscPeerChannel::Subscribed(TUint8 aRes, TUint8 aMsgId) const
-	{
-	for (TInt i = 0; i + 1 < iSubsLen; i += 2)
-		if (iSubs[i] == aRes && iSubs[i + 1] == aMsgId)
-			return ETrue;
-	return EFalse;
-	}
-
 void DIscPeerChannel::Queue(const TUint8* aMsg, TInt aLen)
 	{
 	if (iQCount == KQueueLen || aLen > KMaxMsg)
@@ -310,194 +480,80 @@ void DIscPeerChannel::Queue(const TUint8* aMsg, TInt aLen)
 	TryDeliver();
 	}
 
-#include "isireplies.h"
-
-void DIscPeerChannel::Reply(TUint8 aRes, TUint8 aTid, TUint8 aMsgId, const TUint8* aData, TInt aLen)
+// to the modem: one frame through the port's TX buffer, then whatever it answered at once (caller holds iLock)
+void DIscPeerChannel::Forward(TInt aKind, const TUint8* aData, TInt aLen)
 	{
-	TUint8 m[KMaxMsg];
-	TInt len = 10 + aLen;
-	m[0] = 0x00;			// media
-	m[1] = KDevApe;			// receiver device
-	m[2] = 0x00;			// sender device: modem (PN_DEV_HOST)
-	m[3] = aRes;
-	m[4] = (TUint8)((len - 6) & 0xff);
-	m[5] = (TUint8)((len - 6) >> 8);
-	m[6] = (TUint8)iChannel;	// receiver object
-	m[7] = 0x00;			// sender object
-	m[8] = aTid;
-	m[9] = aMsgId;
-	memcpy(m + 10, aData, aLen);
-	Queue(m, len);
-	}
-
-// The BB5 modem owns the power supply: after MTC_POWER_OFF_REQ (or a reset request) it cuts power
-// (or restarts the phone) while the application side is still shutting down. Our stand-in does that
-// through the Syborg platform device (register 2: 1 = power off, 2 = reset), a grace period after
-// the request, so the file servers' last writes land first.
-static void ModemPowerFn(TAny* aWhat)
-	{
-	Kern::Printf("ISCPEER: modem %s the phone", aWhat == (TAny*)1 ? "switches off" : "resets");
-	WriteReg(KHwSVPPlatformDevice, 2, (TUint32)aWhat);
-	}
-static void ModemPowerLater(TInt aWhat)	// the timer is never freed: the machine goes away
-	{
-	NTimer* t = new NTimer(ModemPowerFn, (TAny*)aWhat);
-	if (t)
-		t->OneShot(NKern::TimerTicks(BoardConfigInt("power_off_ms", 3000)));	// [modem].power_off_delay_s
-	else
-		ModemPowerFn((TAny*)aWhat);
-	}
-
-// Unsolicited indications the device profile declares ([modem].indications -> board config
-// "modem.ind=RRMMDDDD..,RRMMDD..": resource, message, data in hex), each sent once on a channel when
-// it subscribes to that (resource, message). E.g. the 5730's SAServer start-up plugin waits for
-// PN_SIM SIM_IND {05, 06} = no SIM (docs/devices/nokia-5730-rm465/sim-state.md).
-static TInt HexNibble(char c) { return c >= '0' && c <= '9' ? c - '0' : (c | 0x20) >= 'a' && (c | 0x20) <= 'f' ? (c | 0x20) - 'a' + 10 : -1; }
-
-void DIscPeerChannel::ProfileInds()
-	{
-	char cfg[128];
-	TInt n = BoardConfig("modem.ind", cfg, sizeof(cfg));
-	TInt entry = 0;
-	for (TInt i = 0; i < n && entry < 32; ++entry)
+	if (aLen > 0x800)
+		aLen = 0x800;
+	volatile TUint32* tx = (volatile TUint32*)(KModemBase + KMTxBuf);
+	for (TInt i = 0; i < aLen; i += 4)
 		{
-		TUint8 b[24];
-		TInt len = 0;
-		for (; i + 1 < n && cfg[i] != ','; i += 2)
-			{
-			TInt hi = HexNibble(cfg[i]), lo = HexNibble(cfg[i + 1]);
-			if (hi < 0 || lo < 0 || len == (TInt)sizeof(b))
-				break;
-			b[len++] = (TUint8)(hi << 4 | lo);
-			}
-		while (i < n && cfg[i] != ',')
-			++i;
-		++i;				// past the comma
-		if (len >= 2 && !(iIndSent & (1u << entry)) && Subscribed(b[0], b[1]))
-			{
-			iIndSent |= 1u << entry;
-			Reply(b[0], 0x00, b[1], b + 2, len - 2);
-			Kern::Printf("ISCPEER: ch %d profile indication %02x/%02x (%d bytes)", iChannel, b[0], b[1], len - 2);
-			}
+		TUint32 w = 0;
+		for (TInt k = 0; k < 4 && i + k < aLen; ++k)
+			w |= (TUint32)aData[i + k] << (8 * k);
+		tx[i >> 2] = w;
 		}
-	}
-
-void DIscPeerChannel::MtcStateInd()
-	{
-	static const TUint8 KNormalStart[2] = { 0x01, 0x03 };	// MTC_STATE_INFO_IND: NORMAL, START
-	Reply(KResMtc, 0x00, 0xC0, KNormalStart, 2);
+	if (iSlot <= 0)
+		return;
+	ModemReg(KMTxChannel) = (TUint32)(iSlot << 8 | iChannel);
+	ModemReg(KMTxLen) = (TUint32)aLen;
+	ModemReg(KMTxGo) = (TUint32)aKind;
+	iF->Drain();
 	}
 
 void DIscPeerChannel::HandleSend(const TUint8* m, TInt aLen)
 	{
 	Log("send", m, aLen);
-	if (aLen < 10)
-		return;
-	TUint8 res = m[3], tid = m[8], id = m[9];
-	static const TUint8 K00[6] = { 0, 0, 0, 0, 0, 0 };
-	if (res == KResMtc)
+	Forward(KMSend, m, aLen);
+	}
+
+void DIscPeerFactory::Drain()
+	{
+	while (ModemReg(KMRxCount))
 		{
-		switch (id)
+		TInt kind = ModemReg(KMRxKind), ch = ModemReg(KMRxChannel), len = ModemReg(KMRxLen);
+		TUint8 m[KMaxMsg + 1];
+		if (len > KMaxMsg)
+			len = KMaxMsg;
+		volatile TUint32* rx = (volatile TUint32*)(KModemBase + KMRxBuf);
+		for (TInt i = 0; i < len; i += 4)
 			{
-		case 0x02:	// MTC_STATE_QUERY_REQ -> current NORMAL, target NORMAL
+			TUint32 w = rx[i >> 2];
+			for (TInt k = 0; k < 4 && i + k < len; ++k)
+				m[i + k] = (TUint8)(w >> (8 * k));
+			}
+		ModemReg(KMRxPop) = 1;
+		if (kind == KMLog)
 			{
-			static const TUint8 d[4] = { 0x01, 0x01, 0x00, 0x00 };
-			Reply(res, tid, 0x65, d, 4);
-			MtcStateInd();
-			return;
+			m[len] = 0;
+			Kern::Printf("ISCPEER: %s", m);
+			continue;
 			}
-		case 0x01:	// MTC_STATE_REQ {target, 0}: e.g. 0x0A RF_INACTIVE = offline mode -> MTC_STATE_RESP OK
-			Reply(res, tid, 0x64, K00, 2);
-			return;
-		case 0x0B: Reply(res, tid, 0x6E, K00, 2); return;	// MTC_STARTUP_SYNQ_RESP
-		case 0x06:	// MTC_RESET_GENERATE_REQ -> RESP, then the modem restarts the phone
-			Reply(res, tid, 0x69, K00, 2);
-			ModemPowerLater(2);
-			return;
-		case 0x03:	// MTC_POWER_OFF_REQ -> RESP, then the modem cuts power
-			Reply(res, tid, 0x66, K00, 2);
-			ModemPowerLater(1);
-			return;
-		case 0x04: Reply(res, tid, 0x67, K00, 2); return;
-		case 0x12: Reply(res, tid, 0x75, K00, 2); return;
-			}
+		TInt h = ch >> 8;
+		DIscPeerChannel* c = h > 0 && h < KMaxHandles ? iChannels[h] : NULL;
+		if (c && c->Channel() == (ch & 0xff))
+			c->Queue(m, len);
+		else
+			Kern::Printf("ISCPEER: ch %d (handle %d) closed, modem message dropped", ch & 0xff, h);
 		}
-	else if (res == KResSim)
-		{
-		switch (id)
-			{
-		case 0xC0:	// SIM_STATUS_REQ {service, 0} -> SIM_SERV_SIM_DISCONNECTED (no SIM)
-			{
-			// NokiaDSY 0x808bfb54 maps the status: 0x01/0x1C/0x4B -> "card present" (then waits for
-			// SIM init forever), 0x06/0x24 -> "no card". NOKIATSY only acts on 0x01.
-			TUint8 d[2] = { aLen > 10 ? m[10] : (TUint8)0, 0x06 };
-			Reply(res, tid, 0xC1, d, 2);
-			return;
-			}
-		case 0xE4: Reply(res, tid, 0xE5, K00, 2); return;
-			}
-		}
-	else if (res == KResSec && id == 0x11)	// SEC_STATE_REQ -> SEC_STARTUP_OK (no code to ask)
-		{
-		// NokiaDSY 0x808bfd20 ignores SEC_CAUSE_NO_SIM (0x16); 0x05 raises the security-code
-		// status that sae publishes as 0x100052F0 (Startup state 8 needs it == 1).
-		static const TUint8 d[2] = { 0x05, 0x00 };
-		Reply(res, tid, 0x12, d, 2);
-		return;
-		}
-	else if (res == 0x1C && id == 0x2D)
-		{
-		Reply(res, tid, 0x2E, K00, 6);
-		return;
-		}
-	else if (res == 0xDB && id == 0x05)	// PN_NAMESERVICE NAME_ADD_REQ
-		{
-		Reply(res, tid, 0x06, K00, 2);
-		return;
-		}
-	// canned replies: platform/isi/replies-bb5.txt + devices/<id>/isi-replies.txt (generated isireplies.h, included at file scope)
-	if (res == 0x1B && id == 0x00)			// INFO_SERIAL_NUMBER_READ (IMEI) -- hack H-imei, docs/hacks.md
-		{
-		// [status INFO_OK][nsb 1][sb 0x41 IMEI_PLAIN, len 20][0][15 chars]["490154203237518"][NUL]
-		// the IMEI: [modem].imei of the device profile (board config), else the documentation example
-		TUint8 d[22] = { 0x00, 0x01, 0x41, 0x14, 0x00, 0x0F,
-			'4','9','0','1','5','4','2','0','3','2','3','7','5','1','8', 0x00 };
-		char imei[16];
-		if (BoardConfig("imei", imei, sizeof(imei)) == 15)
-			memcpy(d + 6, imei, 15);
-		Reply(res, tid, 0x01, d, sizeof(d));
-		return;
-		}
-	if (res == 0x3A && aLen > 10)			// PN_LIGHT (SALightsService) -- hack H-light, docs/hacks.md
-		{
-		// 0x22 target info: reply 0x23 [status 0][count = req[11]][the request's 0x16 subblocks echoed]
-		// (the parser matches the target names KBD/KBD2/MMKEYS/DISPLAY/... at subblock+4).
-		// Other light requests: reply id+1 echoing the request data with the first byte = 0 (OK).
-		TUint8 d[128];
-		TInt n = aLen - 10 > (TInt)sizeof(d) ? (TInt)sizeof(d) : aLen - 10;
-		memcpy(d, m + 10, n);
-		d[0] = 0;
-		Reply(res, tid, id + 1, d, n);
-		return;
-		}
-	if (res == 0x1B && id == 0x29)			// PP read: echo the request's subblocks (values 0)
-		{
-		Reply(res, tid, 0x2A, m + 10, aLen - 10);
-		return;
-		}
-	if (res == KResSim && (id == 0x1F || id == 0x1D))	// SIM language pref / READ_IMSI: "data not available"
-		{
-		TUint8 d[2] = { aLen > 10 ? m[10] : (TUint8)0, 0x24 };
-		Reply(res, tid, id + 1, d, 2);
-		return;
-		}
-	for (TUint i = 0; i < sizeof(KIsiReplies) / sizeof(KIsiReplies[0]); ++i)
-		if (KIsiReplies[i].iRes == res && KIsiReplies[i].iReq == id)
-			{
-			Reply(res, tid, KIsiReplies[i].iResp, KIsiReplies[i].iData, KIsiReplies[i].iLen);
-			return;
-			}
-	Kern::Printf("ISCPEER: ch %d no reply for resource %02x msg %02x", iChannel, res, id);
+	}
+
+void DIscPeerFactory::Isr(TAny* aPtr)		// a delayed reply or indication is waiting
+	{
+	DIscPeerFactory* f = (DIscPeerFactory*)aPtr;
+	Interrupt::Disable(KModemIrq);
+	f->iRxDfc.Add();
+	}
+
+void DIscPeerFactory::RxDfcFn(TAny* aPtr)	// DfcThread1: the factory mutex as Request() takes it
+	{
+	DIscPeerFactory* f = (DIscPeerFactory*)aPtr;
+	NKern::ThreadEnterCS();
+	Kern::MutexWait(*f->iLock);
+	f->Drain();
+	Kern::MutexSignal(*f->iLock);
+	NKern::ThreadLeaveCS();
+	Interrupt::Enable(KModemIrq);
 	}
 
 void DIscPeerChannel::TryDeliver()
@@ -509,8 +565,13 @@ void DIscPeerChannel::TryDeliver()
 	if (q.iLen > max)
 		{
 		TUint16 need = (TUint16)q.iLen;
-		TPtrC8 n((const TUint8*)&need, 2);
-		Kern::ThreadDesWrite(iClient, iRxNeeded, n, 0);
+		if (iNeededRaw)
+			Kern::ThreadRawWrite(iClient, iRxNeeded, &need, 2);		// ISA: a TUint16*
+		else
+			{
+			TPtrC8 n((const TUint8*)&need, 2);
+			Kern::ThreadDesWrite(iClient, iRxNeeded, n, 0);		// ISC: a TPtr8* over 2 bytes
+			}
 		Kern::Printf("ISCPEER: ch %d message %d > buffer %d, KErrOverflow", iChannel, q.iLen, max);
 		Kern::RequestComplete(iClient, iRxStatus, KErrOverflow);
 		iRxStatus = NULL;

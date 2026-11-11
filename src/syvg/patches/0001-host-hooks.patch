@@ -1,0 +1,107 @@
+qembian hooks in the Khronos OpenVG RI (src/khr, docs/devices/nokia-n8-rm596/vg-host.md): window and
+pbuffer drawables get a host GPU surface; clears of them and reads from them go to the host;
+the rasteriser may read the pixel pipe. Applied by src/khr/build.sh to its copy of the RI.
+
+--- a/riImage.h	2026-11-07 14:10:57.968936476 +0100
++++ b/riImage.h	2026-11-07 14:10:57.991024847 +0100
+@@ -203,6 +203,9 @@
+ *//*-------------------------------------------------------------------*/
+ 
+ class Surface;
++//qembian hooks (src/khr/hostgl.cpp); the bool ones return true when the host did the work
++void	khrHostSurfaceNew(Surface* s);
++void	khrHostSurfaceFree(Surface* s);
+ class Image
+ {
+ public:
+@@ -280,6 +283,7 @@
+ class Surface
+ {
+ public:
++	void*			m_host;	//qembian: host GPU surface (src/khr/hostgl.cpp), NULL = guest memory
+ 	Surface(const Color::Descriptor& desc, int width, int height, int numSamples);	//throws bad_alloc
+ 	Surface(Image* image);	//throws bad_alloc
+ 	Surface(const Color::Descriptor& desc, int width, int height, int stride, RIuint8* data);	//throws bad_alloc
+--- a/riImage.cpp	2026-11-07 14:10:57.969960454 +0100
++++ b/riImage.cpp	2026-11-07 14:10:57.991510556 +0100
+@@ -778,11 +778,15 @@
+ * \note
+ *//*-------------------------------------------------------------------*/
+ 
++bool khrHostRead(Image* dst, const Surface* src, int sx, int sy, int dx, int dy, int w, int h);	//qembian
++
+ void Image::blit(const Surface* src, int sx, int sy, int dx, int dy, int w, int h)
+ {
+ 	//fb=>img: vgGetPixels
+ 	//fb=>user: vgReadPixels
+ 	RI_ASSERT(!src->isInUse(this));
++	if(src->m_host && khrHostRead(this, src, sx, sy, dx, dy, w, h))
++		return;	//qembian
+ 
+ 	computeBlitRegion(sx, sy, dx, dy, w, h, src->getWidth(), src->getHeight(), m_width, m_height);
+ 	if(w <= 0 || h <= 0)
+@@ -1874,6 +1878,7 @@
+ *//*-------------------------------------------------------------------*/
+ 
+ Surface::Surface(const Color::Descriptor& desc, int width, int height, int numSamples) :
++	m_host(NULL),
+ 	m_width(width),
+ 	m_height(height),
+ 	m_numSamples(numSamples),
+@@ -1893,6 +1898,7 @@
+ *//*-------------------------------------------------------------------*/
+ 
+ Surface::Surface(Image* image) :
++	m_host(NULL),
+ 	m_width(0),
+ 	m_height(0),
+ 	m_numSamples(1),
+@@ -1913,6 +1919,7 @@
+ *//*-------------------------------------------------------------------*/
+ 
+ Surface::Surface(const Color::Descriptor& desc, int width, int height, int stride, RIuint8* data) :
++	m_host(NULL),
+ 	m_width(width),
+ 	m_height(height),
+ 	m_numSamples(1),
+@@ -1933,6 +1940,8 @@
+ 
+ Surface::~Surface()
+ {
++	if(m_host)
++		khrHostSurfaceFree(this);	//qembian
+ 	RI_ASSERT(m_referenceCount == 0);
+ 	if(!m_image->removeReference())
+ 		RI_DELETE(m_image);
+@@ -1964,9 +1973,13 @@
+ * \note		
+ *//*-------------------------------------------------------------------*/
+ 
++bool khrHostClear(Surface* s, const Color& c, int x, int y, int w, int h, const Array<Rectangle>* scissors);	//qembian
++
+ void Surface::clear(const Color& clearColor, int x, int y, int w, int h, const Array<Rectangle>& scissors)
+ {
+ 	RI_ASSERT(w > 0 && h > 0);
++	if(m_host && khrHostClear(this, clearColor, x, y, w, h, &scissors))
++		return;	//qembian
+ 
+ 	//intersect clear region with image bounds
+ 	Rectangle r(0,0,getWidth(),getHeight());
+@@ -2538,6 +2551,7 @@
+ 	RI_ASSERT(maskBits == 0 || maskBits == 1 || maskBits == 4 || maskBits == 8);
+     m_color = RI_NEW(Surface, (desc, width, height, numSamples));	//throws bad_alloc
+ 	m_color->addReference();
++	khrHostSurfaceNew(m_color);	//qembian: window and pbuffer drawables live on the host GPU
+     if(maskBits)
+     {
+         VGImageFormat mf = VG_A_1;
+--- a/riPixelPipe.h	2026-11-07 14:10:57.970907265 +0100
++++ b/riPixelPipe.h	2026-11-07 14:10:57.991048232 +0100
+@@ -103,6 +103,7 @@
+ 	
+ class PixelPipe
+ {
++	friend class Rasterizer;	//qembian: the host fill reads paint, blend and image state
+ public:
+ 	PixelPipe();	//throws bad_alloc
+ 	~PixelPipe();

@@ -1,0 +1,49 @@
+Fake modem device (QEMU syborg-modem): mapping and constants
+
+Two ports of 2 pages after the platform device's 8 (physical 0xc0019000, linear KHwBasePeripherals +
+0x19000, mapped in table order right after the platform), IRQs 15 and 16. The ISC/ISA stand-ins
+(src/standins/_shared/iscpeer.inl) forward to it; the modem itself lives in QEMU (syborg_modem.c).
+Copy the files into the syborgfx and syborgmv variants as well.
+
+--- a/baseport/syborg/specific/syborg.h
++++ b/baseport/syborg/specific/syborg.h
+@@ -55,6 +55,8 @@
+ const TUint KHwSVPWebcameraDevice		= KHwBasePeripherals + 0x0f*KHwLinSeparation;
+ const TUint KHwNVMemoryDevice			= KHwBasePeripherals + 0x10*KHwLinSeparation;
+ const TUint KHwSVPPlatformDevice		= KHwBasePeripherals + 0x11*KHwLinSeparation;
++// syborg-pg: the fake BB5 modem (QEMU syborg-modem), after the platform device's 8 pages: two ports of 2 pages
++const TUint KHwBaseModem			= KHwBasePeripherals + 0x19*KHwLinSeparation;
+ 	
+ enum TSyborgInterruptId
+ {
+@@ -70,7 +72,9 @@
+   EIntSerial3 = 8,
+   EIntNet0 = 9,
+   EIntAudio0 = 10,
+-  EIntNVMemoryDevice = 12
++  EIntNVMemoryDevice = 12,
++  EIntModem0 = 15,		// syborg-pg: syborg-modem port 0 (ISC channels 0..31, ISA 0..63)
++  EIntModem1 = 16		// port 1 (ISC extension channels 32..63)
+ };
+ 
+ // Timer Mode
+--- a/baseport/syborg/bootstrap/syborg.inc
++++ b/baseport/syborg/bootstrap/syborg.inc
+@@ -56,6 +56,7 @@
+ KHwBaseWebcamera	EQU     KHwBaseRegisters + 0x0f000
+ KHwNVMemoryDevice			EQU		KHwBaseRegisters + 0x10000
+ KHwBasePlatform		EQU     KHwBaseRegisters + 0x11000
++KHwBaseModem		EQU     KHwBaseRegisters + 0x19000	; syborg-pg: fake modem, 4 pages (after the platform's 8)
+ 
+ ;-----------------------------------------------------------------------------
+ ; Module linear bases
+--- a/baseport/syborg/bootstrap/syborg.s
++++ b/baseport/syborg/bootstrap/syborg.s
+@@ -191,6 +191,7 @@
+ 		HW_MAPPING		KHwBaseWebcamera,    		1,	HW_MULT_4K
+ 		HW_MAPPING		KHwNVMemoryDevice,		1,	HW_MULT_4K
+ 		HW_MAPPING		KHwBasePlatform,    		8,	HW_MULT_4K
++		HW_MAPPING		KHwBaseModem,    		4,	HW_MULT_4K	; syborg-pg: linear = KHwBasePeripherals + 0x19000
+ 	
+ 		DCD     0   ; terminator
+ 

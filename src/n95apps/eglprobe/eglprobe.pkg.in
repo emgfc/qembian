@@ -1,0 +1,8 @@
+; eglprobe (src/n95apps/eglprobe): EGL / OpenVG / OpenGL ES report to E:\eglprobe\<n>.txt
+&EN
+#{"eglprobe"},(0xE0001DC0),1,0,0
+%{"qembian"}
+:"qembian"
+[0x20022E6D], 0, 0, 0, {"Symbian^3 and later"}
+"@OUT@/eglprobe.exe" - "!:\sys\bin\eglprobe.exe"
+"@OUT@/eglprobe_reg.rsc" - "!:\private\10003a3f\import\apps\eglprobe_reg.rsc"

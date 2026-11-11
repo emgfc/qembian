@@ -1,11 +1,12 @@
 # N95 8GB (RM-320) firmware inventory
 
-This is a read-only analysis of the stock firmware set `RM-320_35.0.001_PR.C0R` (sha256 in
-[devices/nokia-n95-8gb-rm320/firmware.sha256](../../../devices/nokia-n95-8gb-rm320/firmware.sha256)). No firmware bytes are in the
+This is a read-only analysis of the stock firmware set `RM-320_35.0.001_PR.C0R` (sha256 in the ROM
+store's record `roms/RM-320/35.0.001/rom.toml`, git-ignored). No firmware bytes are in the
 repository. To reproduce it:
 
 ```sh
-FW_DIR=/path/to/RM-320 tools/fw/inventory.py --device nokia-n95-8gb-rm320   # outputs in build/devices/<id>/
+tools/fw/store.py import /path/to/RM-320                                      # once: into roms/RM-320/35.0.001/
+tools/fw/inventory.py --device nokia-n95-8gb-rm320   # outputs in build/firmware/RM-320/35.0.001/13/ (tools/device.py paths cache)
 ```
 
 Tools written for this:

@@ -79,6 +79,20 @@ typedef void* NativeWindowType;
 #define EGL_DRAW 0x3059
 #define EGL_READ 0x305A
 #define EGL_CORE_NATIVE_ENGINE 0x305B
+#define EGL_RENDERABLE_TYPE 0x3040		/* EGL 1.2+ (Symbian^3 apps ask for these) */
+#define EGL_COLOR_BUFFER_TYPE 0x303F
+#define EGL_LUMINANCE_SIZE 0x303D
+#define EGL_ALPHA_MASK_SIZE 0x303E
+#define EGL_CONFORMANT 0x3042
+#define EGL_RGB_BUFFER 0x308E
+#define EGL_OPENGL_ES_BIT 0x0001
+#define EGL_RENDER_BUFFER 0x3086
+#define EGL_BACK_BUFFER 0x3084
+#define EGL_SWAP_BEHAVIOR 0x3093
+#define EGL_BUFFER_DESTROYED 0x3095
+#define EGL_CONTEXT_CLIENT_TYPE 0x3097
+#define EGL_CONTEXT_CLIENT_VERSION 0x3098
+#define EGL_OPENGL_ES_API 0x30A0
 #define EGL_TEXTURE_FORMAT 0x3080
 #define EGL_TEXTURE_TARGET 0x3081
 #define EGL_MIPMAP_TEXTURE 0x3082
@@ -93,13 +107,18 @@ typedef void* NativeWindowType;
 #define SY_DISPLAY ((EGLDisplay)1)
 
 /* configs (read-only table): id, buffer, r, g, b, a, depth, surface types */
-typedef struct { int id, buffer, r, g, b, a, depth, types; } SyConfig;
+#define EGL_OPENGL_ES2_BIT 0x0004
+typedef struct { int id, buffer, r, g, b, a, depth, types, stencil, renderable; } SyConfig;
 static const SyConfig KConfigs[] =
 	{
-	{ 1, 16, 5, 6, 5, 0, 16, EGL_WINDOW_BIT | EGL_PIXMAP_BIT | EGL_PBUFFER_BIT },
-	{ 2, 16, 5, 6, 5, 0, 0, EGL_WINDOW_BIT | EGL_PIXMAP_BIT | EGL_PBUFFER_BIT },
-	{ 3, 32, 8, 8, 8, 8, 16, EGL_WINDOW_BIT | EGL_PIXMAP_BIT | EGL_PBUFFER_BIT },
-	{ 4, 32, 8, 8, 8, 8, 0, EGL_WINDOW_BIT | EGL_PIXMAP_BIT | EGL_PBUFFER_BIT },
+	{ 1, 16, 5, 6, 5, 0, 16, EGL_WINDOW_BIT | EGL_PIXMAP_BIT | EGL_PBUFFER_BIT, 0, EGL_OPENGL_ES_BIT },
+	{ 2, 16, 5, 6, 5, 0, 0, EGL_WINDOW_BIT | EGL_PIXMAP_BIT | EGL_PBUFFER_BIT, 0, EGL_OPENGL_ES_BIT },
+	{ 3, 32, 8, 8, 8, 8, 16, EGL_WINDOW_BIT | EGL_PIXMAP_BIT | EGL_PBUFFER_BIT, 0, EGL_OPENGL_ES_BIT },
+	{ 4, 32, 8, 8, 8, 8, 0, EGL_WINDOW_BIT | EGL_PIXMAP_BIT | EGL_PBUFFER_BIT, 0, EGL_OPENGL_ES_BIT },
+#ifdef SYGL_GCE		/* OpenGL ES 2 (src/khr/gl2.c: drawn on the host GPU only) */
+	{ 5, 16, 5, 6, 5, 0, 24, EGL_WINDOW_BIT | EGL_PBUFFER_BIT, 8, EGL_OPENGL_ES2_BIT },
+	{ 6, 32, 8, 8, 8, 8, 24, EGL_WINDOW_BIT | EGL_PBUFFER_BIT, 8, EGL_OPENGL_ES2_BIT },
+#endif
 	};
 #define NCONFIGS ((int)(sizeof(KConfigs) / sizeof(KConfigs[0])))
 
@@ -143,6 +162,12 @@ static SySurface* surface_of(EGLSurface s)
 	return p && p->magic == SY_MAGIC_SURFACE ? p : 0;
 	}
 
+/* an OpenGL ES 2 context (src/khr/gl2.c) */
+static int is_context2(EGLContext c)
+	{
+	return c && *(const u32*)c == SY_MAGIC_CONTEXT2;
+	}
+
 static struct SyContext* context_of(EGLContext c)
 	{
 	struct SyContext* p = (struct SyContext*)c;
@@ -173,7 +198,11 @@ EGLBoolean sy_eglInitialize(EGLDisplay d, EGLint* aMajor, EGLint* aMinor)
 	SyThread* t = ok_display(d, 0);
 	if (!t) return EGL_FALSE;
 	if (!t->initialized)
+#ifdef SYGL_GCE
+		SYLOG("eglInitialize: OpenGL ES 1.1 and 2 on the host GPU [" __DATE__ " " __TIME__ "]");
+#else
 		SYLOG("eglInitialize: sygl software renderer, EGL 1.1 / GLES-CM 1.1 [" __DATE__ " " __TIME__ "]");
+#endif
 	t->initialized = 1;
 	if (aMajor) *aMajor = 1;
 	if (aMinor) *aMinor = 1;
@@ -205,8 +234,12 @@ const char* sy_eglQueryString(EGLDisplay d, EGLint name)
 
 void* sy_eglGetProcAddress(const char* aName)
 	{
+#ifdef SYGL_GCE
+	return sy_gl1_proc(aName);		/* OpenGL ES 1.1 on the host: its extension functions (src/khr/gl1.c) */
+#else
 	(void)aName;
 	return 0;
+#endif
 	}
 
 /* ---------------------------------------------------------------- configs */
@@ -221,7 +254,7 @@ static int config_attr(const SyConfig* c, EGLint a, EGLint* v)
 	case EGL_BLUE_SIZE: *v = c->b; break;
 	case EGL_ALPHA_SIZE: *v = c->a; break;
 	case EGL_DEPTH_SIZE: *v = c->depth; break;
-	case EGL_STENCIL_SIZE: *v = 0; break;
+	case EGL_STENCIL_SIZE: *v = c->stencil; break;
 	case EGL_CONFIG_CAVEAT: *v = EGL_NONE; break;
 	case EGL_CONFIG_ID: *v = c->id; break;
 	case EGL_LEVEL: *v = 0; break;
@@ -237,6 +270,9 @@ static int config_attr(const SyConfig* c, EGLint a, EGLint* v)
 	case EGL_BIND_TO_TEXTURE_RGB: case EGL_BIND_TO_TEXTURE_RGBA: *v = EGL_FALSE; break;
 	case EGL_MIN_SWAP_INTERVAL: *v = 0; break;
 	case EGL_MAX_SWAP_INTERVAL: *v = 4; break;
+	case EGL_RENDERABLE_TYPE: case EGL_CONFORMANT: *v = c->renderable; break;
+	case EGL_COLOR_BUFFER_TYPE: *v = EGL_RGB_BUFFER; break;
+	case EGL_LUMINANCE_SIZE: case EGL_ALPHA_MASK_SIZE: *v = 0; break;
 	default: return 0;
 		}
 	return 1;
@@ -277,6 +313,15 @@ static int config_matches(const SyConfig* c, const EGLint* aAttr)
 			break;
 		case EGL_CONFIG_ID:
 			if (c->id != want) return 0;
+			break;
+		case EGL_RENDERABLE_TYPE: case EGL_CONFORMANT:	/* a mask: the config must have every bit */
+			if ((want & c->renderable) != want) return 0;
+			break;
+		case EGL_COLOR_BUFFER_TYPE:
+			if (want != EGL_RGB_BUFFER) return 0;
+			break;
+		case EGL_LUMINANCE_SIZE: case EGL_ALPHA_MASK_SIZE:
+			if (want > 0) return 0;
 			break;
 		case EGL_LEVEL:
 			if (want != 0) return 0;
@@ -320,9 +365,13 @@ EGLBoolean sy_eglChooseConfig(EGLDisplay d, const EGLint* aAttr, EGLConfig* aCon
 		return EGL_FALSE;
 		}
 	if (!aNum) return fail(t, EGL_BAD_PARAMETER);
+	int asksApi = 0;
+	for (const EGLint* p = aAttr; p && p[0] != EGL_NONE; p += 2)
+		asksApi |= p[0] == EGL_RENDERABLE_TYPE;
 	int n = 0;
 	for (int i = 0; i < NCONFIGS; ++i)		/* table order = EGL sort order (smaller buffers first) */
-		if (config_matches(&KConfigs[i], aAttr))
+		if ((asksApi || (KConfigs[i].renderable & EGL_OPENGL_ES_BIT))	/* default: EGL_OPENGL_ES_BIT */
+			&& config_matches(&KConfigs[i], aAttr))
 			{
 			if (aConfigs && n < aSize) aConfigs[n] = (EGLConfig)KConfigs[i].id;
 			++n;
@@ -382,6 +431,7 @@ EGLSurface sy_eglCreateWindowSurface(EGLDisplay d, EGLConfig aConfig, NativeWind
 	s->magic = SY_MAGIC_SURFACE;
 	s->config = c->id;
 	s->kind = 1;
+	s->stencil = c->stencil;
 	s->window = aWin;
 	/* the N95's window-system glue (libpvrTechviewWSEGL) reads the window's size and position once,
 	   here; afterwards it only gets the visible region (docs/gpu-roadmap.md "Fidelity",
@@ -393,8 +443,21 @@ EGLSurface sy_eglCreateWindowSurface(EGLDisplay d, EGLConfig aConfig, NativeWind
 		t->eglError = EGL_BAD_ALLOC;
 		return 0;
 		}
+#ifdef SYGL_GCE
+	/* Symbian^3 (src/khr): the window shows a surface-manager surface the frames go to (eglos) */
+	sy_hw_surface_new(t, s);
+	if (sy_gce_window_new(s))
+		{
+		sy_hw_surface_free(t, s);
+		sy_big_free(s->color); sy_big_free(s->depth);
+		sy_free(s);
+		t->eglError = EGL_BAD_NATIVE_WINDOW;
+		return 0;
+		}
+#else
 	sy_display_open(t);
 	sy_hw_surface_new(t, s);
+#endif
 	SYLOG("window surface %dx%d at (%d,%d), config %d%s", w, h, x, y, c->id, s->hw ? ", host GL" : "");
 	return (EGLSurface)s;
 	}
@@ -406,6 +469,7 @@ static SySurface* new_surface(SyThread* t, const SyConfig* c, int aKind, int w, 
 	s->magic = SY_MAGIC_SURFACE;
 	s->config = c->id;
 	s->kind = aKind;
+	s->stencil = c->stencil;
 	if (!surface_alloc(s, w, h))
 		{
 		sy_free(s);
@@ -455,7 +519,14 @@ EGLSurface sy_eglCreatePbufferSurface(EGLDisplay d, EGLConfig aConfig, const EGL
 static void pixmap_flush(SySurface* s)
 	{
 	if (s && s->kind == 3 && s->pixmap && s->color)
+		{
+		if (s->hw)					/* drawn on the host (OpenGL ES on the host GPU): its pixels first */
+			{
+			s->hwDirty = 1;
+			sy_hw_sync(s);
+			}
 		sy_bitmap_copy(s->pixmap, s->color, s->w, s->h, 1);
+		}
 	}
 
 void sy_flush_current(void)
@@ -504,6 +575,10 @@ EGLBoolean sy_eglBindTexImage(EGLDisplay d, EGLSurface aSurface, EGLint aBuffer)
 	if (aBuffer != EGL_BACK_BUFFER) return fail(t, EGL_BAD_PARAMETER);
 	if (s->texFormat == EGL_NO_TEXTURE) return fail(t, EGL_BAD_MATCH);
 	if (!t->ctx) return EGL_TRUE;
+#ifdef SYGL_GCE
+	if (is_context2(t->ctx))		/* a host context: a copy on the host */
+		return sy_gl2_tex_from_surface(t->ctx, s, s->texFormat == EGL_TEXTURE_RGBA) ? fail(t, EGL_BAD_ALLOC) : EGL_TRUE;
+#endif
 	return sy_gl_tex_from_surface(t->ctx, s, s->texFormat == EGL_TEXTURE_RGBA) ? fail(t, EGL_BAD_ALLOC) : EGL_TRUE;
 	}
 
@@ -525,7 +600,7 @@ EGLBoolean sy_eglDestroySurface(EGLDisplay d, EGLSurface aSurface)
 	pixmap_flush(s);
 	if (t->draw == s) t->draw = 0;
 	if (t->read == s) t->read = 0;
-	if (t->ctx) sy_gl_made_current(t->ctx, t->draw);
+	if (t->ctx && context_of((EGLContext)t->ctx)) sy_gl_made_current(t->ctx, t->draw);
 	sy_dsa_destroy(s);
 	sy_hw_surface_free(t, s);
 	sy_big_free(s->color); sy_big_free(s->depth);
@@ -548,6 +623,8 @@ EGLBoolean sy_eglQuerySurface(EGLDisplay d, EGLSurface aSurface, EGLint aAttr, E
 	case EGL_HEIGHT: *aValue = s->h; break;
 	case EGL_CONFIG_ID: *aValue = s->config; break;
 	case EGL_LARGEST_PBUFFER: *aValue = EGL_FALSE; break;
+	case EGL_RENDER_BUFFER: *aValue = EGL_BACK_BUFFER; break;
+	case EGL_SWAP_BEHAVIOR: *aValue = EGL_BUFFER_DESTROYED; break;
 	default: return fail(t, EGL_BAD_ATTRIBUTE);
 		}
 	return EGL_TRUE;
@@ -569,7 +646,24 @@ EGLContext sy_eglCreateContext(EGLDisplay d, EGLConfig aConfig, EGLContext aShar
 	(void)aAttr;
 	SyThread* t = ok_display(d, 1);
 	if (!t) return 0;
-	if (!config_of(aConfig)) { t->eglError = EGL_BAD_CONFIG; return 0; }
+	const SyConfig* cf = config_of(aConfig);
+	if (!cf) { t->eglError = EGL_BAD_CONFIG; return 0; }
+	int version = 1;
+	for (const EGLint* p = aAttr; p && p[0] != EGL_NONE; p += 2)
+		if (p[0] == EGL_CONTEXT_CLIENT_VERSION)
+			version = p[1];
+#ifdef SYGL_GCE
+	/* OpenGL ES 2 (src/khr/gl2.c) and 1.1 (src/khr/gl1.c): host contexts, drawn by the host GPU */
+	if ((version == 2 && (cf->renderable & EGL_OPENGL_ES2_BIT)) || (version == 1 && (cf->renderable & EGL_OPENGL_ES_BIT)))
+		{
+		if (aShare && (!is_context2(aShare) || sy_gl2_api(aShare) != version)) { t->eglError = EGL_BAD_CONTEXT; return 0; }
+		void* c2 = sy_gl2_create(aShare, version);
+		if (!c2) { t->eglError = EGL_BAD_ALLOC; return 0; }
+		return (EGLContext)c2;
+		}
+#endif
+	if (version != 1 || !(cf->renderable & EGL_OPENGL_ES_BIT))
+		{ t->eglError = EGL_BAD_MATCH; return 0; }
 	struct SyContext* share = 0;
 	if (aShare && !(share = context_of(aShare))) { t->eglError = EGL_BAD_CONTEXT; return 0; }
 	struct SyContext* c = sy_gl_create(share);
@@ -582,6 +676,14 @@ EGLBoolean sy_eglDestroyContext(EGLDisplay d, EGLContext aCtx)
 	SYTRACE(sy_thread(), "eglDestroyContext(%08x)", (u32)__builtin_return_address(0), (u32)aCtx);
 	SyThread* t = ok_display(d, 1);
 	if (!t) return EGL_FALSE;
+#ifdef SYGL_GCE
+	if (is_context2(aCtx))
+		{
+		if ((void*)t->ctx == aCtx) { t->ctx = 0; t->draw = 0; t->read = 0; }
+		sy_gl2_destroy(aCtx);
+		return EGL_TRUE;
+		}
+#endif
 	struct SyContext* c = context_of(aCtx);
 	if (!c) return fail(t, EGL_BAD_CONTEXT);
 	if (t->ctx == c) { t->ctx = 0; t->draw = 0; t->read = 0; }
@@ -601,10 +703,19 @@ EGLBoolean sy_eglMakeCurrent(EGLDisplay d, EGLSurface aDraw, EGLSurface aRead, E
 		t->ctx = 0; t->draw = 0; t->read = 0;
 		return EGL_TRUE;
 		}
-	struct SyContext* c = context_of(aCtx);
-	if (!c) return fail(t, EGL_BAD_CONTEXT);
 	SySurface* dr = surface_of(aDraw);
 	SySurface* rd = surface_of(aRead);
+#ifdef SYGL_GCE
+	if (is_context2(aCtx))
+		{
+		if (!dr || !rd) return fail(t, EGL_BAD_SURFACE);
+		t->ctx = (struct SyContext*)aCtx; t->draw = dr; t->read = rd;
+		sy_gl2_made_current(aCtx, dr);
+		return EGL_TRUE;
+		}
+#endif
+	struct SyContext* c = context_of(aCtx);
+	if (!c) return fail(t, EGL_BAD_CONTEXT);
 	if (!dr || !rd) return fail(t, EGL_BAD_SURFACE);
 	t->ctx = c; t->draw = dr; t->read = rd;
 	sy_gl_made_current(c, dr);
@@ -630,9 +741,20 @@ EGLBoolean sy_eglQueryContext(EGLDisplay d, EGLContext aCtx, EGLint aAttr, EGLin
 	{
 	SyThread* t = ok_display(d, 1);
 	if (!t) return EGL_FALSE;
-	if (!context_of(aCtx)) return fail(t, EGL_BAD_CONTEXT);
-	if (aAttr != EGL_CONFIG_ID || !aValue) return fail(t, EGL_BAD_ATTRIBUTE);
-	*aValue = 1;
+	if (!context_of(aCtx) && !is_context2(aCtx)) return fail(t, EGL_BAD_CONTEXT);
+	if (!aValue) return fail(t, EGL_BAD_PARAMETER);
+	switch (aAttr)
+		{
+	case EGL_CONFIG_ID: *aValue = 1; break;
+	case EGL_CONTEXT_CLIENT_TYPE: *aValue = EGL_OPENGL_ES_API; break;
+#ifdef SYGL_GCE
+	case EGL_CONTEXT_CLIENT_VERSION: *aValue = is_context2(aCtx) ? sy_gl2_api(aCtx) : 1; break;
+#else
+	case EGL_CONTEXT_CLIENT_VERSION: *aValue = 1; break;
+#endif
+	case EGL_RENDER_BUFFER: *aValue = EGL_BACK_BUFFER; break;
+	default: return fail(t, EGL_BAD_ATTRIBUTE);
+		}
 	return EGL_TRUE;
 	}
 
@@ -670,6 +792,12 @@ static void blit(SyThread* t, SySurface* s, int wx, int wy, int x0, int y0, int 
    screen only (H-gles-fbdirect). */
 void sy_present(SyThread* t, SySurface* s)
 	{
+#ifdef SYGL_GCE
+	if (s->frames == 0)
+		SYLOG("first frame: surface %dx%d%s", s->w, s->h, s->hw ? " (host)" : "");
+	sy_gce_present(s);
+	return;
+#endif
 	if (sy_fb_info(t))
 		return;
 	sy_hw_sync(s);						/* host GL: the frame into s->color */
@@ -714,6 +842,7 @@ EGLBoolean sy_eglSwapBuffers(EGLDisplay d, EGLSurface aSurface)
 	}
 
 
+#ifndef SYGL_GCE		/* the N95 blob's generated stubs (src/khr has gen_khr.py's) */
 /* default for every entry point not implemented yet (r0 = ordinal, from the generated stub) */
 extern const char* const sygl_names[];
 unsigned sygl_unimpl(int aOrdinal)
@@ -721,3 +850,4 @@ unsigned sygl_unimpl(int aOrdinal)
 	SYLOG("unimplemented %s (ord %d)", sygl_names[aOrdinal], aOrdinal);
 	return 0;
 	}
+#endif

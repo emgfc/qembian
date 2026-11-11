@@ -2,9 +2,9 @@
 # Build the device's kernel-side stand-ins (src/standins, chosen by its profile's [[standins]] and
 # [kernel.lcd]) against the Syborg variant, then the hybrid's kernel-side ROM: the Syborg text-shell
 # obey file plus those drivers, in profile order.
-#   scripts/build-standins.sh [udeb] [DEVICE-ID]      (device: $SYBORG_DEVICE or devices/default)
-# Output: build/devices/<id>/kernel-side.img (input for tools/romcompose.py; one per device, so devices
-# sharing a baseport do not overwrite each other's); generated inputs in build/devices/<id>/gen/;
+#   scripts/build-standins.sh [udeb] [DEVICE-ID]      (device: $SYBORG_DEVICE or the registry default)
+# Output: build/roms/<id>/<fw>/kernel-side.img (input for tools/romcompose.py; one per device, so devices
+# sharing a baseport do not overwrite each other's); generated inputs in build/roms/<id>/<fw>/gen/;
 # <baseport> = the profile's kernel.baseport (syborg: multiple memory model; syborgmv: moving).
 # kernel.place = "after-firmware": a pad file right after our ROM directory pushes our kernel-side
 # files past the end of the firmware's core image (ROMs whose user side starts among their own
@@ -13,20 +13,21 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 VAR="${1:-udeb}"; DEVICE="${2:-${SYBORG_DEVICE:-}}"
 if [ -z "${SYBORG_IN_CONTAINER:-}" ]; then
-  # host side: the fake modem's reply table from the device's ISI database, and the generated
-  # bld.inf / obey list (tools/device.py) for the container side
+  # host side: the generated bld.inf / obey list (tools/device.py) for the container side (the fake
+  # modem's reply table is QEMU's now: tools/device.py qemu-args writes it at every launch)
   export SYBORG_DEVICE="$DEVICE"
   DEVDIR=$(python3 -I "$ROOT/tools/device.py" paths dir)
   GEN="$DEVDIR/gen"; mkdir -p "$GEN"
-  python3 -I "$ROOT/tools/isi.py" gen-header "$GEN/isireplies.h" >/dev/null
   python3 -I "$ROOT/tools/device.py" gen standins-bldinf > "$GEN/bld.inf"
   python3 -I "$ROOT/tools/device.py" gen standins-oby > "$GEN/standins.oby.txt"
+  python3 -I "$ROOT/tools/device.py" get kernel.omit_baseport 2>/dev/null \
+    | python3 -c 'import json, sys; [print(x) for x in json.load(sys.stdin)]' > "$GEN/omit.txt" 2>/dev/null || : > "$GEN/omit.txt"
   python3 -I "$ROOT/tools/device.py" get kernel.lcd.target > "$GEN/lcd.txt" 2>/dev/null || echo "" > "$GEN/lcd.txt"
   BP=$(python3 -I "$ROOT/tools/device.py" get kernel.baseport 2>/dev/null | tr -d '"') || BP=syborg
   PAD=0
   if [ "$(python3 -I "$ROOT/tools/device.py" get kernel.place 2>/dev/null | tr -d '"')" = after-firmware ]; then
     CORE=$(python3 -I "$ROOT/tools/device.py" paths core_flat)
-    PAD=$(stat -c %s "$CORE")
+    PAD=$(stat -L -c %s "$CORE")	# core-flat.img is a link into build/firmware/ (device-model-v2)
   fi
   rm -f "$GEN/pad.bin"; [ "$PAD" -gt 0 ] && truncate -s "$PAD" "$GEN/pad.bin"
   CONTAINER_ARGS="${CONTAINER_ARGS:-} -e SYBORG_BASEPORT=${BP:-syborg} -e SYBORG_DEVDIR=/work/${DEVDIR#$ROOT/}" \
@@ -40,7 +41,6 @@ BP=${SYBORG_BASEPORT:-syborg}
 DST=${EPOCROOT}sf/adapt/qemu/baseport/$BP/standins
 rm -rf "$DST" "${EPOCROOT}sf/adapt/qemu/baseport/$BP/n95compat"; cp -r /work/src/standins "$DST"
 cp "$GEN/bld.inf" "$DST/bld.inf"
-cp "$GEN/isireplies.h" "$DST/_shared/isireplies.h"	# the device's canned modem replies (tools/isi.py)
 cd "$DST"
 sbs -b bld.inf -c "$CFG" -f "$LOGS/standins-$BP-$VAR.log" > "$LOGS/standins-$BP-$VAR.out" 2>&1 || true
 grep -E 'sbs : errors' "$LOGS/standins-$BP-$VAR.out" || true
@@ -60,7 +60,10 @@ while read -r kind f ext; do
   printf '%s[%s]=\t%s/_%s_%s.%s\t\\sys\\bin\\%s.%s\n' "$kind" "$VARID" "$REL" "$BP" "$f" "$ext" "$f" "$ext"
 done < "$GEN/standins.oby.txt" > extra.oby
 PAD=""; [ -f "$GEN/pad.bin" ] && PAD="$GEN/pad.bin"
-awk -v name="$NAME" -v lcd="$LCD" -v bp="$BP" -v pad="$PAD" '
+OMIT=$(cat "$GEN/omit.txt" 2>/dev/null | tr '[:upper:]' '[:lower:]' | tr '\n' ' ')   # kernel.omit_baseport
+awk -v name="$NAME" -v lcd="$LCD" -v bp="$BP" -v pad="$PAD" -v omit="$OMIT" '
+  BEGIN { n = split(omit, o, " ") }
+  { l = tolower($0); for (i = 1; i <= n; i++) if (o[i] != "" && index(l, "\\sys\\bin\\" o[i])) next }
   /^romname=/ { print "romname=" name ".img"; next }
   pad != "" && /^romsize=/ { print "romsize=0x4000000"; next }
   lcd != "" && index($0, "_" bp "_lcd.dll") { sub("_" bp "_lcd\\.dll", "_" bp "_" lcd ".dll") }

@@ -1,7 +1,7 @@
 # Personality sym91: Symbian 9.1 user sides on our EPL kernel
 
 Used by devices with `platform.personality = "sym91"` (S60 3rd Edition, no feature pack: N73, N80,
-N93, E60, E61, 3250, 5500...). First device: `devices/nokia-n73-rm132`. These phones also use the
+N93, E60, E61, 3250, 5500...). First device: `models/nokia-n73-rm132`. These phones also use the
 **moving memory model** on ARMv5 (ROM at 0xF8000000, fixed processes), so they run on the moving-model
 kernel build (`kernel.baseport = "syborgmv"`, `tools/baseport_variant.py`), not on the N95's.
 Registry number 5 (`personalities/registry.toml`).

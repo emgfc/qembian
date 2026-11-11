@@ -1,0 +1,31 @@
+# Firmware 11.0.021 of nokia-n97-rm505, written by tools/device.py firmware-add from the ROM store entry RM-505/11.0.021.
+# Merged over models/nokia-n97-rm505/model.toml. Not booted yet unless [status] says so.
+
+[firmware]
+version = "11.0.021"
+
+[[firmware.files]]
+role = "core"
+glob = "RM-505_11.0.021_prd.core.C00"
+
+[[firmware.files]]
+role = "rofs2"
+glob = "RM-505_11.0.021_prd.rofs2.V01"
+
+[[firmware.files]]
+role = "rofs3"
+glob = "RM-505_11.0.021_C01_prd.rofs3.fpsx"
+
+[[firmware.files]]
+role = "uda"
+glob = "RM505_507_11.0.021_uda1_001.uda.fpsx"
+drive = "C"
+optional = true
+
+[firmware.identity]
+sw = { version = "11.0.021", date = "15-06-2009", type_code = "RM-505" }
+
+[status]
+level = "L0-untested"
+updated = "2026-11-10"
+open = ["not booted on this firmware yet"]

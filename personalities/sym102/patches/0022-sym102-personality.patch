@@ -1,0 +1,154 @@
+Personality sym102 (Symbian OS 10.1 FP2, Nokia Belle FP2; 701 RM-774 113.010.1506, 808 RM-807 113.010.1508):
+exec tables KExec102* (personalities/sym102/exec.map, generated into execpers_map.h), registry number 7. The
+sym101 numbering with three calls inserted (S11, S12, Sd8) and Belle's Sd6/Sd7 gone; the same user side
+conventions as sym101 (TLocalThreadData layout, nested library attach) [inferred: same EUser line].
+Loader structures: TCodeSegCreateInfo has 4 more bytes (ExecLoaderCodeSegUserSize = 476), so
+TProcessCreateInfo's own fields are read and written 4 bytes further on (in the base's tail padding). FP2's
+loader passes iUseCodePaging = 2 for code it does not page: read as "not paged", given back as 2. Trace builds
+(KDLL) dump the raw words 352..480 of each code segment's info (CSRAW).
+
+ExecLoaderCodeSegUserSize is where TProcessCreateInfo's own fields start in the loader's structure, so 9.1 sets
+it too (380, = its copy size; left at 472 the N73's priority read as 0 and every ProcessCreate failed with
+KErrArgument). The paging mode 2 handling has its own flag (ExecLoaderPagingMode2, FP2 only).
+--- a/kernel/eka/kernel/sexecpers.cpp
++++ b/kernel/eka/kernel/sexecpers.cpp
+@@ -23,6 +23,7 @@
+ const TInt KPersonalitySymbian3 = 4;	// Symbian^3: our numbering, 9.2 RMutex::Wait() (personalities/symbian3/README.md)
+ const TInt KPersonalitySym91 = 5;	// Symbian 9.1: the 9.2 numbering is a strict superset (personalities/sym91/README.md)
+ const TInt KPersonalitySym101 = 6;	// Symbian 10.1 (Belle): Symbian^3 + S10b..S114 (personalities/sym101/README.md)
++const TInt KPersonalitySym102 = 7;	// Symbian 10.1 FP2 (Belle FP2): sym101 with S11/S12/Sd8 inserted (personalities/sym102/README.md)
+ 
+ TBool Exec92Enabled = EFalse;
+ TBool KernNestedAttachCountsAsLoaded = EFalse;	// scodeseg.cpp TraverseCodeSegs; Belle: ETrue
+@@ -54,6 +55,15 @@
+ // pieces. Fields the old layout lacks stay zero; nothing is written beyond the user's structure.
+ TInt ExecLoaderCodeSegSize = sizeof(TCodeSegCreateInfo);
+ TInt ExecLoaderProcessTail = sizeof(TProcessCreateInfo) - sizeof(TCodeSegCreateInfo);
++// Belle FP2 (sym102): TCodeSegCreateInfo has 4 more bytes (476; sizeof 480 with 8-byte alignment: CodeSegCreate
++// copies 0x1e0, Belle 0x1d8; the same offsets up to 0x178 in both phones' ekern) and TProcessCreateInfo's own
++// fields start at 476, in the base's tail padding (ProcessCreate copies 0x210 = 476 + 48 rounded) [V: KDLL trace,
++// the priority 350 read one word late at 480]. Ours is read from the start; the FP2 extra word is skipped.
++// ExecLoaderCodeSegUserSize = where TProcessCreateInfo's own fields start in the loader's structure: 476 on
++// FP2, ExecLoaderCodeSegSize (380) on 9.1, ours otherwise.
++TInt ExecLoaderCodeSegUserSize = sizeof(TCodeSegCreateInfo);
++// FP2's loader passes iUseCodePaging 2 for code it does not page: read as "not paged", given back as 2.
++TBool ExecLoaderPagingMode2 = EFalse;
+ 
+ static TBool UsesPersonality()
+ 	{
+@@ -65,6 +75,8 @@
+ 
+ static inline TInt CsSize()
+ 	{ return UsesPersonality() ? ExecLoaderCodeSegSize : (TInt)sizeof(TCodeSegCreateInfo); }
++static inline TInt CsUserSize()
++	{ return UsesPersonality() ? ExecLoaderCodeSegUserSize : (TInt)sizeof(TCodeSegCreateInfo); }
+ static inline TInt PcTail()
+ 	{ return UsesPersonality() ? ExecLoaderProcessTail : (TInt)(sizeof(TProcessCreateInfo) - sizeof(TCodeSegCreateInfo)); }
+ 
+@@ -72,11 +84,29 @@
+ 	{
+ 	memclr(&aInfo, sizeof(aInfo));
+ 	kumemget32(&aInfo, &aUser, CsSize());
++	// Belle FP2's loader passes 2 in iUseCodePaging (Belle: 0) for code it does not page [I]: this kernel
++	// pages no RAM-loaded code (ROFS), so anything but 1 is "not paged" (else DoCreate fails, KErrArgument)
++	if (UsesPersonality() && ExecLoaderPagingMode2 && aInfo.iUseCodePaging == 2)
++		aInfo.iUseCodePaging = EFalse;
++	__KTRACE_OPT(KDLL, if (UsesPersonality() && ExecLoaderPagingMode2) {	// FP2 bring-up: the raw tail
++		TUint32 w[32];
++		kumemget32(w, (const TUint8*)&aUser + 352, sizeof(w));
++		for (TInt i = 0; i < 32; i += 8)
++			Kern::Printf("CSRAW +%03d: %08x %08x %08x %08x %08x %08x %08x %08x", 352 + i * 4,
++				w[i], w[i+1], w[i+2], w[i+3], w[i+4], w[i+5], w[i+6], w[i+7]);
++		});
+ 	}
+ 
+ void PersPutCodeSegInfo(TCodeSegCreateInfo& aUser, const TCodeSegCreateInfo& aInfo)
+ 	{
++	// Belle FP2: give the loader back its own paging mode (2, read as "not paged" here)
++	TBool mode = 0;
++	TBool fp2 = UsesPersonality() && ExecLoaderPagingMode2;
++	if (fp2)
++		kumemget32(&mode, &aUser.iUseCodePaging, sizeof(mode));
+ 	kumemput32(&aUser.iUids, &aInfo.iUids, CsSize() - sizeof(aInfo.iFileName));
++	if (fp2 && mode == 2 && !aInfo.iUseCodePaging)
++		kumemput32(&aUser.iUseCodePaging, &mode, sizeof(mode));
+ 	}
+ 
+ void PersGetProcessInfo(TProcessCreateInfo& aInfo, const TProcessCreateInfo& aUser)
+@@ -84,14 +114,22 @@
+ 	memclr(&aInfo, sizeof(aInfo));
+ 	TInt cs = CsSize();
+ 	kumemget32(&aInfo, &aUser, cs);
+-	kumemget32(&aInfo.iHeapSizeMin, (const TUint8*)&aUser + cs, PcTail());
++	kumemget32(&aInfo.iHeapSizeMin, (const TUint8*)&aUser + CsUserSize(), PcTail());
++	if (UsesPersonality() && ExecLoaderPagingMode2 && aInfo.iUseCodePaging == 2)
++		aInfo.iUseCodePaging = EFalse;		// Belle FP2's paging mode 2: not paged (PersGetCodeSegInfo)
+ 	}
+ 
+ void PersPutProcessInfo(TProcessCreateInfo& aUser, const TProcessCreateInfo& aInfo)
+ 	{
+ 	TInt cs = CsSize();
++	TBool mode = 0;
++	TBool fp2 = UsesPersonality() && ExecLoaderPagingMode2;
++	if (fp2)
++		kumemget32(&mode, &aUser.iUseCodePaging, sizeof(mode));
+ 	kumemput32(&aUser.iUids, &aInfo.iUids, cs - sizeof(aInfo.iFileName));
+-	kumemput32((TUint8*)&aUser + cs, &aInfo.iHeapSizeMin, PcTail());
++	kumemput32((TUint8*)&aUser + CsUserSize(), &aInfo.iHeapSizeMin, PcTail());
++	if (fp2 && mode == 2 && !aInfo.iUseCodePaging)
++		kumemput32(&aUser.iUseCodePaging, &mode, sizeof(mode));	// the loader's own mode back
+ 	}
+ 
+ // --- shims ------------------------------------------------------------------------------------
+@@ -293,8 +331,13 @@
+ 		ExecLoaderProcessTail = _FOFF(TProcessCreateInfo, iFlags) - sizeof(TCodeSegCreateInfo);
+ 	else if (pers == KPersonalitySymbian3)
+ 		;	// our TProcessCreateInfo / TCodeSegCreateInfo layouts
+-	else if (pers == KPersonalitySym101)
++	else if (pers == KPersonalitySym101 || pers == KPersonalitySym102)	// FP2: the same user side conventions [I]
+ 		{
++		if (pers == KPersonalitySym102)
++			{
++			ExecLoaderCodeSegUserSize = sizeof(TCodeSegCreateInfo) + 4;
++			ExecLoaderPagingMode2 = ETrue;
++			}
+ 		KernNestedAttachCountsAsLoaded = ETrue;
+ #ifdef __USERSIDE_THREAD_DATA__
+ 		KernLocalThreadDataSize = 0x38;	// 0x34 rounded up to 8, as KLocalThreadDataSize
+@@ -305,6 +348,7 @@
+ 	else if (pers == KPersonalitySym91)
+ 		{
+ 		ExecLoaderCodeSegSize = _FOFF(TCodeSegCreateInfo, iCodeRelocTable);		// 380
++		ExecLoaderCodeSegUserSize = ExecLoaderCodeSegSize;	// the process fields follow at 380 (read at 472: priority 0, KErrArgument)
+ 		ExecReturnViaIp = 1;
+ 		ExecExportDirFromOrdinal1 = 1;
+ 		ExecLoaderProcessTail = _FOFF(TProcessCreateInfo, iDebugAttributes) - sizeof(TCodeSegCreateInfo);	// 36
+@@ -318,13 +362,17 @@
+ 		}
+ 
+ 	const TInt16* fastMap = pers == KPersonalitySym91 ? KExec91Fast : pers == KPersonalitySym94 ? KExec94Fast
+-		: pers == KPersonalitySymbian3 ? KExec3Fast : pers == KPersonalitySym101 ? KExec101Fast : KExec92Fast;
++		: pers == KPersonalitySymbian3 ? KExec3Fast : pers == KPersonalitySym101 ? KExec101Fast
++		: pers == KPersonalitySym102 ? KExec102Fast : KExec92Fast;
+ 	const TInt16* slowMap = pers == KPersonalitySym91 ? KExec91Slow : pers == KPersonalitySym94 ? KExec94Slow
+-		: pers == KPersonalitySymbian3 ? KExec3Slow : pers == KPersonalitySym101 ? KExec101Slow : KExec92Slow;
++		: pers == KPersonalitySymbian3 ? KExec3Slow : pers == KPersonalitySym101 ? KExec101Slow
++		: pers == KPersonalitySym102 ? KExec102Slow : KExec92Slow;
+ 	const TInt fastCount = pers == KPersonalitySym91 ? EXEC91_FAST_COUNT : pers == KPersonalitySym94 ? EXEC94_FAST_COUNT
+-		: pers == KPersonalitySymbian3 ? EXEC3_FAST_COUNT : pers == KPersonalitySym101 ? EXEC101_FAST_COUNT : EXEC92_FAST_COUNT;
++		: pers == KPersonalitySymbian3 ? EXEC3_FAST_COUNT : pers == KPersonalitySym101 ? EXEC101_FAST_COUNT
++		: pers == KPersonalitySym102 ? EXEC102_FAST_COUNT : EXEC92_FAST_COUNT;
+ 	const TInt slowCount = pers == KPersonalitySym91 ? EXEC91_SLOW_COUNT : pers == KPersonalitySym94 ? EXEC94_SLOW_COUNT
+-		: pers == KPersonalitySymbian3 ? EXEC3_SLOW_COUNT : pers == KPersonalitySym101 ? EXEC101_SLOW_COUNT : EXEC92_SLOW_COUNT;
++		: pers == KPersonalitySymbian3 ? EXEC3_SLOW_COUNT : pers == KPersonalitySym101 ? EXEC101_SLOW_COUNT
++		: pers == KPersonalitySym102 ? EXEC102_SLOW_COUNT : EXEC92_SLOW_COUNT;
+ 	EpocFastExecTable92[0] = fastCount;
+ 	for (TInt n=1; n<fastCount; ++n)
+ 		{
+@@ -369,5 +417,5 @@
+ 		}
+ 	Exec92Enabled = ETrue;
+ 	Kern::Printf("EXEC92: Symbian %s exec personality enabled (%d fast, %d slow; loader structs %d+%d)",
+-		pers == KPersonalitySym91 ? "9.1" : pers == KPersonalitySym94 ? "9.4" : pers == KPersonalitySymbian3 ? "^3" : pers == KPersonalitySym101 ? "10.1" : "9.2", fastCount, slowCount, ExecLoaderCodeSegSize, ExecLoaderProcessTail);
++		pers == KPersonalitySym91 ? "9.1" : pers == KPersonalitySym94 ? "9.4" : pers == KPersonalitySymbian3 ? "^3" : pers == KPersonalitySym101 ? "10.1" : pers == KPersonalitySym102 ? "10.1 FP2" : "9.2", fastCount, slowCount, ExecLoaderCodeSegSize, ExecLoaderProcessTail);
+ 	}

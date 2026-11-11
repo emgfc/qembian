@@ -1,0 +1,27 @@
+# Firmware 21.0.010 of nokia-n81-8gb-rm179, written by tools/device.py firmware-add from the ROM store entry RM-179/21.0.010.
+# Merged over models/nokia-n81-8gb-rm179/model.toml. Not booted yet unless [status] says so.
+
+[firmware]
+version = "21.0.010"
+
+[[firmware.files]]
+role = "core"
+glob = "RM179_21.0.010_prd.C00"
+
+[[firmware.files]]
+role = "rofs2"
+glob = "RM179_21.0.010_prd_0501.V05"
+
+[[firmware.files]]
+role = "uda"
+glob = "RM179_21.0.010_002_erase_uda.fpsx"
+drive = "C"
+optional = true
+
+[firmware.identity]
+sw = { version = "21.0.010", date = "11-01-09", type_code = "RM-179" }
+
+[status]
+level = "L0-untested"
+updated = "2026-11-10"
+open = ["not booted on this firmware yet"]

@@ -184,11 +184,25 @@ static const Property syborg_timer_properties[] = {
     DEFINE_PROP_UINT32("frequency", SyborgTimerState, freq, 100000),
 };
 
+/* a machine reset: stopped, nothing pending (the frequency is a property) */
+static void syborg_timer_reset(DeviceState *dev)
+{
+    SyborgTimerState *s = SYBORG_TIMER(dev);
+    ptimer_transaction_begin(s->timer);
+    ptimer_stop(s->timer);
+    ptimer_set_limit(s->timer, 0, 1);
+    ptimer_transaction_commit(s->timer);
+    s->running = s->oneshot = s->limit = 0;
+    s->int_status = s->int_enable = 0;
+    syborg_timer_update(s);
+}
+
 static void syborg_timer_class_init(ObjectClass *oc, const void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(oc);
 
     dc->realize = syborg_timer_realize;
+    device_class_set_legacy_reset(dc, syborg_timer_reset);
     dc->vmsd = &vmstate_syborg_timer;
     device_class_set_props(dc, syborg_timer_properties);
 }

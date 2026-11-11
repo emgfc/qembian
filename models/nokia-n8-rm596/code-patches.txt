@@ -1,0 +1,18 @@
+# Byte patches applied to the composed hybrid ROM by tools/romcompose.py --patches.
+# Format: MODULE+0xOFFSET  ORIGINAL-BYTES  NEW-BYTES  # reason (offset from the module's code start, resolved per
+# firmware by tools/fw/patches.py; bytes in memory order; Thumb halfwords are LE; an absolute ADDR also works)
+# Every entry is a hack listed in models/nokia-n8-rm596/hacks.md.
+
+# H-fmradio-nosession: fmradioaudiocontrol.dll's ConstructL (0x80fea364) connects to the FM radio HAL
+# server; without the BT/FM combo chip (hciaccess) the server cannot build the session and the
+# connect fails, ConstructL leaves -2 and takes the system-permanent !AudioServer thread down
+# (Lac.dll links the control statically). "blx User::Leave" -> two nops: the control exists without a
+# radio session (its session pointer is NULL; only FM routing calls with 0/1 would use it).
+fmradioaudiocontrol.dll+0x138  fff7e4ef  c046c046   # fmradioaudiocontrol.dll ConstructL: no leave  [H-fmradio-nosession]
+# H-fmradio-nosession (continued): the control's four routing methods (vtable, forwarding to the
+# session helpers that write through the session pointer) return KErrNone at once: Lac calls one of
+# them while the audio server starts. "push {r4,lr}; ldr r0,[r0,#4]" -> "movs r0,#0; bx lr".
+fmradioaudiocontrol.dll+0x1a2  10b54068  00207047   # fmradioaudiocontrol.dll routing method 1  [H-fmradio-nosession]
+fmradioaudiocontrol.dll+0x1ac  10b54068  00207047   # fmradioaudiocontrol.dll routing method 2 (Lac: slot +0x10)  [H-fmradio-nosession]
+fmradioaudiocontrol.dll+0x1b6  10b54068  00207047   # fmradioaudiocontrol.dll routing method 3  [H-fmradio-nosession]
+fmradioaudiocontrol.dll+0x1c0  10b54068  00207047   # fmradioaudiocontrol.dll routing method 4  [H-fmradio-nosession]

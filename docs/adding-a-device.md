@@ -9,8 +9,8 @@ tool-call budget, as `CLAUDE.md` asks.
 ## 0. Before you start
 
 - A Linux host with the project built once (`scripts/build-all.sh`, `scripts/build-qemu-modern.sh`,
-  `src/apps/devagent/build.sh`) and the N95 booting to idle (`sydb start --seed
-  build/runs/mtc-drives`), so you know the platform works before you touch it.
+  `src/apps/devagent/build.sh`) and the N95 booting to idle (`tests/device-smoke.sh`, or
+  `sydb --session build/sydb-x start --seed build/seeds/nokia-n95-8gb-rm320`), so you know the platform works before you touch it.
 - **Your own copy of the phone's firmware** (the flash files for its type code and a software
   version), e.g. what a Nokia Software Updater or Phoenix install left on disk. Put them in
   `firmware/<id>/` (git-ignored). Nothing from them is ever committed: not bytes, not screenshots
@@ -19,13 +19,20 @@ tool-call budget, as `CLAUDE.md` asks.
   keys and slides, radios. Nokia's own spec sheet and the firmware's `hal.dll`/`wsini.ini` give
   the rest.
 
-## 1. Scaffold the profile
+## 1. Import the firmware, scaffold the model
 
 ```
-tools/device.py new nokia-e72-rm530 --from nokia-n95-8gb-rm320
+tools/fw/identify.py /path/to/PACKAGE         # what it is: type code, version, roles of the files (dir or archive)
+tools/fw/store.py import /path/to/PACKAGE     # into the ROM store roms/<RM>/<version>/ (an archive stays where it is)
+tools/device.py registry RM-530                  # known type code? which model?
 ```
-[Before the tool exists: copy `devices/nokia-n95-8gb-rm320/`, set `[device]`, `[platform]`, empty
-`[status]`, keep `extends` *unset* unless it is a true variant of an existing device.]
+Another firmware of a model we have: `tools/device.py firmware-add MODEL RM-xxx/<version> [--rofs2 ID]
+[--rofs3 ID]` writes `models/MODEL/firmware/<version>/firmware.toml`, and `MODEL@<version>` is a device
+id; go on at step 2 with it. A new model: copy the nearest model directory to `models/<id>/` (keep
+`model.toml`, `keymap.toml` and the data files that apply, drop its `firmware/`), set `[device]`,
+`[platform]`, `[firmware] default`, empty `[status]`, keep `extends` *unset* unless it is a true
+variant of an existing model, run `firmware-add` for its firmware, and point the registry row
+(`models/registry.toml`) at the model.
 
 Fill what you know without the firmware: `[device]`, `[platform]` (`personality` = the nearest:
 `sym92` for 9.2, `sym93` for 9.3, …), `[hardware]`, `board.display.touch`, `board.cpu`
@@ -34,19 +41,23 @@ Fill what you know without the firmware: `[device]`, `[platform]` (`personality`
 ## 2. Inventory the firmware
 
 ```
-FW_DIR=firmware/nokia-e72-rm530 tools/fw/inventory.py --device nokia-e72-rm530
+tools/fw/inventory.py --device nokia-e72-rm530   # the store entry of its [firmware]; --fw-dir DIR for files outside the store
 ```
-Outputs in `build/devices/<id>/`: `core-flat.img` (unpaged XIP core), `core.json`/`core-files.txt`
+Outputs in the firmware cache `build/firmware/<RM>/<version>/<packs>/`, linked into the device's build
+dir `build/roms/<id>/<firmware key>/` (`tools/device.py paths [ID]` prints both): `core-flat.img` (unpaged XIP core), `core.json`/`core-files.txt`
 (directory), `rofs*.img`, `symindex.json`, `abi/` (EUSER SWI map, vs ours; kabi report), and a
 **kernel-side driver list** (every LDD/PDD/extension in the firmware's ROM) which is the raw
-material for `[[standins]]`. It writes `devices/<id>/firmware.sha256` and the `[firmware.rom]`
-numbers (base, kernel data, paging, user window start) into the profile.
+material for `[[standins]]`. A `[[firmware.files]] role = "uda"` entry (the C: drive the flasher writes, if the package has
+one) becomes `uda-c.img`, the starting content of new session drives (docs/devices.md 2.4). It checks the
+flash files against the hashes the store recorded at import and prints the `[firmware.rom]`
+numbers (base, kernel data, paging, user window start) for the firmware overlay.
 
 If the container is not FIASCO/BB5 the tool stops here: write a short research brief for the
-container format (mock-level: partition table layout only) before going on. Supported inside
-FIASCO: plain `SOS+CORE`/`SOS+ROFS` (N95), compressed `SOS*CORE` with ROFS1 after it
-(`compression = "sos-deflate"`, partitions `core` + `rofs-after-core`: N73), partition-less files
-(`partitions = { rofs = "_pre" }`).
+container format (mock-level: partition table layout only) before going on. The layout inside
+FIASCO files is read, not declared (`tools/fw/layout.py FILE...` shows it): plain `SOS+CORE` +
+`SOS+ROFS`/`SOS+ROFS1` (N95, RAPIDO), compressed `SOS*CORE` with ROFS1 after it or in `SOS+ROFS` (N73
+3.0717 / 4.0839), language `SOS+ROFS2`/`SOS+ROFX` or a bare ROFx chunk stream, customer `SOS+ROFS3`. A
+file it does not understand is reported; extend layout.py rather than the profile.
 
 **Then read the ROM header before anything else** (`tools/fw/probe.py --device ID header`):
 `romBase` and `kernData` decide the kernel build. 0x80000000/0xC8000000 = multiple memory model
@@ -141,7 +152,7 @@ Then iterate with what the platform already has (all in `docs/tools.md` / `docs/
 | A process restarts forever / Starter waits | `tools/syb_report.py <session>/serial.log` → "IPC requests still pending" names the server; `sydb strace NAME` | a server blocked on a driver: add/extend a stand-in |
 | `ISCPEER` lines with no reply | `tools/isi.py log <serial.log>` lists unanswered requests | one `reply` line in `isi-replies.txt` (same resource as the N95: copy its reply; new: research brief with the message layout only) |
 | A thread dies | `sydb catch add --kind panic --thread X --action freeze --snapshot`, then `sydb dbg bt`, `sydb fork` to replay | stand-in return value, code patch (last resort, documented), kernel shim |
-| The UI never shows | milestones (`wserv`, `startup_ui`) tell which phase; `sydb screenshot`, `sydb wg` | display caps, light/HWRM replies, DRM certificate, startup property |
+| The UI never shows | `milestones.idle` and the SYBPROP lines (KPSUidStartupApp / system state) tell which phase; `sydb screenshot`, `sydb wg` | display caps, light/HWRM replies, DRM certificate, startup property |
 | Keys do nothing | `sydb key`, serial `EKEYB`/WSERV traces | keymap scan codes |
 | UI up but timers wrong, apps too fast | `[board.timing]` vs the firmware's HAL | match the fast counter and tick |
 
@@ -152,12 +163,35 @@ Rules while looping:
   verified at compose time.
 - Prefer `sydb catch`/`snap`/`fork` over breakpoints on hot paths (timing).
 - Update `[milestones]` as the device's log lines differ from the N95's (`idle` is what
-  `sydb start` waits for; `expected_idle_s` bounds the smoke test).
+  `sydb start` waits for; the smoke test takes its budget from the command line).
 - Record the missing tool in `docs/tooling-ideas.md` after a long loop.
 
-## 5a. What to expect (patterns seen so far, N95 and N73)
+## 5a. What to expect (patterns seen so far, N95, N73, 5730, N79, 5800)
 
 These recur from phone to phone; check them before chasing symptoms.
+
+- **Start-up shuts itself down** (system state "shutting down", then an MTC reset request to the
+  modem, then a reboot loop). It is waiting for something and timed out. Boot the IPC-traced ROM
+  (`tools/device.py build ID --trace 0x80000800 --out .../hybrid-ipc.img`), cut the log just before the
+  shutdown state and run `tools/syb_report.py` on it: look at what the start-up process (Starter or
+  sysstart) had open, and at requests completed to it with -33 (timed out) or -3 (cancelled) just
+  before. Then follow that request to the modem message it caused (the ISCPEER line right after) and
+  give that message its answer. On 9.3 the start-up state machine waits on SAServer function 101 (the
+  argument is the command); SAServer in turn waits for modem replies and indications.
+- **Touch phones** (S60 5th and later): Nokia's `exyin.dll` becomes the `exyin` stand-in (`kind = "kext"`)
+  and the baseport's mouse driver goes (`kernel.omit_baseport = ["epointer.dll"]`), `board.display.touch =
+  true`. Find the coordinate turn (`[[standins]] config = { rotate = N }`) on a screen where a wrong tap
+  cannot look right: the first-boot date query's on-screen keypad (tap "5", the field must show 5).
+- **A new OS version needs its own personality only when the probes say so**: 9.3 = 9.2 exactly; 9.4 inserts
+  and appends calls (`probe.py stubs --vs`), so `derive_map.py` + naming the unknowns by pairing exports with
+  our own EUSER (`personalities/sym94/README.md`), and the loader structure sizes from the two phones'
+  ProcessCreate handlers.
+- **`IsiMessage: OFFS -9` panics mean a canned reply is shorter than its reader.** Make the reply as
+  long as the longest reader on any phone; readers that take fewer bytes ignore the rest. The same DLL
+  can take another path on a sister phone (the N79's SAServer read a SEC_STATE reply the 5730 never asked
+  for).
+- **One wait at a time.** Each fix moves start-up to the next state; the 5730 needed three in a row
+  (SIM indication, SIM-lock status, lock info). Re-run the same traced boot after each one.
 
 - **Personality gaps show up as odd behaviour, not clean errors.** A call your map marks `!invalid`
   but the firmware uses returns 0 silently. Run the "used but invalid" check (every SWI the
@@ -200,8 +234,8 @@ These recur from phone to phone; check them before chasing symptoms.
 
 ## 6. Verify: the "done" levels
 
-Each level is a checklist that an agent can run through sydb; `tools/device.py status ID` prints
-the level from `[status]`. Levels apply only where `[hardware]` says the phone has the part.
+Each level is a checklist that an agent can run through sydb; `tools/device.py list` prints
+each device's level from `[status]`. Levels apply only where `[hardware]` says the phone has the part.
 
 | Level | Means | How to check |
 |---|---|---|
@@ -219,7 +253,7 @@ levels are logged in `[status].level` as they are reached.
 
 ## 7. Document and hand over
 
-- `devices/<id>/README.md`: identity, firmware version used, level, boot time, the hacks table,
+- `models/<id>/README.md`: identity, firmware version used, level, boot time, the hacks table,
   open items, the stand-ins reused/added, where the research notes are (`docs/devices/<id>/`).
 - A line in `docs/roadmap.md` under the device list; the smoke test added to the CI list.
 - Local commits only (project rule). The commit must not contain anything under `firmware/` or
@@ -246,7 +280,7 @@ Facts an agent needs while doing steps 2-6, in one place.
 
 **ROM anatomy** (`tools/romcompose.py`, driven by `tools/device.py build`). One XIP image at the
 firmware's ROM base:
-1. our ROM header, bootstrap and kernel side (`build/devices/<id>/kernel-side.img`: EKA2 kernel,
+1. our ROM header, bootstrap and kernel side (`<build dir>/kernel-side.img`: EKA2 kernel,
    Syborg baseport, the profile's `[[standins]]`), below the firmware's user side
    (`kernel.place = "below-user-side"`) or after the firmware image (`"after-firmware"`);
 2. the firmware's own core image bytes, verbatim at their original addresses (every import thunk
@@ -259,14 +293,18 @@ The ROFS images do not go into the ROM: they go into `<rom>.rofs`, loaded at the
 window and served by `medrofs` (`docs/devices.md` §2.3). `hybrid-manifest.txt` lists every file
 with its source (ours / firmware).
 
-**Code patches** (`devices/<id>/code-patches.txt`, last resort after stand-ins and kernel fixes):
+**Code patches** (`models/<id>/code-patches.txt`, last resort after stand-ins and kernel fixes):
 ```
 # H-<hack-id>: why, what the original code does, what the patch makes it do
-82f0e366  01f0a2eb  0020c046   # module and function  [H-hack-id]
+fmradioaudiocontrol.dll+0x138  fff7e4ef  c046c046   # ConstructL: no leave  [H-hack-id]
 ```
-Columns: ROM address, the original bytes (memory order; Thumb halfwords little-endian), the new
-bytes. The composer refuses an entry whose original bytes do not match, so a patch never applies to
-the wrong firmware. Every entry is a hack in `devices/<id>/hacks.md` (device) or `docs/hacks.md`
+Columns: the module and the offset from its code start (resolved per firmware from `core.json` by
+`tools/fw/patches.py`, so the line survives versions in which the module did not change; an absolute
+ROM address is still accepted), the original bytes (memory order; Thumb halfwords little-endian), the
+new bytes. The composer refuses an entry whose original bytes do not match, so a patch never applies
+to the wrong code. `tools/fw/patches.py convert FILE --device ID` turns absolute lines into module
+ones; `check FILE --device OTHER --search` shows whether they hold on another firmware and where the
+original bytes moved when they do not. Every entry is a hack in `models/<id>/hacks.md` (device) or `docs/hacks.md`
 (platform). `[rom.variants.<name>] omit_patches = ["H-id"]` builds a ROM without some of them
 (`tools/device.py build ID --variant NAME`). Find the address with `tools/syb_sym.py`, the bytes
 with `tools/xipdis.py`.
@@ -279,20 +317,23 @@ Syborg NVMemory devices (`nvmem`, `nvmem2`), D: is RAM, Z: is the ROM + ROFS com
   `sydb start --seed DIR` copies a prepared set (e.g. a phone past its first-boot questions).
 - Copy files with the phone running: `sydb push LOCAL 'C:\data\x'`, `sydb pull`, `sydb ls`
   (through the agent on the phone, `docs/sydb.md`).
-- With the phone off: mtools on the image. `DRIVE_C=<image> scripts/n95-drive.sh put c FILE DIR`
-  (also `ls`, `get`, `mkdir`, `rm`; `e` with `DRIVE_E=`), or directly
+- With the phone off: mtools on the image. `sydb --session DIR drive put C FILE DIR`, or
+  `INSTANCE=NAME scripts/drive.sh put c FILE DIR` (also `ls`, `get`, `mkdir`, `rm`; `DRIVE_C=` / `DRIVE_E=`
+  for any image), or directly
   `MTOOLS_SKIP_CHECK=1 mcopy -i nvmemory.img FILE ::/data/`. Never while a QEMU has the image open
   (two writers corrupt the FAT; the scripts refuse).
 - `sydb install` puts the sydb agent and its start-up record on C: (mtools, phone off).
-- Never use the user's personal phone images for tests: make a session (`sydb --session
-  build/sydb-<name> start --fresh`).
+- Never use the user's phones (their instances, `tools/instance.py list`) for tests: make a session
+  (`sydb --session build/sydb-<name> start --fresh`) or a throw-away instance (`tools/instance.py
+  create NAME DEVICE --ephemeral`). When the device works, the user's phone is an instance:
+  `tools/instance.py create NAME DEVICE`, opened with `python3 tools/sydb/sydb.py phone NAME`.
 
 ## Checklist (copy into the device README and tick)
 
-- [ ] firmware obtained, `firmware/<id>/` populated, `firmware.sha256` written, nothing proprietary staged
+- [ ] firmware imported into the ROM store (`tools/fw/store.py import`), nothing proprietary staged
 - [ ] `tools/fw/inventory.py` ran: `core-flat.img`, `core.json`, `rofs*.img`, `symindex.json`, `abi/`
 - [ ] personality checked: unknown SWIs = 0 or overridden; kabi report clean or overridden
-- [ ] `device.toml` filled: identity, platform, firmware, board (display, timing, drives), hardware, kernel, standins, modem, rom, gl, milestones
+- [ ] `model.toml` + `firmware/<fw>/firmware.toml` filled: identity, platform, firmware, board (display, timing, drives), hardware, kernel, standins, modem, rom, gl, milestones
 - [ ] `keymap.toml` written; `device.py check` green
 - [ ] `device.py build` composes without overlap errors
 - [ ] L0: user processes start
@@ -301,11 +342,11 @@ Syborg NVMemory devices (`nvmem`, `nvmem2`), D: is RAM, Z: is the ROM + ROFS com
 - [ ] L3: offline telephony consistent
 - [ ] L4 / L5 / L6 as the hardware allows
 - [ ] hacks documented with file paths; `docs/tooling-ideas.md` updated if a tool was missing
-- [ ] `devices/<id>/README.md` and the roadmap line written
+- [ ] `models/<id>/README.md` and the roadmap line written
 
 ## Firmware identity (implemented)
 
-After extracting the firmware into `build/devices/<id>/`, run `tools/device.py identify` (or
+After extracting the firmware (step 2), run `tools/device.py identify` (or
 `identify DIR`): it prints the firmware's own `sw.txt` / `langsw.txt` (version, date, type code), its
 WLAN drivers, and which profile matches. Copy the values into `[firmware.identity]` (sw, langsw,
 drivers / no_drivers, sha256 of the extracted images). `device.py build` refuses to compose a ROM

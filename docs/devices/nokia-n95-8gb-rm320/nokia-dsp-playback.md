@@ -329,7 +329,7 @@ first Play of every stream hangs forever; every later Play on that stream → `K
 
 ### 6.3 Stub change (fake modem, not `ehwa.cpp`)
 
-Add to `platform/isi/replies-bb5.txt + devices/<id>/isi-replies.txt` and regenerate `build/devices/<id>/gen/isireplies.h` with
+Add to `platform/isi/replies-bb5.txt + models/<id>/isi-replies.txt` and regenerate `build/roms/<id>/<fw>/gen/isireplies.h` with
 `scripts/build-standins.sh`:
 
 ```

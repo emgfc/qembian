@@ -1,0 +1,15 @@
+syvg: eglCopyBuffers checks the native pixmap (none on the host) and keeps the address pointer-sized.
+
+--- a/riMiniEGL.cpp
++++ b/riMiniEGL.cpp
+@@ -2269,8 +2269,8 @@
+ 	VGImageFormat format;
+ 	int* data = NULL;
+ 	EGLBoolean err = OSGetNativePixmapInfo(target, &width, &height, &stride,&format, &data);
+-	
+-	TUint* fdata = (TUint*)((TUint)data + ( stride * ( height - 1  ) ) );	
++	EGL_IF_ERROR(!err || !data, EGL_BAD_NATIVE_PIXMAP, EGL_FALSE);	/* qembian (syvg): no native pixmaps on the host */
++	RIuint8* fdata = (RIuint8*)data + stride * ( height - 1 );
+ 	try
+ 	{
+ 		Image output(Color::formatToDescriptor(format), width, height, -stride, (RIuint8*)fdata);

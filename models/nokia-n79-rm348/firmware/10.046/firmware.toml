@@ -1,0 +1,31 @@
+# Firmware 10.046 of nokia-n79-rm348, written by tools/device.py firmware-add from the ROM store entry RM-348/10.046.
+# Merged over models/nokia-n79-rm348/model.toml. Not booted yet unless [status] says so.
+
+[firmware]
+version = "10.046"
+
+[[firmware.files]]
+role = "core"
+glob = "RM-348_10.046_prd.core.fpsx"
+
+[[firmware.files]]
+role = "rofs2"
+glob = "RM-348_10.046_005_prd.rofs2.fpsx"
+
+[[firmware.files]]
+role = "rofs3"
+glob = "RM-348_10.046_53.1_prd.customer.fpsx"
+
+[[firmware.files]]
+role = "uda"
+glob = "RM-348_10.046_013_000_U001.uda.fpsx"
+drive = "C"
+optional = true
+
+[firmware.identity]
+sw = { version = "10.046", date = "07-10-2008", type_code = "RM-348" }
+
+[status]
+level = "L0"
+updated = "2026-11-10"
+open = ["fresh boot reaches the first-boot region query (2026-11-10); seed and idle not done"]

@@ -1,0 +1,242 @@
+# Nokia 5800 XpressMusic (RM-356): Symbian 9.4 / S60 5th Edition, BB5 RAPIDO platform (RAP3NAND, like the
+# 5730/N79), resistive single-touch screen, few hardware keys. Fifth device; started from the N79 profile.
+# Evidence: [V] firmware/run, [I] inferred, [N79] taken over from the N79 and not yet checked here.
+schema = 2
+family = "bb5-s60"                         # platform/families/bb5-s60.toml, merged under this file
+
+[device]
+id = "nokia-5800-rm356"
+vendor = "Nokia"
+model = "5800 XpressMusic"
+type_code = "RM-356"
+aliases = ["5800"]
+market = "global"
+
+[platform]
+os_version = "9.4"
+ui = "s60-5.0"                             # S60 5th Edition
+personality = "sym94"                      # [V] probe.py stubs/exec-sizes: 9.4 inserts S45 and appends SEE..SF2,
+                                           # TProcessCreateInfo 8 bytes longer than 9.2's (personalities/sym94/README.md)
+soc = "rapido"                             # karap.dll, RAP3NAND partition [V names]; ARM11 [I]
+
+[firmware]
+default = "31.0.101"                   # models/nokia-5800-rm356/firmware/<name>/: the firmware a bare id loads
+sdk_lib = "~/work/S60_5th_Edition_SDK_v1.0/epoc32/release/armv5/lib"   # import-library ordinals for syb_sym names
+container = "fiasco-bb5"
+
+[firmware.rom]
+base = 0x80000000                          # [V] multiple memory model
+kernel_data = 0xC8000000
+memory_model = "multiple"
+paged = true
+
+# ---------------------------------------------------------------------------------------------
+[board]
+cpu = "arm1136-r2"
+ram_mb = 172                               # 128 MB on the phone [I: spec sheet] + the unpaged 43.9 MB core image
+ram_mb_real = 128
+
+[board.display]
+width = 360                                # wsini.ini SCR_WIDTH1/HEIGHT1 = 360x640 at rotation 270 [V]
+height = 640
+native_orientation = "landscape"           # panel 640x360 turned by the display controller, as on the N95 [I from wsini]
+line_pitch = 2560                          # 640 x 4 bytes [I]
+panel_rows = 360
+caps_words = 27                            # r_display: CDisplayDriver 0x84 bytes, caps at +0x18, as on the 5730 [V]
+touch = true                               # resistive single touch: exyin stand-in, -global syborg-pointer.input=on
+
+[board.audio]
+dsp = "rapido"                             # RAPIDO DSP model: aamdaifdriver + the ISC peer's F3 replies
+ring_units = 16                            # DSP ring per stream (docs/devices/nokia-n8-rm596/rapido-audio.md)
+
+
+[board.flash]
+size_mb = 128                              # board.flash: the flash window medrofs serves the ROFS images from
+[[board.drives]]
+letter = "D"
+local_drive = 0
+kind = "iram"
+flags = "FS_FORMAT_COLD,FS_SYNC_DRIVE"
+
+[[board.drives]]
+letter = "C"
+local_drive = 1
+kind = "nvmem"
+image = "nvmemory.img"
+size = "64M"
+flags = "FS_FORMAT_CORRUPT,FS_SCANDRIVE"
+
+[[board.drives]]
+letter = "E"
+local_drive = 2
+kind = "nvmem2"
+image = "nvmemory2.img"
+size = "1G"
+removable = true
+flags = "FS_FORMAT_CORRUPT,FS_SCANDRIVE"
+
+[[board.drives]]
+letter = "Z"
+local_drive = 9                            # ROFS1 (ESTARTCOMP "Z: 9 EROFS ROFS 0 FS_COMPOSITE" x3) [V]
+kind = "composite"
+flags = "FS_COMPOSITE"
+
+[[board.drives]]
+letter = "Z"
+local_drive = 10                           # ROFS2
+kind = "composite"
+flags = "FS_COMPOSITE"
+
+[[board.drives]]
+letter = "Z"
+local_drive = 11                           # ROFS3
+kind = "composite"
+flags = "FS_COMPOSITE"
+
+# ---------------------------------------------------------------------------------------------
+[hardware]
+wlan = true                                # wlanldd/wlanpdd in the core [V]
+bluetooth = true
+camera = { main_mp = 5, front = true, key = "two-stage" }   # camldd/campdd/camsecondarypdd [V]; 5 MP [I spec]
+fm_radio = true
+gps = true                                 # [I spec]
+accelerometer = true                       # accelerometerldd/pdd [V]
+slides = []                                # touch-screen candybar
+leds = ["keypad-backlight", "display-backlight"]
+memory_card = true
+mass_memory_gb = 0
+tv_out = true                              # [I]
+dsp = "rapido"                             # audio DSP in the RAPIDO baseband [V: aamdaif.dll, F3 ISI]
+gpu = "none"
+
+# ---------------------------------------------------------------------------------------------
+[kernel]
+baseport = "syborg"
+place = "after-firmware"                   # our kernel side (to 0x8031xxxx) does not fit below the user side (0x80274B50)
+patchsets = ["platform", "sym92", "policy"]
+omit_baseport = ["epointer.dll"]            # Syborg mouse driver: the exyin stand-in owns the pointer device
+missing_drivers = ["karap.dll", "keypad_exp.dll", "minkda.ldd", "esound.ldd", "accelerometerldd.ldd",
+                   "accelerometerpdd.pdd", "proximityldd.ldd", "proximitypdd.pdd", "camldd.ldd", "campdd.pdd",
+                   "camsecondarypdd.pdd", "wlanldd.ldd", "wlanpdd.pdd", "pltwlanpdd.pdd", "bc02.ldd", "bc02_uart1.pdd",
+                   "medsd.pdd", "mobilecrashdriver.ldd", "tcldd.ldd", "tracecoreostldd.ldd", "rebootdriver.ldd"]
+
+[kernel.lcd]                               # natively landscape panel: the N95's LCD HAL build
+target = "lcd_n95"
+
+[[standins]]
+name = "nokiaiscdriver"
+kind = "ldd"
+family = "nokia-bb5"
+role = "modem link (ISC channels 0..31), fake CMT peer iscpeer.inl"
+
+[[standins]]
+name = "sisadriver"
+kind = "ldd"
+family = "nokia-bb5"
+role = "load-only (IscApi's RAPIDO transport; the N95 loads xbus.ldd instead)"
+
+[[standins]]
+name = "iscisimultiplexer"
+kind = "ldd"
+family = "nokia-bb5"
+role = "load-only"
+
+[[standins]]
+name = "nokiaiscdriverextension"
+kind = "ldd"
+family = "nokia-bb5"
+role = "modem link (ISC channels 32..63)"
+
+[[standins]]
+name = "custom"
+kind = "ldd"
+family = "nokia-bb5"
+role = "startup mode"
+
+[[standins]]
+name = "d_display"
+kind = "ldd"
+family = "nokia-omap2"
+role = "DisplayDriver (board config: 27 caps words, portrait panel, 960-byte stride)"
+
+[[standins]]
+name = "secldd"
+kind = "ldd"
+family = "nokia-bb5"
+role = "SecEnv"
+
+[[standins]]
+name = "lightldd"
+kind = "ldd"
+family = "nokia-bb5"
+role = "backlight LDD"
+
+[[standins]]
+name = "lightpdd"
+kind = "pdd"
+family = "nokia-bb5"
+role = "backlight PDD: load-only"
+
+[[standins]]
+name = "aamdaifdriver"
+kind = "ldd"
+family = "nokia-rapido"
+role = "MdaifDriver (RAPIDO audio): start-up controls 5/2/10/7/6, silent (docs/devices/nokia-5730-rm465/rapido-audio.md)"
+
+[[standins]]
+name = "exyin"
+kind = "kext"
+family = "common"
+role = "touch-screen digitiser (Nokia exyin.dll) on the Syborg pointer device"
+config = { rotate = 270 }
+
+[[standins]]
+name = "medrofs"
+kind = "extension"
+family = "common"
+role = "ROFS1/2/3 from the flash window on local drives 9/10/11 (header version 2)"
+
+[[standins]]
+name = "mednvmem2"
+kind = "extension"
+family = "common"
+role = "second NVMemory (E:) on local drive 2"
+
+# ---------------------------------------------------------------------------------------------
+[modem]
+# SIM_IND 09 EF {05 06} for SAStartupService: SAServer asks SIM_STATUS (C0, gets 06 = no SIM) at system
+# state 103 and then waits: send it after that reply, on channel 35 only; the TSY (channel 7) panics on this short layout
+# (docs/devices/nokia-5730-rm465/sim-state.md)
+indications = [{ res = 0x09, msg = 0xEF, data = "05 06", channel = 35, after = "09 C0" }]
+# SIM_STATUS service 01 = SIM lock / autolock: SAStartupService 0x80955ea6 maps 8/9/10/1 to its results
+# 108..111 and leaves anything else (06) unanswered; 01 = OK (no lock) [V branch table, I meaning]
+sim_service_status = { "0x01" = 0x01 }
+
+[rom]
+code_patches = []
+files = [{ rom = "Sys/Data/ESTARTCOMP.TXT", local = "ESTARTCOMP.TXT" }]
+
+# H-startuptone-none (5800): the start-up animation plays z:\data\Startup_tone.aac and Startup waits for
+# it; RAPIDO audio is not emulated (DSP shared memory), so the player never ends (EapDsp faults past the
+# stand-in's buffer). CenRep 101F8763 key 3 (tone path, cap_wr=alwaysfail) points to a missing file instead.
+[[rom.rofs_patches]]
+image = 2
+path = "private/10202be9/101F8763.txt"
+old = 'z:\\data\\Startup_tone.aac'
+new = 'z:\\data\\Startup_none.aac'
+hack = "H-startuptone-none"
+
+[gl]
+impl = "none"
+
+[milestones]
+idle = "Startup::startup sets 101f8766/46 = 104"    # [V] UI phase all done: home screen (after the first-boot queries)
+
+[props]
+startup = { category = 0x101F8766, state = 0x41, ui_phase = 0x46 }
+
+[status]
+smoke_skip = { switch-off = "power key opens no power menu (power-key path not brought up on this phone)" }
+level = "L1"                               # home screen, menu, touch (2026-11-07)
+updated = "2026-11-07"
+open = ["some UI actions take seconds, e.g. Settings items (owner)", "power key: no power menu", "audio: RAPIDO DSP shared memory not emulated (EapDsp faults; start-up tone off: H-startuptone-none)", "touch latency: some controls react at once, the dialler takes seconds per tap (owner test 2026-11-07; suspects: sample rate / 1-pixel move filter of the exyin stand-in) [I]", "home-screen shortcut row ignored scripted taps", "proximity sensor has no stand-in", "applications not tried yet"]

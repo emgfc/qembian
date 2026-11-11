@@ -19,6 +19,8 @@ if [ -z "${SYBORG_IN_CONTAINER:-}" ]; then
   # derived baseport variants (one kernel build per memory model, docs/devices.md §4), regenerated
   # from the patched syborg baseport every time so they never drift from it (host python3)
   python3 -I "$ROOT/tools/baseport_variant.py" syborgmv --memmodel moving --cpu arm926
+  python3 -I "$ROOT/tools/baseport_variant.py" syborgfx --memmodel flexible --cpu arm1176 --unaligned
+  python3 -I "$ROOT/tools/baseport_variant.py" syborg6k --memmodel multiple --cpu arm1176
   exit 0
 fi
 cd /work
@@ -79,6 +81,9 @@ sync_src() {  # src dst
 sync_src external/oss.FCL.interim.SFTools.LinuxBuild "$E/linux_build"
 sync_src external/oss.FCL.sf.os.kernelhwsrv          "$E/sf/os/kernelhwsrv"
 sync_src external/oss.FCL.sf.adapt.Qemu              "$E/sf/adapt/qemu"
+# graphics: only the hardware-independent surface manager driver (stand-in source for Symbian^3
+# phones, src/standins/surfacemanagerdriver); the epocroot already has its headers
+sync_src external/oss.FCL.sf.os.graphics/graphicshwdrivers/surfacemgr "$E/sf/os/graphics/graphicshwdrivers/surfacemgr"
 
 # Local source patches (*.patch, applied once, -p1 relative to the package root). Several patch
 # directories may feed one package; their patches are applied in file-name order across them.

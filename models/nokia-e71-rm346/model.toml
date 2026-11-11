@@ -1,0 +1,217 @@
+# Nokia E71 (RM-346): scaffolded from nokia-n79-rm348 on 2026-11-10 (docs/adding-a-device.md); values not yet checked on
+# this phone are the base model's.
+schema = 2
+family = "bb5-s60"                         # platform/families/bb5-s60.toml, merged under this file
+
+[device]
+id = "nokia-e71-rm346"
+vendor = "Nokia"
+model = "E71"
+type_code = "RM-346"
+aliases = ["e71"]
+market = "global"
+
+[platform]
+os_version = "9.3"
+ui = "s60-3.2"                             # S60 3rd Edition Feature Pack 2
+personality = "sym92l91"                   # 9.2 exec tables, 9.1 loader layout (personalities/sym92l91/README.md) [V KDLL trace: EStart ProcessCreate fields 7 words early with sym92, "Fserv fault 11"]
+                                           # kernels' exec handlers copy the same sizes (exec_sizes.py): no own map needed
+soc = "rapido"                             # karap.dll, RAP3NAND partition [V names]; ARM11 [I]
+
+[firmware]
+default = "300.21.012"
+container = "fiasco-bb5"
+
+[firmware.rom]
+base = 0x80000000                          # [V] multiple memory model
+kernel_data = 0xC8000000
+memory_model = "multiple"
+paged = true
+
+# ---------------------------------------------------------------------------------------------
+[board]
+cpu = "arm1136-r2"
+ram_mb = 146                               # 128 MB on the phone [I spec] + the 17.6 MB unpaged core image (H-ram-168 rule)
+ram_mb_real = 128
+
+[board.display]
+width = 320                                # wsini.ini SCR_WIDTH1/HEIGHT1 = 320x240 at rotation 0 [V 300.21.012]
+height = 240
+native_orientation = "portrait"            # upright at rotation 0 (320 wide)
+line_pitch = 1280
+panel_rows = 240
+caps_words = 25                            # r_display ord38 copies 100 bytes after ctl 11 (movs r2, #100) [V]: 26+ words overflowed the caller's buffer (WSERV KERN-EXEC 3 in ScDv)
+touch = false
+
+[board.audio]
+dsp = "rapido"                             # RAPIDO DSP model: aamdaifdriver + the ISC peer's F3 replies
+ring_units = 16                            # DSP ring per stream (docs/devices/nokia-n8-rm596/rapido-audio.md)
+
+
+[board.flash]
+size_mb = 128                              # board.flash: the flash window medrofs serves the ROFS images from
+[[board.drives]]
+letter = "D"
+local_drive = 0
+kind = "iram"
+flags = "FS_FORMAT_COLD,FS_SYNC_DRIVE"
+
+[[board.drives]]
+letter = "C"
+local_drive = 1
+kind = "nvmem"
+image = "nvmemory.img"
+size = "64M"
+flags = "FS_FORMAT_CORRUPT,FS_SCANDRIVE"
+
+[[board.drives]]
+letter = "E"
+local_drive = 2
+kind = "nvmem2"
+image = "nvmemory2.img"
+size = "1G"
+removable = true
+flags = "FS_FORMAT_CORRUPT,FS_SCANDRIVE"
+
+[[board.drives]]
+letter = "Z"
+local_drive = 8
+kind = "composite"                         # ROFS1 + ROFx served by medrofs.pdd (2 ROFS images, as the N95 8GB)
+flags = "FS_COMPOSITE"
+
+[hardware]
+wlan = true                                # wlanldd/wlanpdd in the core [V]
+bluetooth = true
+camera = { main_mp = 5, front = true, key = "two-stage" }   # camldd/campdd/camsecondarypdd [V]; 5 MP [I spec]
+fm_radio = true
+gps = true                                 # [I spec]
+accelerometer = true                       # accelerometerldd/pdd [V]
+slides = []                                # candybar
+leds = ["keypad-backlight", "display-backlight"]
+memory_card = true
+mass_memory_gb = 0
+tv_out = true                              # [I]
+dsp = "rapido"                             # audio DSP in the RAPIDO baseband [V: aamdaif.dll, F3 ISI]
+gpu = "none"
+
+# ---------------------------------------------------------------------------------------------
+[kernel]
+baseport = "syborg"
+place = "after-firmware"                   # our kernel side (to 0x8031xxxx) does not fit below the user side (0x80274B50)
+patchsets = ["platform", "sym92", "policy"]
+missing_drivers = ["karap.dll", "keypad_exp.dll", "minkda.ldd", "esound.ldd", "accelerometerldd.ldd",
+                   "accelerometerpdd.pdd", "naviscrollldd.ldd", "naviscrollpdd.pdd", "camldd.ldd", "campdd.pdd",
+                   "camsecondarypdd.pdd", "wlanldd.ldd", "wlanpdd.pdd", "pltwlanpdd.pdd", "bc02.ldd", "bc02_uart1.pdd",
+                   "medsd.pdd", "mobilecrashdriver.ldd", "tcldd.ldd", "tracecoreostldd.ldd", "rebootdriver.ldd"]
+
+[kernel.lcd]
+target = "lcd_portrait"
+
+[[standins]]
+name = "nokiaiscdriver"
+kind = "ldd"
+family = "nokia-bb5"
+role = "modem link (ISC channels 0..31), fake CMT peer iscpeer.inl"
+
+[[standins]]
+name = "sisadriver"
+kind = "ldd"
+family = "nokia-bb5"
+role = "load-only (IscApi's RAPIDO transport; the N95 loads xbus.ldd instead)"
+
+[[standins]]
+name = "iscisimultiplexer"
+kind = "ldd"
+family = "nokia-bb5"
+role = "load-only"
+
+[[standins]]
+name = "nokiaiscdriverextension"
+kind = "ldd"
+family = "nokia-bb5"
+role = "modem link (ISC channels 32..63)"
+
+[[standins]]
+name = "custom"
+kind = "ldd"
+family = "nokia-bb5"
+role = "startup mode"
+
+[[standins]]
+name = "d_display"
+kind = "ldd"
+family = "nokia-omap2"
+role = "DisplayDriver (board config: 27 caps words, portrait panel, 960-byte stride)"
+
+[[standins]]
+name = "secldd"
+kind = "ldd"
+family = "nokia-bb5"
+role = "SecEnv"
+
+[[standins]]
+name = "lightldd"
+kind = "ldd"
+family = "nokia-bb5"
+role = "backlight LDD"
+
+[[standins]]
+name = "lightpdd"
+kind = "pdd"
+family = "nokia-bb5"
+role = "backlight PDD: load-only"
+
+[[standins]]
+name = "aamdaifdriver"
+kind = "ldd"
+family = "nokia-rapido"
+role = "MdaifDriver (RAPIDO audio): start-up controls 5/2/10/7/6, silent (docs/devices/nokia-5730-rm465/rapido-audio.md)"
+
+[[standins]]
+name = "medrofs"
+kind = "extension"
+family = "common"
+role = "ROFS1 + ROFx from the flash window on local drive 8"
+
+[[standins]]
+name = "mednvmem2"
+kind = "extension"
+family = "common"
+role = "second NVMemory (E:) on local drive 2"
+
+# ---------------------------------------------------------------------------------------------
+[modem]
+# SIM_IND 09 EF {05 06} for SAStartupService: SAServer asks SIM_STATUS (C0, gets 06 = no SIM) at system
+# state 103 and then waits: send it after that reply, on channel 35 only; the TSY (channel 7) panics on this short layout
+# (docs/devices/nokia-5730-rm465/sim-state.md)
+indications = [{ res = 0x09, msg = 0xEF, data = "05 06", channel = 35, after = "09 C0" }]
+# SIM_STATUS service 01 = SIM lock / autolock: SAStartupService 0x80955ea6 maps 8/9/10/1 to its results
+# 108..111 and leaves anything else (06) unanswered; 01 = OK (no lock) [V branch table, I meaning]
+sim_service_status = { "0x01" = 0x01 }
+
+[rom]
+code_patches = []
+files = [{ rom = "Sys/Data/ESTARTCOMP.TXT", local = "ESTARTCOMP.TXT" }]
+
+# H-startuptone-none: Starter waits for the start-up tone, RAPIDO audio is not emulated (DSP shared memory),
+# so the player never ends and start-up stalls on a white screen [V 2026-11-11: Starter blocked, no IPC].
+# CenRep 101F8763 key 3 (tone path, cap_wr=alwaysfail) points to a missing file instead.
+[[rom.rofs_patches]]
+image = 2
+path = "private/10202be9/101F8763.txt"
+old = 'Z:\\system\\sounds\\Wakeup tone.aac'
+new = 'Z:\\system\\sounds\\Wakeup none.aac'
+hack = "H-startuptone-none"
+
+[gl]
+impl = "none"
+
+[milestones]
+idle = "Startup::startup sets 101f8766/46 = 104"    # [V] UI phase all done: home screen (after the first-boot queries)
+
+[props]
+startup = { category = 0x101F8766, state = 0x41, ui_phase = 0x46 }
+
+[status]
+level = "L0"
+updated = "2026-11-10"

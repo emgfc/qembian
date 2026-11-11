@@ -16,7 +16,20 @@ def main():
     a = ap.parse_args()
     prof = devmodel.load(a.device)
     pers = devmodel.get(prof, 'platform.personality')
-    spec = tomllib.load(open(os.path.join(ROOT, 'personalities', pers, 'kabi.toml'), 'rb'))
+    # a personality that only changes a convention (sym92l91: the loader layout) names the one whose exec
+    # map and driver ABI it uses: personalities/<p>/personality.toml base = "..."
+    pt = os.path.join(ROOT, 'personalities', pers, 'personality.toml')
+    if os.path.exists(pt):
+        import tomllib
+        base = tomllib.load(open(pt, 'rb')).get('base')
+        if base:
+            print('%s: personality %s uses %s\'s exec map and driver ABI' % (prof['_id'], pers, base))
+            pers = base
+    kf = os.path.join(ROOT, 'personalities', pers, 'kabi.toml')
+    if not os.path.exists(kf):
+        print('%s: personality %s has no kabi.toml (no driver-ABI spec written yet): nothing checked' % (prof['_id'], pers))
+        return 0
+    spec = tomllib.load(open(kf, 'rb'))
     with tempfile.NamedTemporaryFile(suffix='.json') as f:
         env = dict(os.environ, SYBORG_DEVICE=prof['_id'])
         r = subprocess.run([sys.executable, os.path.join(ROOT, 'tools', 'personality', 'kabi.py'), '--json', f.name],

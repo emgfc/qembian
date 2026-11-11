@@ -1,0 +1,11 @@
+--- a/baseport/syborg/mednvmemory/syborg_mednvmemory.cpp
++++ b/baseport/syborg/mednvmemory/syborg_mednvmemory.cpp
+@@ -219,7 +219,7 @@
+ 	__DEBUG_PRINT(">DMediaDriverNVMemory::DoCreate");
+ 	TInt r = KErrNone; 
+ 	// Inform our size
+-	Int64 size=GetNVMemSize()<<KDiskSectorShift;
++	Int64 size=(Int64)GetNVMemSize()<<KDiskSectorShift;	// syborg-pg: 64-bit before the shift (8 GB = 2^33 wrapped to 0)
+ 	if( size<=0 )
+ 		{
+ 		Kern::Fault("DMediaDriverNVMemory zero size nv memory array", 0);

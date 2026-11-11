@@ -1,0 +1,67 @@
+# Nokia N8 (RM-596) with firmware 111.040.1511 (Nokia Belle Refresh). Same phone as nokia-n8-rm596: every
+# table of that profile is deep-merged under this one; here only what belongs to the firmware version
+# (files, identity, addresses: code patches, ROM layout values).
+# (an overlay of models/nokia-n8-rm596/model.toml; device model v2)
+
+[device]
+id = "nokia-n8-rm596-v111"
+model = "N8 (111.040.1511 Belle Refresh)"
+aliases = []
+notes = "Firmware 111.040.1511 (Nokia Belle Refresh): core + Russian rofs2 04.01 + generic rofs3 C00.01."
+
+[firmware]
+version = "111.040.1511"
+obtain = """
+Flash files of RM-596 111.040.1511 (Belle Refresh): prd.core.fpsx, the Russian language pack 04.01
+(prd.rofs2.fpsx) and the generic customer variant C00.01 (prd.rofs3.fpsx). Put them in
+roms/RM-596/111.040.1511/ (git-ignored).
+"""
+
+[[firmware.files]]
+role = "core"
+glob = "RM-596_111.040.1511_79u_prd.core.fpsx"
+
+[[firmware.files]]
+role = "rofs2"
+glob = "RM-596_111.040.1511_04.01_Russian_*_prd.rofs2.fpsx"
+
+[[firmware.files]]
+role = "rofs3"
+glob = "RM-596_111.040.1511_C00.01_*_prd.rofs3.fpsx"
+
+[platform]
+personality = "sym101"                     # [V] Symbian^3 exec numbering + ten Belle calls (personalities/sym101)
+
+[firmware.identity]
+sw = { version = "111.040.1511", date = "2012-07-28", type_code = "RM-596" }   # Resource/versions/sw.txt [V]
+
+[firmware.rom]
+user_window_start = 0x8044FBD0             # EDISP.DLL (probe.py header) [V]
+
+[milestones]
+idle = "sets 101f8766/46 = 104"    # UI phase all done, whoever sets it (025.007: CherryWatchdog)
+
+[status]
+level = "L0"                               # home screen with widgets loading, agent up (2026-11-08)
+updated = "2026-11-08"
+open = ["widgets keep a loading spinner (owner)", "UI phase stays 105: the idle milestone does not fire", "widgets stay loading", "RES_C9 msg 24 unanswered", "S10e..S114 unmapped (Belle-only calls)", "power key: no power menu"]
+
+# Belle's aamdaif.dll numbers the MdaifDriver controls differently from 011.012/Anna (start-up 1, 3 x7,
+# 2, 6, 4, 0, 4 = the old 5, 7, 6, 10, 8, 2, 8 with the same arguments) [V: boot logs 2026-11-08]. Without
+# the map the ring (old 8) and the buffer (old 2) were never answered and !AudioProcessingEngine copied
+# through a NULL pointer (KERN-EXEC 3); a game's pause (Angry Birds) then hung on the audio server.
+# Belle 5 (a1 = 0, at stream close) has no old equivalent: 15 = accepted.
+[[standins]]
+name = "aamdaifdriver"
+config = { ctl_map = "0:2,1:5,2:6,3:7,4:8,5:15,6:10,7:11" }
+
+# N8 Belle start-up (docs/devices/nokia-n8-rm596/belle-emergency-only.md): sastartupservice raises "SIM not ready"
+# besides "SIM removed" when it first sees status 06 in global state 103 (security check); that late event turned
+# KPSSimStatus 104 into 103 -> EmergencyCallsOnly (105). Seen in an earlier state it raises once and sets its done
+# flag [V Delight 0x80e711a6]. A real modem reports "no SIM" when its SIM server starts, right after SAServer
+# subscribes: send SIM_IND {05 06} on channel 35 at subscription.
+[modem]
+indications = [{ res = 0x09, msg = 0xEF, data = "05 06", channel = 35 }]
+# SIM_STATUS service 01 (SIM lock): the real modem answers {01 24} with no SIM [V real N8 Delight, phonet 2026-11-11], but with
+# 0x24 our start-up stops at the security check (sastartupservice takes its retry path, 0x80e71aa8) [V]; the family
+# value 01 (lock OK) passes. Open: what else the real SIM server sends that makes 0x24 work.

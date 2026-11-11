@@ -38,6 +38,8 @@ def main():
         return None
 
     F = {f['path']: f for f in imgs}
+    lower = {k.lower(): k for k in F}       # Symbian names are case-insensitive (701: euser.dll)
+    libs = [lower.get(L.lower(), L) for L in libs]
     exp_ord = {}  # lib -> {addr: [ordinals]}
     for L in libs:
         im = F[L]['image']

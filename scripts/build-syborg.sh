@@ -9,7 +9,7 @@ BP="${SYBORG_BASEPORT:-syborg}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 if [ -z "${SYBORG_IN_CONTAINER:-}" ]; then
   # host side: the keyboard table of the device (tools/device.py gen keymap-header; $SYBORG_DEVICE or
-  # devices/default), included by syborg_keyboard.h (patch qemu-baseport 0005)
+  # models/registry.toml default), included by syborg_keyboard.h (patch qemu-baseport 0005)
   python3 -I "$ROOT/tools/device.py" gen keymap-header > \
     "$ROOT/build/epocroot/sf/adapt/qemu/baseport/$BP/keyboard/syborg_keyboard_map.h"
   CONTAINER_ARGS="${CONTAINER_ARGS:-} -e SYBORG_BASEPORT=$BP" exec "$ROOT/scripts/in-container.sh" /work/scripts/build-syborg.sh "$@"

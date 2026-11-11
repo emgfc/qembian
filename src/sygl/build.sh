@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Build the sygl blob (our GLES 1.1 + EGL behind libgles_cm.dll's entry points; docs/gpu-roadmap.md)
 # and the libgles_cm patches that point at it.
-#   src/sygl/build.sh [--device ID] [--debug] [--trace]        (device: $SYBORG_DEVICE / devices/default)
-# Inputs from the device profile ([gl], devices/<id>/gl/): blob address, libgles_cm ordinals, the ROM
-# exports the blob calls, the driver identity strings. Output: build/devices/<id>/sygl/sygl.bin (raw,
-# linked at the blob address), sygl.elf (symbols for gdb), sygl.map; devices/<id>/gl/gles-patches.txt
+#   src/sygl/build.sh [--device ID] [--debug] [--trace]        (device: $SYBORG_DEVICE / the registry default)
+# Inputs from the device profile ([gl], models/<id>/gl/): blob address, libgles_cm ordinals, the ROM
+# exports the blob calls, the driver identity strings. Output: build/roms/<id>/<fw>/sygl/sygl.bin (raw,
+# linked at the blob address), sygl.elf (symbols for gdb), sygl.map; models/<id>/gl/gles-patches.txt
 # (regenerated). tools/device.py build puts the blob into the composed ROM when sygl.bin exists.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -21,7 +21,8 @@ while [ $# -gt 0 ]; do
 done
 DPY=(python3 -I "$ROOT/tools/device.py")
 export SYBORG_DEVICE="$DEV"
-DEVDIR="$("${DPY[@]}" paths dir)"; DEVSRC="$ROOT/devices/$("${DPY[@]}" get device.id)"
+DEVDIR="$("${DPY[@]}" paths dir)"
+pf() { "${DPY[@]}" file "$1"; }    # a profile file: the firmware overlay's, else the model's
 SYGL_BASE=$(printf '0x%x' "$("${DPY[@]}" get gl.blob_addr)")   # free gap in the ROM window, see romcompose --blob
 OUT="$DEVDIR/sygl"; GEN="$OUT/gen"
 mkdir -p "$GEN"
@@ -39,9 +40,9 @@ for k, m in (('vendor', 'GL_VENDOR'), ('renderer', 'GL_RENDERER'), ('version', '
 [ -n "${TRACE:-}" ] && OPT+=(-DSY_TRACE_MAX=700)
 
 python3 -I "$ROOT/tools/gen-gles-glue.py" --blob-addr $SYGL_BASE \
-  --ordinals "$DEVSRC/gl/libgles_cm.ordinals" --imports-list "$DEVSRC/gl/n95imports.txt" \
+  --ordinals "$(pf gl/libgles_cm.ordinals)" --imports-list "$(pf gl/n95imports.txt)" \
   --img "$DEVDIR/core-flat.img" --symindex "$DEVDIR/symindex.json" \
-  --patches "$DEVSRC/gl/gles-patches.txt" --asm "$GEN/entry.S" --names "$GEN/names.c" \
+  --patches "$(pf gl/gles-patches.txt)" --asm "$GEN/entry.S" --names "$GEN/names.c" \
   --imports "$GEN/n95imports.h" --imports-asm "$GEN/imports.S"
 
 # portable core: C; floats in core registers (Symbian ARMV5 ABI, softfp), arithmetic on the ARM1136 VFP

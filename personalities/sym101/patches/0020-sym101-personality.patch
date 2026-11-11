@@ -1,0 +1,188 @@
+Personality sym101 (Symbian OS 10.1, Nokia Belle; N8 111.040.1511): exec tables KExec101* (personalities/sym101/exec.map,
+generated into execpers_map.h), registry number 6: the Symbian^3 numbering and loader layouts, S10b..S10d
+(process start and library load hooks) answered KErrNone by the shim Ok101. The TLocalThreadData block at the
+top of each user stack takes the personality's layout (Belle: 0x38 bytes, the thread's own ID at +12, which
+RThread::Id() reads, TLS fields 4 bytes further): KernLocalThreadDataSize / TlsShift / IdOffset. A library
+loaded from a DLL entry point counts its outer, still attaching library as loaded
+(KernNestedAttachCountsAsLoaded), so the outer library's DLL data is not initialised a second time.
+
+--- a/kernel/eka/kernel/sexecpers.cpp
++++ b/kernel/eka/kernel/sexecpers.cpp
+@@ -22,8 +22,18 @@
+ const TInt KPersonalitySym94 = 3;	// Symbian 9.4 (S60 5th): 9.2 conventions, S45 inserted, SEE..SF2 added (personalities/sym94/README.md)
+ const TInt KPersonalitySymbian3 = 4;	// Symbian^3: our numbering, 9.2 RMutex::Wait() (personalities/symbian3/README.md)
+ const TInt KPersonalitySym91 = 5;	// Symbian 9.1: the 9.2 numbering is a strict superset (personalities/sym91/README.md)
++const TInt KPersonalitySym101 = 6;	// Symbian 10.1 (Belle): Symbian^3 + S10b..S114 (personalities/sym101/README.md)
+ 
+ TBool Exec92Enabled = EFalse;
++TBool KernNestedAttachCountsAsLoaded = EFalse;	// scodeseg.cpp TraverseCodeSegs; Belle: ETrue
++
++// the user side's TLocalThreadData at the top of each user stack (ckernel.cia, sthread.cpp): ours, or
++// Belle's (sym101: one more word at +12, iTlsHeap at +16, iTls at +20; 0x34 bytes, EUser DllSetTls)
++#ifdef __USERSIDE_THREAD_DATA__
++extern "C" TInt KernLocalThreadDataSize = KLocalThreadDataSize;
++TInt KernLocalThreadDataTlsShift = 0;
++extern "C" TInt KernLocalThreadDataIdOffset = -1;	// where the thread's own ID goes (Belle: +12), -1 none
++#endif
+ // sym91: the SWI handler returns to the user's ip (9.1 EUSER stubs: "mov ip, lr; swi n"), read by
+ // __ArmVectorSwi (nkern/arm/vectors.cia) on every SWI
+ extern "C" { TInt ExecReturnViaIp = 0; }
+@@ -92,6 +102,13 @@
+ extern TInt Exec92Shim_LockedDec91(TInt*);	// cexecpers.cia (9.1, ARMv5)
+ 
+ // 9.2 RMutex::Wait() passes no timeout; r1 is whatever the caller left there.
++// Belle (personalities/sym101): S10b..S10d, called on every process start and library load, go on
++// only on KErrNone; this kernel has nothing for them to do
++TInt Exec92Shim_Ok101()
++	{
++	return KErrNone;
++	}
++
+ TInt Exec92Shim_MutexWait92(DMutex* aMutex)
+ 	{
+ 	return ExecHandler::MutexWait(aMutex, 0);
+@@ -276,6 +293,15 @@
+ 		ExecLoaderProcessTail = _FOFF(TProcessCreateInfo, iFlags) - sizeof(TCodeSegCreateInfo);
+ 	else if (pers == KPersonalitySymbian3)
+ 		;	// our TProcessCreateInfo / TCodeSegCreateInfo layouts
++	else if (pers == KPersonalitySym101)
++		{
++		KernNestedAttachCountsAsLoaded = ETrue;
++#ifdef __USERSIDE_THREAD_DATA__
++		KernLocalThreadDataSize = 0x38;	// 0x34 rounded up to 8, as KLocalThreadDataSize
++		KernLocalThreadDataTlsShift = 4;
++		KernLocalThreadDataIdOffset = 12;	// RThread::Id() of the current thread reads it (EUser ord 1793)
++#endif
++		}
+ 	else if (pers == KPersonalitySym91)
+ 		{
+ 		ExecLoaderCodeSegSize = _FOFF(TCodeSegCreateInfo, iCodeRelocTable);		// 380
+@@ -292,13 +318,13 @@
+ 		}
+ 
+ 	const TInt16* fastMap = pers == KPersonalitySym91 ? KExec91Fast : pers == KPersonalitySym94 ? KExec94Fast
+-		: pers == KPersonalitySymbian3 ? KExec3Fast : KExec92Fast;
++		: pers == KPersonalitySymbian3 ? KExec3Fast : pers == KPersonalitySym101 ? KExec101Fast : KExec92Fast;
+ 	const TInt16* slowMap = pers == KPersonalitySym91 ? KExec91Slow : pers == KPersonalitySym94 ? KExec94Slow
+-		: pers == KPersonalitySymbian3 ? KExec3Slow : KExec92Slow;
++		: pers == KPersonalitySymbian3 ? KExec3Slow : pers == KPersonalitySym101 ? KExec101Slow : KExec92Slow;
+ 	const TInt fastCount = pers == KPersonalitySym91 ? EXEC91_FAST_COUNT : pers == KPersonalitySym94 ? EXEC94_FAST_COUNT
+-		: pers == KPersonalitySymbian3 ? EXEC3_FAST_COUNT : EXEC92_FAST_COUNT;
++		: pers == KPersonalitySymbian3 ? EXEC3_FAST_COUNT : pers == KPersonalitySym101 ? EXEC101_FAST_COUNT : EXEC92_FAST_COUNT;
+ 	const TInt slowCount = pers == KPersonalitySym91 ? EXEC91_SLOW_COUNT : pers == KPersonalitySym94 ? EXEC94_SLOW_COUNT
+-		: pers == KPersonalitySymbian3 ? EXEC3_SLOW_COUNT : EXEC92_SLOW_COUNT;
++		: pers == KPersonalitySymbian3 ? EXEC3_SLOW_COUNT : pers == KPersonalitySym101 ? EXEC101_SLOW_COUNT : EXEC92_SLOW_COUNT;
+ 	EpocFastExecTable92[0] = fastCount;
+ 	for (TInt n=1; n<fastCount; ++n)
+ 		{
+@@ -343,5 +369,5 @@
+ 		}
+ 	Exec92Enabled = ETrue;
+ 	Kern::Printf("EXEC92: Symbian %s exec personality enabled (%d fast, %d slow; loader structs %d+%d)",
+-		pers == KPersonalitySym91 ? "9.1" : pers == KPersonalitySym94 ? "9.4" : pers == KPersonalitySymbian3 ? "^3" : "9.2", fastCount, slowCount, ExecLoaderCodeSegSize, ExecLoaderProcessTail);
++		pers == KPersonalitySym91 ? "9.1" : pers == KPersonalitySym94 ? "9.4" : pers == KPersonalitySymbian3 ? "^3" : pers == KPersonalitySym101 ? "10.1" : "9.2", fastCount, slowCount, ExecLoaderCodeSegSize, ExecLoaderProcessTail);
+ 	}
+--- a/kernel/eka/kernel/sthread.cpp
++++ b/kernel/eka/kernel/sthread.cpp
+@@ -1194,6 +1194,11 @@
+ 	}
+ #endif
+ 
++#ifdef __USERSIDE_THREAD_DATA__
++extern "C" TInt KernLocalThreadDataSize;		// sexecpers.cpp: the personality's TLocalThreadData
++extern TInt KernLocalThreadDataTlsShift;
++#endif
++
+ void DThread::CloseCreatedHeap()
+ 	{
+ 	__KTRACE_OPT(KTHREAD,Kern::Printf("DThread::CloseCreatedHeap() %O",this));
+@@ -1201,7 +1206,10 @@
+ #ifdef __USERSIDE_THREAD_DATA__
+ 	if (iFlags & KThreadFlagLocalThreadDataValid)
+ 		{
+-		TLocalThreadData* threadData = (TLocalThreadData*)(iUserStackRunAddress + iUserStackSize - KLocalThreadDataSize);
++		// the personality's layout (sexecpers.cpp): Belle's block has one more word before the TLS
++		// fields, so our TLocalThreadData seen KernLocalThreadDataTlsShift bytes in has them where ours does
++		TLocalThreadData* threadData = (TLocalThreadData*)(iUserStackRunAddress + iUserStackSize
++			- KernLocalThreadDataSize + KernLocalThreadDataTlsShift);
+ 		XTRAP(r, XT_DEFAULT, threadData->Close());
+ 		__KTRACE_OPT(KTHREAD, Kern::Printf("TLocalThreadData::Close() r=%d", r));
+ 		if (r != KErrNone)
+--- a/kernel/eka/kernel/arm/ckernel.cia
++++ b/kernel/eka/kernel/arm/ckernel.cia
+@@ -81,8 +81,11 @@
+ 	USER_MEMORY_GUARD_ON(,r3,r3);
+ #endif
+ #ifdef  __USERSIDE_THREAD_DATA__
+-	// reserve space for TLocalThreadData at very top of stack
+-	asm("sub r0, r1, #%a0 " : : "i" ((TInt)KLocalThreadDataSize));
++	// reserve space for TLocalThreadData at very top of stack (its size is the personality's:
++	// KernLocalThreadDataSize, sexecpers.cpp; Belle's EUSER has one more word)
++	asm("ldr ip, 9f ");
++	asm("ldr ip, [ip] ");
++	asm("sub r0, r1, ip ");
+ 	SET_RWRW_TID(,r0);
+ 	asm("mov r3, #0 ");
+ 	asm("1: ");
+@@ -92,7 +95,21 @@
+ 	USER_MEMORY_GUARD_ON(,r2,r2);
+ 	asm("teq r0, r1 ");
+ 	asm("bne 1b ");
+-	asm("sub r1, r1, #%a0 " : : "i" (KLocalThreadDataSize + 4));
++	// a personality whose EUSER reads the current thread's ID from TLocalThreadData (Belle:
++	// RThread::Id() returns the word at +12) gets it stored there (KernLocalThreadDataIdOffset >= 0)
++	asm("ldr r3, 8f ");
++	asm("ldr r3, [r3] ");
++	asm("cmp r3, #0 ");
++	asm("blt 7f ");
++	asm("sub r0, r1, ip ");
++	asm("add r0, r0, r3 ");
++	asm("ldr r3, [r4, #%a0]" : : "i" _FOFF(DThread, iId));
++	USER_MEMORY_GUARD_OFF(,r2,r2);
++	asm("strt r3, [r0] ");
++	USER_MEMORY_GUARD_ON(,r2,r2);
++	asm("7: ");
++	asm("sub r1, r1, ip ");
++	asm("sub r1, r1, #4 ");
+ 	asm("orr r8, r8, #%a0 " : : "i" ((TInt)KThreadFlagLocalThreadDataValid));
+ 	asm("str r8, [r4, #%a0]" : : "i" _FOFF(DThread, iFlags));
+ #else
+@@ -129,6 +146,12 @@
+ 
+ 	asm("3: ");
+ 	asm("b  " CSM_ZN4Kern4ExitEi);
++#ifdef  __USERSIDE_THREAD_DATA__
++	asm("9: ");
++	asm(".word KernLocalThreadDataSize ");
++	asm("8: ");
++	asm(".word KernLocalThreadDataIdOffset ");
++#endif
+ 	}
+ 
+ __NAKED__ void GetUndefinedInstruction(TArmExcInfo* /*aContext*/)
+--- a/kernel/eka/kernel/scodeseg.cpp
++++ b/kernel/eka/kernel/scodeseg.cpp
+@@ -1045,6 +1045,13 @@
+ 	@publishedPartner
+ 	@released
+  */
++// sexecpers.cpp: ETrue for a personality whose EUSER loads libraries from DLL entry points (Belle's GLES
++// forwarders load khclient_vc3.dll in a static constructor). Such a nested RLibrary::Load runs while the
++// outer library is still EAttaching on this thread (it holds the process DLL lock), so the outer library's
++// code segments are already mapped and their data initialised: count them, or LibraryAttach lists them
++// again and DEpocCodeSeg::InitData wipes their static data under the running constructors.
++extern TBool KernNestedAttachCountsAsLoaded;
++
+ EXPORT_C TInt DProcess::TraverseCodeSegs(SDblQue* aQ, DCodeSeg* aExclude, TUint32 aMark, TUint32 aFlags)
+ 	{
+ 	CHECK_PRECONDITIONS(MASK_THREAD_CRITICAL,"DProcess::TraverseCodeSegs");		
+@@ -1061,7 +1068,8 @@
+ 			if ((aFlags & ETraverseFlagRestrict) && i>=0)
+ 				{
+ 				DLibrary* pL=iDynamicCode[i].iLib;
+-				if (pL && pL->iState!=DLibrary::EAttached)
++				if (pL && pL->iState!=DLibrary::EAttached &&
++						!(KernNestedAttachCountsAsLoaded && pL->iState==DLibrary::EAttaching))
+ 					continue;
+ 				}
+ 			if (aFlags & ETraverseFlagAdd)

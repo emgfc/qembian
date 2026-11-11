@@ -1,0 +1,11 @@
+--- a/target/arm/tcg/cpu32.c	2026-11-07 11:46:08.143219895 +0100
++++ b/target/arm/tcg/cpu32.c	2026-11-07 11:46:08.171476344 +0100
+@@ -189,7 +189,7 @@
+     cpu->reset_fpsid = 0x410120b5;
+     cpu->isar.mvfr0 = 0x11111111;
+     cpu->isar.mvfr1 = 0x00000000;
+-    cpu->ctr = 0x1dd20d2;
++    cpu->ctr = 0x1d992992; /* qembian: ARM1176 32K I/D, 4-way, 32B lines, VIPT aliasing; was 0x1dd20d2 (ctype 0, invalid on v6) */
+     cpu->reset_sctlr = 0x00050078;
+     SET_IDREG(isar, ID_PFR0, 0x111);
+     SET_IDREG(isar, ID_PFR1, 0x11);

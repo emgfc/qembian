@@ -71,3 +71,20 @@ subscribing channels, 35 (SAServer) and 7 (the TSY) [verified, `ISCPEER: ch N pr
 So the indication is off in the profile again. Next: (1) an indication per channel (or a
 TSY-compatible layout: find the subblock the TSY reads, as for NET_MODEM_REG_STATUS on the N95),
 (2) check with the IPC-traced ROM what still blocks at 117 before the modem reset.
+
+## Start-up passes (2026-11-07, later the same day)
+
+What start-up waits on, found with the IPC-traced ROM (`syb_report.py` "likely blocked", then the
+requests completed with -33 or -3 to sysstart right before system state 117):
+1. **State 103**: sysstart calls SAServer function 101 (argument = the adaptation command); SAServer
+   asks `09 C0` service 00 and waits for `SIM_IND`. Fix: `[modem].indications` entry with
+   `channel = 35, after = "09 C0"` (the TSY on channel 7 must not get it) [V].
+2. **State 103, command 107**: SAServer asks `09 C0` service 01 (SIM lock / autolock). SAStartupService
+   0x80955ea6 maps status 8/9/10/1 to its results 108..111 and leaves anything else open. Fix:
+   `[modem] sim_service_status = { "0x01" = 0x01 }` (OK, no lock) [V branch table, I meaning].
+3. **State 104**: sysstart's ETel request 22006 (`RMobilePhone::GetLockInfo`) makes NOKIATSY send
+   PN_SECURITY `08 67`; unanswered, ETel times out after 60 s (-33) and start-up shuts down. NOKIATSY
+   0x3c64 (code offset of the RAM-loaded DLL) reads `08 68`: [10] = 1 else -2, [13] lock status,
+   [14] lock setting. Fix: `reply 08 67 68 01 00 00 00 00` (unlocked, disabled) [V].
+Then the first-boot queries (region, date, time) and the home screen and menu (L1). Seeded boot: idle
+(`Startup sets 101f8766/46 = 104`) at 20 s.

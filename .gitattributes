@@ -1,0 +1,2 @@
+# patches carry the line endings of the sources they apply to (some Symbian sources are CRLF)
+*.patch -text

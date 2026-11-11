@@ -1,0 +1,12 @@
+// accelerometer.ldd stand-in: Nokia's accelerometer channel on the host's syborg-sensor (see accelerometer.cpp)
+#include "../../variant.mmh"
+#include <kernel/kern_ext.mmh>
+target			VariantTarget(accelerometer,ldd)
+linkas			accelerometer.ldd
+targettype		ldd
+userinclude		../../specific		// syborg.h: KHwBaseSensor, ReadReg
+sourcepath		.
+source			accelerometer.cpp
+noexportlibrary
+vendorid		0x70000001
+capability		all

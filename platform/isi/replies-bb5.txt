@@ -1,16 +1,30 @@
-# Fake-modem canned replies shared by every BB5 phone profiled so far (family bb5-s60):
-# only replies all members use with the same bytes (docs/devices.md "Families"). Device files
-# (devices/<id>/isi-replies.txt) come after this one and override the same (resource, request).
+# Fake-modem canned replies of every BB5 phone (family bb5-s60): one table for all of them
+# (docs/cleanup-review.md 2.1). A reply to a request a firmware never sends is inert, so the table is
+# the union of what each phone needed; `# on:` names where a reply was verified (none = all members).
+# Device files (models/<id>/isi-replies.txt) come after this one and are only for true conflicts:
+# the same (resource, request) needing different bytes on different phones (none today).
+# `tools/isi.py lint` checks the layering.
 # Format and names: platform/isi/names.txt, tools/isi.py.
 reply 1B 2E 2F len=16 00 01 F0 00 00 10                   # PP: product profile bits (nsb>=1)
 reply 0A 0B 0C 00 01 04 04 00 00                          # NET_RSSI_GET
 reply 0A 36 37 00 01 2C 04 01 00                          # NET_RAT
+reply C8 36 37 00 01 2C 04 01 00                          # NET_RAT on PN_MODEM_NETWORK (Symbian^3 TSY): unanswered, Anna's connection monitor waited on its ETel request forever and the home screen on it
+reply C8 00 01 00 01 00 04 06 00                          # NET_MODEM_REG_STATUS_GET on PN_MODEM_NETWORK: OK, NET_REG_INFO_COMMON, NOSERV_NOSIM (6), as 0A 00 (docs/devices/nokia-n95-8gb-rm320/n95-isc-isi-protocol-2.md 3.1.7)
 reply 17 00 01 01 01 00 04 02 00                          # GSS (old id) op 0
 # 17 0A: SAEmService op 1 = battery bars (sb 0x16: [2]=7 max, [3]=1..7), op 2 = charger (sb 0x15:
 # [2]=1 not charging); NOKIATSY reads sb 0x16 too. Both sent (hack H-em).
 reply 17 0A 0B 01 02 16 04 07 07 15 04 01 00
 reply 17 08 09 01 01 13 04 01 00                          # SAEm op 0x08 (sb 0x13)
 reply 15 16 79 00 00                                      # MTC RF status: normal
+reply 31 11 12 01                                         # GSS 0x11 {00 FF FF 00 00 00} -> 12 {01}; unanswered, N8 Belle and 701/808 retried it every 10 s and reached NormalRfOff ~80 s late (on: real N8 Delight, no SIM, phonet 2026-11-11)
+reply 31 19 1A 00 00 00 00 00 00 00 00 00 00 00 03          # GSS 0x19 (on: real N8 Delight, no SIM, phonet 2026-11-11)
+reply 31 30 31 00 00 01 00 55 55                         # GSS 0x30 (on: real N8 Delight, phonet)
+reply 54 0D 0E 01 00                                      # res 0x54 msg 0x0D (on: real N8 Delight, phonet)
+reply 54 73 74 00 00                                      # res 0x54 msg 0x73 (on: real N8 Delight, phonet)
+reply 54 78 79 00 01 11 00 00 08 01 00 00 00              # res 0x54 msg 0x78 (on: real N8 Delight, phonet)
+reply 54 50 51 00 00                                      # res 0x54 msg 0x50 (on: real N8 Delight, phonet)
+reply C8 40 41 01 00 00                                   # PN_MODEM_NETWORK 0x40 (on: real N8 Delight, phonet)
+reply C8 0B F0 01 0B 00 00 00 00                          # PN_MODEM_NETWORK 0x0B: the real modem answers F0 {01 0B ...} (message not supported) (on: real N8 Delight, phonet)
 reply DB 01 02 00 01 00 01 00 00 00 00 00 31 00 33 00 00  # PNS_NAME_QUERY (GPDS)
 reply 09 19 1A 2F 24                                      # SIM read: data not available
 reply 23 04 05 len=18 00 01 01 10                         # PN_PERMANENT_DATA read
@@ -24,3 +38,103 @@ reply 0B 19 1A 00 00                                      # audio setup (resp 1A
 reply 77 01 09 00 00                                      # audio route ready: without it every play hangs (first) or gets KErrInUse (docs/nokia-dsp-playback.md)
 reply 08 01 02 00 00                                      # lock code state: [10]=0 -> lock status unlocked, setting disabled (NOKIATSY 0x808c8b7c); unanswered -> Autolock 'operation time-out'
 reply 19 0A 0B 01 01 04 04 01 00                          # RTC status (DosServer 0x130 via NokiaDSY ch 24; 0x808bbaa8: [10]==1, sb 04 (type 1), sb+2 1/3 = valid, 2 = invalid); unanswered -> CommonDSY timeout -2 -> Startup asks date/time every boot
+
+# ---- S60 3rd Edition 9.1 (N73): older message numbering ----
+# N73 (NokiaDSY SIM start-up, DOS request 806): PN_SIM 0x3B "FA 00" = IMSI-equal query; resp 0x3C
+# {service FA, cause 2A = IMSI equal}; without it start-up stays at system state 202
+# (docs/devices/nokia-n73-rm132/isi-sim-3b.md)
+reply 09 3B 3C FA 2A   # on: n73
+# N73 NOKIATSY: product profile read in the older numbering (INFO_PP_READ 0x02/0x03; the N95 uses
+# 0x29/0x2A, answered by echoing its sub-blocks). Echo of the one request seen (sub-block 0x47, feature
+# 0x01, value 0 = off). Unanswered, it kept DosServer blocked in ETel (custom request 1000019), so
+# DosServer never read the SIM channel and start-up stayed at system state 202.
+reply 1B 02 03 00 01 47 08 00 01 01 00 00 00   # on: n73
+# N73 NOKIATSY SIM requests after the product profile [inferred]: no SIM, so "service, 0x24 = data not
+# available" as the N95 accepts for READ_IMSI 0x1D / language 0x1F (response id = request id + 1)
+# 09 29 -> 2A is handled dynamically in iscpeer.inl: echo the requested service,
+# then status 24. The former constant service 35 made the 5800's ALS query (37) time out.
+reply 09 31 32 3B 24   # on: n73
+
+
+# ---- 9.3 and later (RAPIDO DSP, 9.3 TSY/SIM start-up): 5730, N79, 5800, N8 ----
+# F3 30 -> 31: 58 bytes for every member (the N8 needs seven entries; the 5730/N79/5800 parser reads
+# the first four at fixed offsets, so the longer reply is a superset) [V on the N8; smoke-tested on all].
+# 5730 (RAPIDO audio): MmfAudioServer's DSP control server asks resource 0xF3 msg 0x30 (header only) and
+# waits for 0x31 with 34 bytes {2 unread, A0..A3, B0..B3 as u32}; nothing is validated, zeros = no DSP
+# memory to map (docs/devices/nokia-5730-rm465/rapido-audio.md). Without it start-up times out.
+# N8: Aamm.dll's 0x31 parser (0x805e8106) reads SEVEN entries [V]: 0..3 as on the 5730 (A at 12..24,
+# B at 28..40), then pairs (44,48), (52,56), (60,64): the message must be 68 bytes (58 payload); with
+# the 5730's 34 it read offset 52 and !CdspControlServer panicked "IsiMessage: OFFSET Invalid -9".
+reply F3 30 31 len=58   # on: 5730 n79 5800 n8
+# 5730 playback-time DSP requests, silent (docs/devices/nokia-5730-rm465/rapido-audio.md "Playback
+# requests (silent)"): each request is ctl 8 -> 0x32/0x33 -> 0x3B/0x3C; no status is checked, but Aamm
+# panics on a sample-rate code outside {2,4,8,..,0x200,0x800,0x1000} (0x33 @14) [V]
+reply F3 32 33 00 00 00 02 02 00   # on: 5730 n79 5800 n8
+reply F3 3B 3C 00 00 00 00   # on: 5730 n79 5800 n8
+# other commands, same pattern [inferred]
+reply F3 3D 3E 00 00 00 00   # on: 5730 n79 5800 n8
+reply F3 3F 40 00 00   # on: 5730 n79 5800 n8
+reply F3 41 42 00 00   # on: 5730 n79 5800 n8
+# 5730 TSY: PN_SIM 0x62 {4D 01 01} after ETel request 40018 (ConnMon, then DosServer's SAE thread wait on
+# it); unanswered, the SIM state was never published and startup.exe never entered its UI phase.
+# No SIM: "service, 0x24 = not available" as the N95/N73 TSYs accept for SIM reads [inferred]
+reply 09 62 63 4D 24   # on: 5730 n79 5800 n8
+# 08 67 -> 08 68 (PN_SECURITY lock info, from NOKIATSY for ETel 22006 = RMobilePhone::GetLockInfo, which
+# sysstart issues in system state 104 and Autolock later). Unanswered, the TSY times the ETel request out
+# after 60 s (-33) and start-up shuts down (117). NOKIATSY 0x3c64 [V]: [10] must be 1 (else -2), [13] != 0
+# -> locked else unlocked, [14] != 0 -> lock enabled else disabled. Unlocked, disabled:
+reply 08 67 68 01 00 00 00 00   # on: 5730 n79 5800 n8
+
+# ---- Symbian^3 (N8) ----
+# F3 34 -> 35 (RAPIDO DSP data written) is answered in code (src/standins/_shared/iscpeer.inl: echo = all
+# taken, after half a ring's play time when aamdaifdriver.ring_units is set: the virtual DSP clock).
+# F3 36 -> 37 (DSP position query, aamdaif.dll via Aamm ord 51 at stream start): u16 @10, u32 @12 unchecked,
+# @16 channels code 0, @18 sample-rate code 0x0200 (Aamm panics on an invalid code) [inferred from the 5730]
+reply F3 36 37 00 00 00 00 00 00 00 00 02 00   # on: n8
+# AUDIO 0B 04 (N8 only so far): MmfAudioServer's !AudioServer thread sends it after the 0B 00 start and
+# dies -2 without an answer (a system-permanent thread; start-up then stalls). Aamm.dll's response
+# dispatch (0x805e75be) [V]: resp 05 -> observer(request 04) OK, 06 = failure; no response data read.
+reply 0B 04 05 00 00   # on: n8
+# AUDIO 0B 5D (N8): sent by the audio server right after the 0B 14 setup; unanswered, the server
+# never reports ready and start-up stalls. Aamm.dll dispatch (0x805e75be) [V]: resp 5E, byte 10
+# = status (non-zero = failure) -> observer(request 5D).
+reply 0B 5D 5E 00 00   # on: n8
+# N8 NOKIATSY: one TSY request sends 09 DE (svc 1, sb 0x0190) + 15 16 + 09 09 (svc 0x97) together
+# (log 60.90 s); the replies to 09 DE and 09 09 finish it. docs/devices/nokia-n8-rm596/isi-unanswered.md
+# 09 DE -> DF, parser nokiatsy 0x80d9bb1e [V]: [10]=svc (!=3), [11]=1 OK, sb 0x0190 (id16 len16 BE) from
+# offset 16: [sb+4]=1, [sb+5]=0 -> result 0 / KErrNone (3 -> result 1; else -2). Meaning of 0 [inferred].
+reply 09 DE DF 01 01 00 00 00 01 01 90 00 08 01 00 00 00   # on: n8
+# 09 09 -> 0A, parser nokiatsy 0x80d9bcac [V]: [10]=svc (not 0x9B: that re-sends 09 09), [11]=status;
+# every status goes on to the follow-up step; 0x20 with svc 0x97 is the branch for this request [inferred meaning].
+reply 09 09 0A 97 20   # on: n8
+# 1C 38 -> 39 (SAServer saaccessoryservice): filter 0x80d7fe7a (msg 39, same tid) [V]; parser 0x80d7f54e/
+# 0x80d7f254 [V]: [17] must be 1 (else -6), u32 BE [12..15] = 1 -> state (1,1) = no accessory [inferred].
+reply 1C 38 39 00 00 00 00 00 01 00 01 00 00   # on: n8
+# N8 haptics (hapticsadaptation.dll for EwSrv's FeedbackPlayerThread, docs/devices/nokia-n8-rm596/
+# isi-unanswered.md "1C 9E"): a failure status ([10]=1: the parser returns -2 at once). Unanswered, every
+# touch feedback waited 3 s for it (KErrTimedOut, thread killed): app starts and screen changes stalled
+# behind it. "OK with an empty Immersion packet" froze the UI (the plugin waits for a packet that never
+# comes) (H-haptics-fail).
+reply 1C 9E 9F 01 00 00 00 00 00 00 00 00 00 00 00   # on: n8
+# RTC 19 19 -> 1A (saserver's alarm service, saalarmservice.dll 0x80d90860..): sent during the security
+# check (~59 s); unanswered, the SIM security check custom command never completes and start-up stays at
+# KPSGlobalSystemState 103 (ESwStateSecurityCheck). Parser [V]: [10] = status; only 1 makes it read
+# subblock 1 (the alarm time) -> status 0 = no alarm set [inferred meaning]: a normal (non-alarm) boot.
+reply 19 19 1A 00 00   # on: n8
+
+# ---- PN_UICC (0x8C), Belle FP2 (701, 808): the TSY (nokiatsy, channel 7) and SAServer (sastartupservice,
+# channel 35) use UICC instead of PN_SIM. Unanswered, the language read (EF_LI via 0C) timed out after
+# 40 s at start-up. Answered as "server up, no card", as the other phones run without a SIM.
+# 03 -> 04 card status: [10] svc C5, [11] 00 OK, [14] card type, [15] nsb, sb 0001 (id16 len16) with the
+# card status at sb+7: 23 = not present. Layout [V] sastartupservice 0x80f3fffc; TSY side and the
+# meaning of 0x23 [I].
+# 00 -> 01 server status: [10] svc B1, [11] 00 OK, [13] 11 = start-up completed [I] (TSY default 10).
+reply 8C 00 01 B1 00 00 11 00 00                           # on: 701
+reply 8C 03 04 C5 00 00 00 00 01 00 01 00 08 00 00 00 23   # on: 701
+
+# ---- C9 24 -> C9 25 (PN_MODEM_CALL? [I]), Belle (N8 111.040, 701, 808): nokiatsy (channel 7) sends it for
+# emergencyservice.exe's ETel request (fn 23036) as phoneui starts. Unanswered, the request stayed open and
+# held ETel's flow control, so phoneui's flow-controlled RPhone::SetEmergencyClient (fn 88) blocked its main
+# thread for good. Parser nokiatsy 0x80e8d940 [V]: FindSubBlock(id 8, 8-bit id/len) from offset 12; none ->
+# the pending request completes KErrNone; with one, [sb+2]/[sb+3] cause type/cause map to an error.
+reply C9 24 25 00 00   # on: n8 701 808

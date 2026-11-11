@@ -53,7 +53,7 @@ So 0x3B is the "IMSI equal?" (SIM changed since last boot) query; a proposed nam
 
 ## Proposed stand-in
 
-Canned reply (`devices/nokia-n73-rm132/isi-replies.txt`, format `reply RES REQ RESP payload`):
+Canned reply (`models/nokia-n73-rm132/isi-replies.txt`, format `reply RES REQ RESP payload`):
 
 ```
 reply 09 3B 3C FA 2A                                      # SIM IMSI-equal check: "same SIM" -> DOS 807 (+820=0)

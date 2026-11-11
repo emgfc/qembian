@@ -1,0 +1,30 @@
+# Firmware 011.012 of nokia-n8-rm596 (device model v2: merged over models/nokia-n8-rm596/model.toml). What belongs to this
+# firmware build: its files, identity and addresses. The model is the phone.
+
+[firmware]
+version = "011.012"
+obtain = """
+Flash files of an RM-596 software version, one product combination from the package readme: prd.core.fpsx
+(SOS+CORE + SOS+ROFS1), a prd.rofs2.fpsx language pack and a prd.rofs3.fpsx customer variant (011.012 Europe:
+product 0598980 euro1_dg_uk_ireland = Euro_1 rofs2 + 00.01 rofs3). Put them in
+roms/RM-596/<version>/ (git-ignored) (tools/fw/store.py import DIR files them there).
+"""
+[[firmware.files]]
+role = "core"                              # SOS+CORE + SOS+ROFS1 [V partition names]
+glob = "RM-596_*_prd.core.fpsx"
+
+[[firmware.files]]
+role = "rofs2"                             # language pack
+glob = "RM-596_*_Euro_1_*_prd.rofs2.fpsx"
+
+[[firmware.files]]
+role = "rofs3"                             # customer variant
+glob = "RM-596_*_00.01_*_prd.rofs3.fpsx"   # generic customer variant 00.01
+
+[firmware.identity]                         # filled from the inventory
+sw = { version = "011.012", date = "2010-09-18", type_code = "RM-596" }   # Resource/versions/sw.txt [V]
+langsw = {}
+drivers = []
+
+[firmware.rom]
+user_window_start = 0x80424B40             # EDISP.DLL (probe.py header) [V]

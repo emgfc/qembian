@@ -1,0 +1,38 @@
+# ISI replies for the N-Gage board's NOSDRIVER channels (Q50; -M ngage,isi=THIS FILE).
+# Format: platform/isi/names.txt (reply RES REQ RESP BYTES...: the data after the message id).
+# The N-Gage modem is DCT4, not BB5. Lines marked "BB5" are the N95's answers, used unchanged
+# until an N-Gage client shows it wants something else [I].
+reply 17 08 09 01 01 13 04 01 00                          # BB5: EM op 0x08
+reply 17 0A 0B 01 02 16 04 07 07 15 04 01 00              # BB5: EM battery info
+reply 35 02 03 00 00                                      # BB5: self-test run, status 0 = passed
+reply 35 00 01 00 00                                      # BB5: self-test status 0
+reply 59 01 02 00 00                                      # self-test last step (N95: 59 42 -> 43, any payload) [I]
+reply 3A 05 06 echo                                       # BB5: PN_LIGHT, echo the request with status 0
+reply 15 0B 6E 00 00                                      # BB5: MTC_STARTUP_SYNQ_REQ -> RESP (MTC replies are id + 0x63)
+reply 15 02 65 01 01 00 00                                # BB5: MTC_STATE_QUERY: current NORMAL, target NORMAL
+reply 15 01 64 00 00                                      # BB5: MTC_STATE_REQ -> OK
+reply 15 04 67 00 00                                      # BB5: MTC_POWER_ON_REQ -> OK
+reply 15 12 75 00 00                                      # BB5: MTC_SHUTDOWN_SYNC_REQ -> OK
+reply 09 19 1A 2F 24                                      # BB5: SIM_NETWORK_INFO read (service 2F): data not available
+reply 0A 00 01 00 01 00 04 04 00                          # NET_MODEM_REG_STATUS_GET: [10] 00 OK, [11] 1 sub-block, status at sb+2: 04 = searching [V parser 0x5093b710, table 0x50937f0c] (06 = denied: "SIM card registration failed")
+reply 31 19 1A len=12                                     # GPDS_STATUS_RESP: isimsg reads offsets 10, 11, 20, 21 and a tail from 22 [V]; all 0 [I] ("1A 00 00" made phonetsy panic USER 21, q68)
+reply 1C 10 11 00 00                                      # unknown 1C request, OK [I]
+reply 0B 11 12 06 01 06 08 00 00 00 00 00 00              # audio 0B 11 {06 01} = phonetsy GetHandsfreeMode (IPC 0x2733): subtype 06, exactly 1 sub-block, u16 BE at sb+4 (0x000D = handsfree) [V parser 0x5093d2cc]; 0 = not handsfree [I]
+reply 0B 00 01 01 00                                      # BB5: audio server start, OK
+# Indications (ind UNIT OBJ RES MSG BYTES): sent when that NOSDRIVER unit opens.
+ind 10 4F 15 C0 01 03                                     # MTC_STATE_INFO_IND: NORMAL, START (BB5 modem sends it on subscription) to the DSY's MTC object [I]
+reply 23 04 05 len=18 00 01 01 10                         # BB5: PN_PERMANENT_DATA read
+reply 09 60 61 FA 31                                      # phonetsy SIM query {FA 00}: parser 0x5093e5b4 reads [11]: 30 = TRUE, 31 = FALSE, else -19 [V]; 31 [I] (PIN/lock off)
+ind 9 4E 09 EF 05 08 08                                   # SIM_IND to the DSY (handler 0x50ff9cbc): sae then publishes SIM status 7 [V q79]; bytes [11]=08 [12]=08 [I]
+reply 09 3B 3C FA 2A                                      # DSY SIM IMSI-equal check {FA}: {FA, 2A = equal} (as N73) [I]
+reply 09 3D 3E len=42 FA 01 31 31 32 00 00 00 00 00 39 31 31 # phonetsy SIM emergency numbers {FA 00}: [11] 01 OK, Mid(12,40) = 5 x 8-byte ASCII slots (frame >= 52 or USER 21) [V parser 0x5093eb14]; "112", "911" [I]
+reply 09 21 22 len=38 2C 01                               # phonetsy SIM service {2C}: [10] must be 2C, [11] 01 OK, Mid(12,35) (frame >= 47) [V parser 0x5093de14]; empty name, flag 0 [I]
+ind 9 4E 08 10 02 01                                      # PN_SECURITY 0x10 {02 01} to the DSY (0x50ffa1d4): security event 0x17 = 0, so SA 0x100052F0 = 0 [V]; unsolicited [I]
+reply 09 33 34 len=52 3E 01                               # phonetsy SIM string read {3E}: [10] must be 3E, [11] 01 OK, Mid(12,50) (frame >= 62) [V parser 0x5093dec4]; empty [I]
+reply 1B 02 03 echo                                       # phonetsy product-profile read: [10] status 00, [11] sub-block count, value at sb+5 [V parser 0x5093dc2c]; the request's sub-block echoed [I]
+reply 1F 01 03 00 00                                      # SoundDevice.mda tone play: 1F 03 with [10] != 14 = finished [V receiver 0x505ae7f8; meaning I]
+reply 1F 04 06 0D 00                                      # SoundDevice.mda tone stop: 1F 06 with [10] = 0D = stopped [V receiver; meaning I]
+reply 09 31 32 len=13 3B 01                               # phonetsy ReadSimAlsLine {3B 00 00}: [11] status, Mid(13,10) for 01 (frame >= 23), data[5] bit 7 clear -> ALS value 3, KErrNone [V parser 0x5093e208]
+reply 09 13 14 len=7 11 01                                # phonetsy SIM service table {11}: [11] 01 OK (else MenuEng blocks), Mid(12,5) = GSM SST (frame >= 17) [V parser 0x5093ee54]; no services [I]
+reply 02 0B 0C 00 00                                      # phonetsy SMS (obj 4C) 02 0B: [10] cause 00 = OK [V handler 0x50947bbc]
+reply 02 14 15 00 00                                      # phonetsy SMS (obj 4C) 02 14 {01 00}: [10] = parameter set count; 0 [I, branch 0x509470ec not traced]

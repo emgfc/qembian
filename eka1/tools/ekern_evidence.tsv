@@ -1,0 +1,91 @@
+# ordinal	gcc name (prefix up to the class/args)	evidence (ARM ekern.exe, RH-29 V 04.10)
+43	ChannelFind__4Kern	calls Find helper 0x5033fbf4 with container 0x800003b4
+44	ChannelFromHandle__4Kern	tail-calls checked lookup 0x5033e108 with container 0x800003b4
+45	Channels__4Kern	returns [0x800003b4]
+46	CheckForSlowOpening__15DPhysicalDevice	returns 0, in the DPhysicalDevice code block (0x50335f2x)
+49	ChunkFind__4Kern	Find helper, container 0x800003a0
+50	ChunkFromHandle__4Kern	checked lookup, container 0x800003a0
+51	Chunks__4Kern	returns [0x800003a0]
+165	IsAvailable__C14DLogicalDevice	returns 1, DLogicalDevice block (0x503326xx); pair of 166
+166	IsAvailable__C15DPhysicalDevice	returns 1, DPhysicalDevice block (0x50335fxx)
+187	Libraries__4Kern	returns [0x800003c4]
+188	LibraryFind__4Kern	Find helper, container 0x800003c4
+189	LibraryFromHandle__4Kern	checked lookup, container 0x800003c4
+207	LogicalDeviceFind__4Kern	Find helper, container 0x800003ac
+208	LogicalDeviceFromHandle__4Kern	checked lookup, container 0x800003ac
+209	LogicalDevices__4Kern	returns [0x800003ac]
+244	MutexFind__4Kern	Find helper, container 0x800003a8
+245	MutexFromHandle__4Kern	checked lookup, container 0x800003a8
+266	PhysicalDeviceFind__4Kern	Find helper, container 0x800003b0
+268	PhysicalDeviceFromHandle__4Kern	checked lookup, container 0x800003b0
+270	PhysicalDevices__4Kern	returns [0x800003b0]
+292	ProcessFind__4Kern	Find helper, container 0x80000398
+293	ProcessFromHandle__4Kern	checked lookup, container 0x80000398
+294	Processes__4Kern	returns [0x80000398]
+303	QueryVersionSupported__C14DLogicalDevice	this+20 (iVersion) tail-call to version compare, LDD block; pair of 304
+304	QueryVersionSupported__C15DPhysicalDevice	same, PDD block
+323	Remove__14DLogicalDevice	returns 0, LDD block; pair of 324
+324	Remove__15DPhysicalDevice	returns 0, PDD block
+338	SemaphoreFind__4Kern	Find helper, container 0x800003a4
+339	SemaphoreFromHandle__4Kern	checked lookup, container 0x800003a4
+341	ServerFind__4Kern	Find helper, container 0x800003b8
+342	ServerFromHandle__4Kern	checked lookup, container 0x800003b8
+343	SessionFromHandle__4Kern	checked lookup, container 0x800003bc
+440	ThreadFind__4Kern	Find helper, container 0x8000039c
+441	ThreadFromHandle__4Kern	checked lookup, container 0x8000039c
+443	Threads__4Kern	returns [0x8000039c]
+448	TimerFromHandle__4Kern	checked lookup, container 0x800003c0
+243	MutexCreate__1S	object-create shape (92-byte name buffer, lock 0x5033f570/57c), as 337; next to MutexFind
+299	Protected__C7DThread	returns [this+32] & 8 (DThread flags); System is & 4 (435)
+300	Protected__C8DProcess	returns [this+40] & 8 (DProcess flags); System is & 4 (436)
+305	RaiseException__7DThread	compares this with the current thread (0x5032df40), then [this+92]
+311	Read__7DThreadPCvP5TDes8ii	thread state == 3 else KErrDied (-13); 4 args; as 478-480
+312	Read__7DThreadPCvR5TDes8	same family
+313	Read__7DThreadPCvR6TDes16	same family
+314	Read__C6DChunk	copies from [this+24] (chunk base) + offset; pair of 476
+321	RemovePowerHandler__5Power	power model 0x80006bc4, helper next to AddPowerHandler's
+325	Rename__7DThread	rename shape with the thread container 0x8000039c
+326	Rename__8DProcess	rename shape, as 325
+327	RequestComplete__C7DThread	clears the status pointer, thread state == 3, completes
+337	SemaphoreCreate__1S	object-create shape, as 243; next to SemaphoreFind
+435	System__C7DThread	returns [this+32] & 4
+436	System__C8DProcess	returns [this+40] & 4
+455	TotalSizeInBytes__12DMediaDriver	TInt64 by hidden pointer: copies [this+128..135] to r0
+457	Trap__6TTrapK	saves r4-lr into the TTrap, links it at [current thread+56]
+461	UnTrap__6TTrapK	unlinks [current thread+56], interrupts off
+463	UnlockPowerState__5Power	decrements [power model 0x80006bc4]+4
+471	WaitForAnyRequest__4Kern	current thread's [+92] virtual wait
+472	WaitForRequest__4KernR14TRequestStatus	loops on 471 until [status] != KRequestPending
+473	WaitForRequest__4KernR14TRequestStatusT1	same with two statuses
+476	Write__6DChunk	copies to [this+24] + offset; pair of 314
+478	Write__7DThreadPCvPC6TDesC8ii	state == 3 else KErrDied; as 311-313
+479	Write__7DThreadPCvRC6TDesC8	same family
+480	Write__7DThreadPCvRC7TDesC16	same family
+488	_._14DLogicalDevice	stores vtable 0x50341724 (as ctor 497), tail-calls base dtor 0x5033f9e4
+489	_._15DLogicalChannel	vtable 0x503417f8 (as ctor 498)
+490	_._15DPhysicalDevice	vtable 0x50341824 (as ctor 499)
+497	__14DLogicalDevice	DBase ctor, vtable 0x50341724, TVersion at this+20 (QueryVersionSupported reads it)
+498	__15DLogicalChannelP14DLogicalDevice	stores the device at this+52 and increments its open count
+499	__15DPhysicalDevice	vtable 0x50341824, TVersion at this+20
+502	__17TMediaDrvDescData22TLocalDriveMessageData	copies the 3-word message data, thread from ThreadFromHandle (441)
+504	__4TDfcRC9TCallBack	copies the 2-word TCallBack to this+8
+423	SetTotalSizeInBytes__12DMediaDriver	stores the TInt64 at this+128 (TotalSizeInBytes, 455, reads it); DMediaDriver block 0x503340xx-0x503344xx
+493	__11DPowerModel	DObject-style base ctor 0x5033fd98, vtable 0x503414b8, in the power code block (0x503366xx, AddPowerHandler at 0x50336a34)
+494	__11TSecondLink	clears this+0, timer code block (0x5033dxxx)
+495	__12DMediaDriver	base ctor 0x5033fd98, vtable 0x50341504, DMediaDriver block (0x503340dc)
+# '-' rows: WINS export with no ARM counterpart (the WINS emulator's own entry points)
+-	_E32DeInitialise	slots 491/492 between the dtors and __11DPowerModel are ctor-shaped (store a vtable); WINS emulator entry
+-	_E32ExitProcess	as above
+-	_E32Initialise	as above
+5	AddPowerHandler__5Power	power model [0x80006bc4]->Add(handler) via 0x50336988; RemovePowerHandler (321) uses 0x5033699c
+7	Add__4KernR4TDfc	DFC queue lock 0x5032e430, links the TDfc at 0x80006bb8 if not queued; Cancel (36) unlinks under the same lock
+10	After__6DTimer	DThread::After (11) forwards to it with swapped arguments; DTimer block 0x5033dbxx-dcxx
+11	After__7DThread	[this+96] (the thread's DTimer) -> 10 with (status, interval)
+13	At__11TSecondLink	second-timer queue 0x80006c20 (as Cancel, 33), faults if already queued
+14	At__6DTimer	DThread::At (15) forwards to it with swapped arguments
+15	At__7DThread	[this+96] -> 14
+33	Cancel__11TSecondLink	dequeues from 0x80006c20 (as At, 13)
+34	Cancel__15TInactivityLink	inactivity block 0x5033d7xx-d8xx, next to the ctor (500)
+36	Cancel__4TDfc	DFC queue lock 0x5032e430, unlinks this (as 7)
+38	Cancel__6DTimer	DTimer block, state at this+24, second link at this+60 cancelled via 33
+39	Cancel__9TTickLink	tick queue 0x80006c24

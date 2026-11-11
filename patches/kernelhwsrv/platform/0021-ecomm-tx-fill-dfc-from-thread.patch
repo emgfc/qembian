@@ -1,0 +1,19 @@
+--- a/kernel/eka/drivers/ecomm/d_comm.cpp
++++ b/kernel/eka/drivers/ecomm/d_comm.cpp
+@@ -1022,7 +1022,15 @@
+ 	// if buffer count < threshold, fill from client buffer
+ 	TInt count=TxCount();
+     if (iTxOutstanding && iTxDesPos<iTxBufReq.iLen && count<iTxFillThreshold)
+-		iTxFillDfc.Add();
++		{
++		// also called from thread context: a PDD without a transmit interrupt (Syborg's UART) calls it at
++		// the end of EnableTransmit, which runs in the LDD's DFC as well as in ISRs; TDfc::Add needs an
++		// ISR, an IDFC or the kernel locked (as TxComplete, choose by context)
++		if (NKern::CurrentContext()==NKern::EThread)
++			iTxFillDfc.Enque();
++		else
++			iTxFillDfc.Add();
++		}
+ 	else if (count==0)
+ 		{
+ 		// TX buffer is now empty - see if we need to complete anything

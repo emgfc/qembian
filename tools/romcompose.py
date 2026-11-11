@@ -141,7 +141,7 @@ def main():
     ap.add_argument('--keep-ours', action='append', default=[])
     ap.add_argument('--secondary', default='sys/bin/efile.exe')
     ap.add_argument('--file', action='append', default=[], metavar='ROMPATH=LOCAL',
-                    help='add or replace a ROM file (data only), e.g. Sys/Data/ESTARTCOMP.TXT=devices/<id>/ESTARTCOMP.TXT')
+                    help='add or replace a ROM file (data only), e.g. Sys/Data/ESTARTCOMP.TXT=models/<id>/ESTARTCOMP.TXT')
     ap.add_argument('--rofs', action='append', default=[], metavar='IMG',
                     help='ROFS image(s) for the N95 ROFS media (MEDROFS.PDD): first ROFS, then ROFx extension')
     ap.add_argument('--rofs-drives', help='comma list of local drives, one per --rofs image (header version 2, '
@@ -150,6 +150,7 @@ def main():
     ap.add_argument('--exec-personality', help='personality NAME or number from personalities/registry.toml: '
                     'kernel config bits 25..28 (+ bit 29 for sym92)')
     ap.add_argument('--trace', type=lambda x: int(x, 0), help='kernel trace mask word 0 (nk_trace.h bits)')
+    ap.add_argument('--flash-mb', type=int, default=128, help='size of the board flash window <rom>.rofs must fit (board.flash.size_mb)')
     ap.add_argument('--patches', metavar='FILE', action='append', default=[],
                     help='code patch list: "ADDR ORIGHEX NEWHEX  # why" per line; original bytes are verified')
     ap.add_argument('--blob', metavar='ADDR=FILE', action='append', default=[],
@@ -266,8 +267,8 @@ def main():
             table.append((drv, len(blob), len(img)))
             blob += img + b'\xff' * ((-len(img)) % 0x1000)
         rofs_len = len(blob)
-        if rofs_len + 0x1000 > 128 << 20:
-            raise SystemExit('ROFS blob 0x%x does not fit the 128 MB flash window' % rofs_len)
+        if rofs_len + 0x1000 > a.flash_mb << 20:
+            raise SystemExit('ROFS blob 0x%x does not fit the %d MB flash window (board.flash.size_mb)' % (rofs_len, a.flash_mb))
         hdr = bytearray(0x1000)
         struct.pack_into('<8sIII', hdr, 0, b'SYBROFS\0', rofs_len, 2, len(table))
         for i, t in enumerate(table):
@@ -288,8 +289,8 @@ def main():
                     raise SystemExit('%s: iMaxImageSize smaller than image' % path)
                 blob += b'\xff' * (mx - len(img))
         rofs_len = len(blob)
-        if rofs_len + 0x1000 > 128 << 20:
-            raise SystemExit('ROFS blob 0x%x does not fit the 128 MB flash window' % rofs_len)
+        if rofs_len + 0x1000 > a.flash_mb << 20:
+            raise SystemExit('ROFS blob 0x%x does not fit the %d MB flash window (board.flash.size_mb)' % (rofs_len, a.flash_mb))
         hdr = bytearray(0x1000)
         struct.pack_into('<8sI', hdr, 0, b'SYBROFS\0', rofs_len)
         with open(a.out + '.rofs', 'wb') as f:
@@ -314,6 +315,14 @@ def main():
         put(156, nrom.kernlimit)   # iKernelLimit
         print('kernel limit 0x%08x -> 0x%08x (the firmware\'s: %d fixed processes: %s)' % (
             orom.kernlimit, nrom.kernlimit, len(fixed), ', '.join(f['path'].split('/')[-1] for f in fixed)))
+    # the user side's DLL data area is the firmware's (our kernel-side ROM has none): the flexible model
+    # (Symbian^3, N8) reserves it at iUserDataAddress-iTotalUserDataSize and asserts the address is
+    # KUserLocalDataEnd (0x7f000000); the multiple model's ROMs carry 0x40000000 on both sides
+    if (orom.userdata, orom.userdatasize) != (nrom.userdata, nrom.userdatasize):
+        put(220, nrom.userdata)        # iUserDataAddress
+        put(224, nrom.userdatasize)    # iTotalUserDataSize
+        print('user data 0x%08x+0x%x -> 0x%08x+0x%x (the firmware\'s)' % (orom.userdata, orom.userdatasize,
+                                                                         nrom.userdata, nrom.userdatasize))
     put(148, rootlist_at)          # iRomRootDirectoryList
     put(164, eaddr[sec[0]])        # iSecondaryFile (TRomEntry)
     put(188, est_at)               # iRomExceptionSearchTable

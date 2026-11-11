@@ -1,0 +1,355 @@
+# Nokia 808 PureView (RM-807): Symbian Belle FP2, firmware 113.010.1508, BB5 modem, 4" 640x360 AMOLED
+# capacitive touch screen, 1.3 GHz ARM11, Broadcom BCM2763 (VideoCore IV), 512 MB RAM, 41 MP camera, NFC.
+# Seeded from the 701 (same Belle FP2 software line, itself seeded from the N8); [N8] = taken over and not
+# yet checked on this phone.
+schema = 2
+family = "bb5-s60"                         # platform/families/bb5-s60.toml, merged under this file
+
+[device]
+id = "nokia-808-rm807"
+vendor = "Nokia"
+model = "808 PureView"
+type_code = "RM-807"
+aliases = ["808"]
+market = "europe"
+
+[platform]
+os_version = "symbian3"
+ui = "symbian3"                            # Nokia Belle FP2
+personality = "sym102"                     # [V] Belle FP2 numbering (personalities/sym102)
+soc = "rapido"                             # [N8] ARM11 + Broadcom BCM2763 (VideoCore IV) [I spec]
+
+[firmware]
+default = "113.010.1508"                   # models/nokia-808-rm807/firmware/<name>/: the firmware a bare id loads
+sdk_lib = "~/work/Nokia_Symbian3_SDK_v1.0/epoc32/release/armv5/lib"   # import-library ordinals for syb_sym names
+container = "fiasco-bb5"
+
+[firmware.rom]
+base = 0x80000000                          # [V] multiple memory model
+kernel_data = 0xC8000000
+memory_model = "flexible"                  # baseport syborgfx (flexible + ARM1176) [V probe.py: DLL data at 0x7f000000]
+paged = true
+
+# ---------------------------------------------------------------------------------------------
+[board]
+cpu = "arm1176"                            # ARMv6K: EUSER reads TPIDRURW (mrc p15,0,r,c13,c0,2) [V]
+ram_mb = 548                               # 512 MB on the phone + the unpaged core image (as the 701, 5730)
+ram_mb_real = 512
+
+[board.display]
+width = 360                                # wsini.ini SCR_WIDTH1/HEIGHT1 = 360x640 at rotation 0 [V]
+height = 640
+native_orientation = "portrait"            # rotation 0 in wsini: a portrait panel [I]
+line_pitch = 1440                          # 360 x 4 bytes [I]
+panel_rows = 640
+caps_words = 27                            # [5800] not checked for the N8's client yet
+touch = true                               # capacitive multitouch (synaptics.dll + exyin.dll); single touch for now
+
+[gl.host]                                  # syborg-gl settings for this phone (docs/devices.md "[gl.host]")
+msaa = 8                                   # OpenVG anti-aliasing samples: 0, 2, 4, 8, 16 (runtime: sydb gl set msaa=4)
+filter = "auto"                            # image sampling: auto (VG image quality), nearest, linear
+compose = "host"                           # host: composition/presentation on the GPU; guest: fallback copies
+
+[board.audio]
+dsp = "rapido"                             # RAPIDO DSP model: aamdaifdriver + the ISC peer's F3 replies
+ring_units = 16                            # DSP ring per stream (docs/devices/nokia-n8-rm596/rapido-audio.md)
+
+
+[board.flash]
+size_mb = 256                              # board.flash: the flash window medrofs serves the ROFS images from   # ROFS1 99 MB + ROFS2 44 MB [V]
+[[board.drives]]
+letter = "D"
+local_drive = 0
+kind = "iram"
+flags = "FS_FORMAT_COLD,FS_SYNC_DRIVE"
+
+[[board.drives]]
+letter = "C"
+local_drive = 1
+kind = "nvmem"
+image = "nvmemory.img"
+size = "64M"
+flags = "FS_FORMAT_CORRUPT,FS_SCANDRIVE"
+
+[[board.drives]]
+letter = "E"
+local_drive = 2
+kind = "nvmem2"
+image = "nvmemory2.img"
+size = "8G"         # the memory card (sparse image; the phone formats a new one at first boot)
+removable = true
+flags = "FS_FORMAT_CORRUPT,FS_SCANDRIVE"
+
+[[board.drives]]
+letter = "Z"
+local_drive = 9                            # ROFS1 (ESTARTCOMP "Z: 9 EROFS ROFS 0 FS_COMPOSITE" x3) [V]
+kind = "composite"
+flags = "FS_COMPOSITE"
+
+[[board.drives]]
+letter = "Z"
+local_drive = 10                           # ROFS2
+kind = "composite"
+flags = "FS_COMPOSITE"
+
+[[board.drives]]
+letter = "Z"
+local_drive = 11                           # ROFS3
+kind = "composite"
+flags = "FS_COMPOSITE"
+
+# ---------------------------------------------------------------------------------------------
+[board.accelerometer]                      # QEMU syborg-sensor (src/qemu-syborg/hw/arm/syborg_sensor.c)
+info = "00=1d3b0203,08=020028006400,14=0200d0070800401f0800,2a=0d00,68=01000000,7e=05"  # driver information block (channel control 0) [V N8 accssy]:
+                                           # +0x00 chip id, one of the firmware's cenrep 20000585 keys 10/4010/8010
+                                           # (0x03023B1D "LIS302DL in address 1D"; no match: Leave -1 at 0x80b72d22);
+                                           # +0x2a channel bits: 0 XYZ, 2 the second channel, 3 a table (count at
+                                           # +0x68, 28-byte entries; entry 0 byte +0x7e bits 0/2 = the third/fourth
+                                           # channel). All four must register: the server rejects a list missing any
+                                           # static channel of accssy's ECom resource (sizes stay 0, open -> -1).
+                                           # +0x14 range table: u16 count, then u16 (range mg, scale bits) pairs; each
+                                           # pair of cenrep 20000585 keys 1001/1002, 1013/1014 (2000/8, 8000/8: the
+                                           # LIS302DL's 2 g / 8 g) must be in it, else Leave -20 at 0x80b743cc.
+                                           # +0x08 data-rate table: u16 count, u16 rates from +0x0a; each rate of keys
+                                           # 1401/1412 (40, 100 Hz) must be in it, else Leave -20 at 0x80b7447c.
+                                           # Other fields not decoded (zeros) [I]
+
+[hardware]
+wlan = true                                # wlanldd/wlanpdd in the core [V]
+bluetooth = true
+camera = { main_mp = 41, front = true, key = "two-stage" }   # 41 MP [I spec]; key [N8]
+fm_radio = true
+gps = true                                 # [I spec]
+accelerometer = true                       # accelerometerldd/pdd [V]
+slides = []                                # touch-screen candybar
+leds = ["keypad-backlight", "display-backlight"]
+memory_card = true
+mass_memory_gb = 16                        # [I spec]
+nfc = true                                 # [I spec]
+tv_out = true                              # [I]
+dsp = "rapido"                             # audio DSP in the RAPIDO baseband [V: aamdaif.dll, F3 ISI]
+gpu = "videocore"                          # BCM2763 VideoCore IV [I spec] (the N8: VideoCore III)
+
+# ---------------------------------------------------------------------------------------------
+[kernel]
+baseport = "syborgfx"                      # flexible memory model + ARM1176 kernel build (tools/baseport_variant.py)
+place = "after-firmware"                   # our kernel side (to 0x8031xxxx) does not fit below the user side (0x80274B50)
+patchsets = ["platform", "sym92", "policy"]
+omit_baseport = ["epointer.dll"]            # Syborg mouse driver: the exyin stand-in owns the pointer device
+missing_drivers = ["bc02.ldd", "medsd.pdd", "tracecoreostldd.ldd",
+                   "audiopipeldd.ldd", "bc02_uart1.pdd", "camldd.ldd", "d_ftrace.ldd",
+                   "ddc_accessldd.ldd", "dvfs_interface.ldd", "ecomm.ldd", "elocd.ldd", "eusbc.ldd",
+                   "khbridge.ldd", "khegl_ldd.ldd", "khmonitor.ldd",
+                   "magnetometerldd.ldd", "magnetometerpdd.pdd", "medint.pdd", "mednand.pdd",
+                   "mobilecrashdriver.ldd", "otgdi.ldd", "pipelib.ldd", "proximityldd.ldd",
+                   "proximitypdd.pdd", "rebootdriver.ldd", "surfacemanagerdriver.ldd", "tcldd.ldd",
+                   "usbaudiodriver.ldd", "usbdi.ldd", "usbhubdriver.ldd", "vcdispmanldd.ldd",
+                   "vcfilesys.ldd", "wlanldd.ldd", "wlanpdd.pdd"]
+
+[kernel.lcd]                               # natively portrait panel: the 5730's LCD HAL build
+target = "lcd_portrait"
+
+[[standins]]
+name = "isaaccessldd"
+kind = "ldd"
+family = "nokia-bb5"
+role = "ISA Access (IADDriver): the fake modem on IscApi channels 0..63 (iscpeer.inl, ISC_ISA_ACCESS)"
+
+[[standins]]
+name = "custom"
+kind = "ldd"
+family = "nokia-bb5"
+role = "startup mode"
+
+[[standins]]
+name = "d_display"
+kind = "ldd"
+family = "nokia-omap2"
+role = "DisplayDriver (board config: 27 caps words, portrait panel, 960-byte stride)"
+# no partial (power save) display mode in the N8's driver: controls 3..5 are not it (Belle's TV-out
+# plugin sends control 3 with 1,0,1,1 and panics the window server on an error) [V: 011.012..111.040 logs]
+config = { partial = 0 }
+
+[[standins]]
+name = "secldd"
+kind = "ldd"
+family = "nokia-bb5"
+role = "SecEnv"
+
+[[standins]]
+name = "lightldd"
+kind = "ldd"
+family = "nokia-bb5"
+role = "backlight LDD"
+
+[[standins]]
+name = "lightpdd"
+kind = "pdd"
+family = "nokia-bb5"
+role = "backlight PDD: load-only"
+
+[[standins]]
+name = "aamdaifdriver"
+kind = "ldd"
+family = "nokia-rapido"
+role = "MdaifDriver (RAPIDO audio): start-up controls 5/2/10/7/6 and the DSP ring of ctl 8, silent (docs/devices/nokia-n8-rm596/rapido-audio.md)"
+# DSP ring per stream = 16 x 10 ms (31 KB at 48 kHz stereo); 0 = no ring (5730/5800 as tested)
+# Belle control numbering [N8 Belle Refresh]: to verify in this phone's boot log
+config = { ctl_map = "0:2,1:5,2:6,3:7,4:8,5:15,6:10,7:11" }
+
+[[standins]]
+name = "usbaudiodriver"
+kind = "ldd"
+family = "common"
+role = "USB audio driver (Lac's USB audio route): channel opens, requests stay pending (no USB audio device)"
+
+[[standins]]
+name = "surfacemanagerdriver"
+kind = "kext-ldd"
+family = "symbian3"
+role = "surface manager (SF graphicshwdrivers/surfacemgr, EPL): GCE surfaces for the window server, EGL and alf"
+
+[[standins]]
+name = "bootprops"
+kind = "kext"
+family = "common"
+role = "P&S values the phone's own hardware components publish at boot"
+# 0x2726BEEF/0 = VideoCore chip type, 0 = VideoCore III (BCM2727): the GLES forwarders (Belle) panic
+# "LibraryLoader::L -1" without it and load khclient_vc3.dll with it [V: libGLESv1_CM.dll 111.040.1511]
+config = { props = "2726beef/0=67109120" }   # 0x04000100: VideoCore IV; sgresource.dll: 0 -> khclient_vc3, >= 0x04000100 (or unset: 0x7fffffff) -> khclient_vc4, in between -> XSgDriver panic -39 [V: sgresource 0x80648a00]
+
+[[standins]]
+name = "exyin"
+kind = "kext"
+family = "common"
+role = "touch-screen digitiser (Nokia exyin.dll) on the Syborg pointer device"
+config = { rotate = 0 }
+
+[[standins]]
+name = "medrofs"
+kind = "extension"
+family = "common"
+role = "ROFS1/2/3 from the flash window on local drives 9/10/11 (header version 2)"
+
+[[standins]]
+name = "mednvmem2"
+kind = "extension"
+family = "common"
+role = "second NVMemory (E:) on local drive 2"
+
+# ---------------------------------------------------------------------------------------------
+[[standins]]
+name = "accelerometer"
+kind = "ldd"
+family = "common"
+role = "accelerometer channel for accssy.dll: the host's syborg-sensor vector (Turn view), docs/devices/nokia-n8-rm596/accelerometer.md"
+
+[[standins]]
+name = "accelerometerpdd"
+file = "accelerometer"
+kind = "pdd"
+family = "common"
+role = "accelerometer.pdd: empty physical device the channel names"
+
+[modem]
+# SIM_IND 09 EF {05 06} for SAStartupService: SAServer asks SIM_STATUS (C0, gets 06 = no SIM) at system
+# state 103 and then waits: send it after that reply, on channel 35 only; the TSY (channel 7) panics on this short layout
+# (docs/devices/nokia-5730-rm465/sim-state.md)
+indications = [{ res = 0x09, msg = 0xEF, data = "05 06", channel = 35, after = "09 C0" }]
+# SIM_STATUS service 01 = SIM lock / autolock: SAStartupService 0x80955ea6 maps 8/9/10/1 to its results
+# 108..111 and leaves anything else (06) unanswered; 01 = OK (no lock) [V branch table, I meaning]
+sim_service_status = { "0x01" = 0x01 }
+
+[rom]
+code_patches = ["code-patches.txt"]        # H-fmradio-none
+files = [{ rom = "Sys/Data/ESTARTCOMP.TXT", local = "ESTARTCOMP.TXT" }]
+
+[gl]
+impl = "none"
+egl_configs = "../nokia-n8-rm596/egl-configs.txt"   # [I] the N8's (no 701/808 to probe)
+[gl.identity]                              # H-gles-identity (not probed on this phone: no device)
+vendor = "Broadcom"                        # [V] Khronos OpenGL ES conformant products (Nokia 701 / 808 PureView)
+renderer = "VideoCore IV HW"               # [V] the same (the N8 is listed as "VideoCore III HW", as its probe says)
+version = "OpenGL ES-CM 1.1"
+extensions = "GL_OES_compressed_ETC1_RGB8_texture GL_OES_compressed_paletted_texture GL_OES_EGL_image"   # [I] the N8's: not in any Symbian partition (it comes from the GPU's own firmware) nor published
+egl_vendor = "Broadcom"
+egl_version = "1.4"
+egl_client_apis = "OpenGL_ES OpenVG"      # [V] eglprobe on the owner's N8
+egl_extensions = ""                        # the phone lists 14 (EGL_KHR_image ... EGL_NOK_window_type_eglwindowbase, eglprobe); none of them is implemented on the host yet (H-egl-extensions)
+gles2_version = "OpenGL ES 2.0"            # [V] Khronos OpenGL ES conformant products (701 / 808 PureView)
+glsl_version = "OpenGL ES GLSL ES 1.00"    # [V] the same
+gles2_extensions = "GL_OES_rgb8_rgba8 GL_OES_depth24 GL_OES_packed_depth_stencil GL_OES_element_index_uint GL_OES_texture_npot GL_OES_standard_derivatives"   # [I] not published
+
+[milestones]
+idle = "sets 101f8766/46 = 104"    # [V] UI phase all done: home screen; Startup sets it, or CherryWatchdog after the first-boot wizard (011.012, 025.007)
+
+[props]
+startup = { category = 0x101F8766, state = 0x41, ui_phase = 0x46 }
+
+[status]
+smoke_skip = { switch-off = "power key opens no power menu (power-key path not brought up on this phone)" }
+level = "L1"                               # wizard (Russian default kept), home screen (2026-11-10)
+updated = "2026-11-10"
+open = ["no FM radio (H-fmradio-none: no Bluetooth HCI)", "off-screen composition (transition effects) not done by gcebe", "PN_UICC 8C 06 unanswered", "choosing another language in the first-boot wizard asks for a restart (not tried)"]
+
+
+# H-startuptone-none: the start-up tone points at a file that does not exist, so the start-up
+# animation does not wait for a tone that silent RAPIDO audio never finishes (as on the 5800)
+[[rom.rofs_patches]]
+image = 2
+path = "private/10202be9/101F8763.txt"
+old = 'Z:\\system\\sounds\\Wakeup tone.aac'
+new = 'Z:\\system\\sounds\\Wakeup none.aac'
+hack = "H-startuptone-none"
+
+# H-bt-ondemand: C32 starts the ESock Bluetooth worker only when a client asks for it; at boot it
+# panicked KERN-EXEC 0 on a Bluetooth transport channel it never opened and took C32Start down
+[[rom.file_edits]]
+path = "private/101F7988/esock_bt.cmi"
+after = "IsSticky=0"
+insert = "OnDemand=1"
+hack = "H-bt-ondemand"
+
+# H-khr: our EGL + OpenVG (src/khr/build.sh) in place of Broadcom's forwarders to the VideoCore client
+[[rom.rofs_replace]]
+image = 1
+path = "sys/bin/libEGL.dll"
+built = "khr/libEGL.dll"
+hack = "H-khr"
+
+[[rom.rofs_replace]]
+image = 1
+path = "sys/bin/libOpenVG.dll"
+built = "khr/libOpenVG.dll"
+hack = "H-khr"
+
+[[rom.rofs_replace]]
+image = 1
+path = "sys/bin/libOpenVGU.dll"
+built = "khr/libOpenVGU.dll"
+hack = "H-khr"
+
+[[rom.rofs_replace]]
+image = 1
+path = "sys/bin/libGLES_CM.dll"
+built = "khr/libGLES_CM.dll"
+hack = "H-khr"
+
+[[rom.rofs_replace]]
+image = 1
+path = "sys/bin/libGLESv1_CM.dll"
+built = "khr/libGLESv1_CM.dll"
+hack = "H-khr"
+
+[[rom.rofs_replace]]
+image = 1
+path = "sys/bin/libGLESv2.dll"
+built = "khr/libGLESv2.dll"
+hack = "H-khr"
+
+[composition]                              # GCE backend: VideoCore's compositionbackend.dll replaced (src/gcebe)
+impl = "gcebe"
+blob_addr = 0x80300000                     # in the freed kernel-side area below the user window (0x804B2B80)
+imports = "composition/imports.txt"        # ROM exports the blob calls
+patches = "composition/gcebe-patches.txt"  # generated by src/gcebe/build.sh (tools/blob_glue.py rebind)
+rebind = ["compositionbackend.dll:1=gcebe_create@gce.dll"]   # vcendpointgceserver keeps the original for now

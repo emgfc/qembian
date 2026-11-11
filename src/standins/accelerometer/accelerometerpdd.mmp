@@ -1,0 +1,11 @@
+// accelerometer.pdd stand-in (empty physical device, see accelerometerpdd.cpp); [[standins]] file = "accelerometer"
+#include "../../variant.mmh"
+#include <kernel/kern_ext.mmh>
+target			VariantTarget(accelerometer,pdd)
+linkas			accelerometer.pdd
+targettype		pdd
+sourcepath		.
+source			accelerometerpdd.cpp
+noexportlibrary
+vendorid		0x70000001
+capability		all

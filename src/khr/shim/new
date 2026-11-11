@@ -1,0 +1,20 @@
+// <new> for the freestanding Symbian build of the Khronos RI (src/khr): placement new, std::bad_alloc.
+// operator new/delete themselves come from the ROM's scppnwdl.dll (Symbian's: return NULL on failure).
+// The placement forms use the SDK's guards (e32cmn.inl) so either may come first.
+#pragma once
+typedef unsigned int size_t;
+namespace std { struct bad_alloc { }; }
+void *operator new(size_t);
+void *operator new[](size_t);
+void operator delete(void *) throw();
+void operator delete[](void *) throw();
+#ifndef __PLACEMENT_NEW_INLINE
+#define __PLACEMENT_NEW_INLINE
+inline void *operator new(size_t, void *p) throw() { return p; }
+inline void operator delete(void *, void *) throw() { }
+#endif
+#ifndef __PLACEMENT_VEC_NEW_INLINE
+#define __PLACEMENT_VEC_NEW_INLINE
+inline void *operator new[](size_t, void *p) throw() { return p; }
+inline void operator delete[](void *, void *) throw() { }
+#endif

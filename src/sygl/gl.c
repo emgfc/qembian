@@ -73,7 +73,8 @@ typedef struct SyCV { float x, y, z, w, r, g, b, a, s, t, fog; } SyCV;		/* clip-
 SyContext* sy_cur(void)
 	{
 	SyThread* t = sy_thread_peek();
-	return t ? t->ctx : 0;
+	/* the current context may be an OpenGL ES 2 one (src/khr/gl2.c): not ours */
+	return t && t->ctx && *(u32*)t->ctx == SY_MAGIC_CONTEXT ? t->ctx : 0;
 	}
 
 void sy_seterr(SyContext* c, int e)

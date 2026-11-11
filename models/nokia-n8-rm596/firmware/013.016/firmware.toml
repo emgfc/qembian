@@ -1,0 +1,36 @@
+# Nokia N8 (RM-596) with firmware 013.016 (Russia; Symbian^3, the update after the launch software
+# 011.012, before Anna 022.x). Same phone as nokia-n8-rm596: every table of that profile is
+# deep-merged under this one; here only what belongs to the firmware version (files, identity,
+# addresses: code patches, ROM layout values).
+# (an overlay of models/nokia-n8-rm596/model.toml; device model v2)
+
+[device]
+id = "nokia-n8-rm596-v13"
+model = "N8 (013.016 Russia)"
+aliases = []
+notes = "Firmware 013.016, product 0598981 class (Russian rofs2 04.01 + generic rofs3 00.01)."
+
+[firmware]
+version = "013.016"
+obtain = """
+Flash files of RM-596 013.016: prd.core.fpsx, the Russian language pack 04.01 (prd.rofs2.fpsx) and the
+generic customer variant 00.01 (prd.rofs3.fpsx). Put them in roms/RM-596/013.016/ (git-ignored).
+"""
+
+[[firmware.files]]
+role = "core"
+glob = "RM-596_013.016_79.92_prd.core.fpsx"
+
+[[firmware.files]]
+role = "rofs2"
+glob = "RM-596_013.016_04.01_Russian_*_prd.rofs2.fpsx"
+
+[[firmware.files]]
+role = "rofs3"
+glob = "RM-596_013.016_00.01_*_prd.rofs3.fpsx"
+
+[firmware.identity]
+sw = { version = "013.016", date = "2011-01-27", type_code = "RM-596" }   # Resource/versions/sw.txt [V]
+
+[firmware.rom]
+user_window_start = 0x8041F810             # EDISP.DLL (probe.py header) [V]

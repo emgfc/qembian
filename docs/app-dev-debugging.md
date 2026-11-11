@@ -11,7 +11,7 @@ AppTRK revival, raw QEMU gdbstub, or a hybrid? Tags: [verified] = checked in thi
 |---|---|---|---|
 | edit | source in `src/n95apps/<app>` | — | nothing |
 | build | GCC 14 symbianelf / CSL 4.4 + elf2e32 → `.exe` (first exe being set up by another agent) | < 5 s | compiler errors only |
-| deploy | `scripts/n95-drive.sh put c app.exe /sys/bin` with QEMU **off** [verified: tools.md] | < 1 s off-line; live transfer later | nothing |
+| deploy | `scripts/drive.sh put c app.exe /sys/bin` with QEMU **off** [verified: tools.md] | < 1 s off-line; live transfer later | nothing |
 | launch | reboot (~10 s to idle [verified: memory/roadmap]) + navigate the menu by QMP keys, or a guest launcher | < 2 s after boot, 1 command | key scripts + waiting |
 | observe | `serial.log` (RDebug::Print already reaches it [verified: n95-logging.md]), `syb_report.py` (exits, panics, pending IPC), QMP screenshot | report in 1 call | **screenshots** (image tokens) and raw logs (20 k lines per boot [verified: gui-234609]) — always filter |
 | debug | `syb_gdb.py brk/leaves/sample` with kernel DWARF, thread names, user call site at exec stops [verified: tools.md] | one structured probe per iteration | raw gdb transcripts; a probe that misses and needs re-running |
@@ -88,12 +88,12 @@ output, and make the host tool "app-aware". No TRK.
      exit type/reason/category (the kernel already has these in `DThread`; `syb_report.py`
      parses the exit lines from the log [verified: tools.md]).
    - All output as one JSON blob, raw gdb text only in `build/runs/gdb-*.txt`.
-3. **Deploy** while QEMU is off: `scripts/n95-drive.sh put c app.exe /sys/bin` into the
+3. **Deploy** while QEMU is off: `scripts/drive.sh put c app.exe /sys/bin` into the
    persistent C: image (`build/n95/drive-c.img`) [verified: tools.md]. Keep `--keep-drives` for
    scripted runs so the app survives.
 4. **Launch** for tests without a menu entry: a one-off "run this on boot" path is simplest —
    the launcher of phase 2; until then, either the existing N95 file manager via QMP keys
-   (slow, token-hungry) or an autostart via `scripts/n95-drive.sh put c` of a `_reg.rsc` +
+   (slow, token-hungry) or an autostart via `scripts/drive.sh put c` of a `_reg.rsc` +
    menu navigation. Recommended: skip straight to phase 2 for launching.
 
 ### Phase 2 (1–2 days): guest launcher on serial1

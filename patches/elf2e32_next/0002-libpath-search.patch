@@ -1,0 +1,23 @@
+elf2e32_next: the --libpath search never advanced past the first entry (find_first_of from
+position 0 each time, start set to the separator), so a DSO not found in the first directory
+made elf2e32 loop forever (src/khr hit it). Search each ";"-separated entry once.
+Applied by container/Containerfile.modern after 0001.
+
+--- a/src/import_section.cpp	2026-11-07 13:53:37.229878746 +0100
++++ b/src/import_section.cpp	2026-11-07 13:53:37.250884901 +0100
+@@ -72,11 +72,11 @@
+ 	string paths = iOpts->iLibpath;
+ 	string aDSOPath;
+ 	size_t end = 0, start = 0;
+-	while(end != std::string::npos)
++	while(start != std::string::npos)
+     {
+-        end = paths.find_first_of(";");
+-        aDSOPath = paths.substr(start, end);
+-        start = end;
++        end = paths.find_first_of(";", start);
++        aDSOPath = paths.substr(start, end == std::string::npos ? std::string::npos : end - start);
++        start = end == std::string::npos ? end : end + 1;
+         size_t s = aDSOPath.find_first_of("\\");
+         if(s != std::string::npos)
+             aDSOPath += "\\";

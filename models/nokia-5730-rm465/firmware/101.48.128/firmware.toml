@@ -1,0 +1,33 @@
+# Firmware 101.48.128 of nokia-5730-rm465 (device model v2: merged over models/nokia-5730-rm465/model.toml). What belongs to this
+# firmware build: its files, identity and addresses. The model is the phone.
+
+[firmware]
+version = "101.48.128"
+obtain = """
+Flash files of an RM-465 software version: the core .c00 (SOS+CORE demand-paged XIP + SOS+ROFS1) and
+the ROFS2/ROFS3 .v19 files. Put them in roms/RM-465/<version>/ (git-ignored)
+(tools/fw/store.py import DIR files them there).
+"""
+[[firmware.files]]
+role = "core"                              # SOS+CORE (paged, 0xC00 RAPIDO NAND prefix) + SOS+ROFS1
+glob = "rm465_*_prd.c00"
+
+[[firmware.files]]
+role = "rofs2"                             # language pack
+glob = "rm465_*_prdapps.rofs2.v??"
+
+[[firmware.files]]
+role = "rofs3"                             # customer variant
+glob = "rm465_*_prdapps.rofs3.v??"
+
+[firmware.identity]
+sw = { version = "101.48.128", date = "10-06-09", type_code = "RM-465" }      # Resource/versions/sw.txt [V]
+langsw = {}
+drivers = ["wlanldd.ldd", "wlanpdd.pdd"]
+[firmware.identity.sha256]
+"core-flat.img" = "3bbd90c2b0d70893da94906520e817623fff01657726a93c76573d824b6f5155"
+"rofs1.img" = "df4ca0c47b107013fdb69d5284e76577f092d04d25cb3aeb0d3f597437e7627c"
+"rofs2.img" = "ca48ead3f4d70a62f9f5de6770e36d984234204ac147ce1fda65bd230592dd09"
+
+[firmware.rom]
+user_window_start = 0x80274B50             # ecomp.fsy; kernel side is one block below it [V]

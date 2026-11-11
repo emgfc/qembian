@@ -1,0 +1,23 @@
+# ROM exports the gcebe blob calls: <macro> <module> <mangled name | ordinal>. Resolved by
+# tools/blob_glue.py imports against build/roms/nokia-701-rm774/<fw>/symindex.json.
+RDebug_Printf       EUser.dll                _ZN6RDebug6PrintfEPKcz
+User_AllocZ         EUser.dll                _ZN4User6AllocZEi
+User_Free           EUser.dll                _ZN4User4FreeEPv
+User_ReqComplete    EUser.dll                _ZN4User15RequestCompleteERP14TRequestStatusi
+User_FastCounter    EUser.dll                _ZN4User11FastCounterEv
+RArray_Append       EUser.dll                _ZN10RArrayBase6AppendEPKv
+RArray_Reset        EUser.dll                _ZN10RArrayBase5ResetEv
+RChunk_Base         EUser.dll                _ZNK6RChunk4BaseEv
+RHandle_Close       EUser.dll                _ZN11RHandleBase5CloseEv
+HAL_Get             Hal.dll                  _ZN3HAL3GetEN7HALData10TAttributeERi
+SUS_Start           surfaceupdateserver.dll  1
+SM_Ctor             surfacemanager.dll       _ZN15RSurfaceManagerC1Ev
+SM_Open             surfacemanager.dll       _ZN15RSurfaceManager4OpenEv
+SM_Close            surfacemanager.dll       _ZN15RSurfaceManager5CloseEv
+SM_Info             surfacemanager.dll       _ZN15RSurfaceManager11SurfaceInfoERK10TSurfaceIdR8TPckgBufINS_15TSurfaceInfoV01EE
+SM_Map              surfacemanager.dll       _ZN15RSurfaceManager10MapSurfaceERK10TSurfaceIdR6RChunk
+SM_BufOffset        surfacemanager.dll       _ZN15RSurfaceManager15GetBufferOffsetERK10TSurfaceIdiRi
+SM_OpenSurface      surfacemanager.dll       _ZN15RSurfaceManager11OpenSurfaceERK10TSurfaceId
+SM_CloseSurface     surfacemanager.dll       _ZN15RSurfaceManager12CloseSurfaceERK10TSurfaceId
+BLC_DoCreate        EUser.dll                _ZN18RBusLogicalChannel8DoCreateERK7TDesC16RK8TVersioniPS1_PK6TDesC8i
+BLC_DoControl       EUser.dll                _ZN18RBusLogicalChannel9DoControlEiPv

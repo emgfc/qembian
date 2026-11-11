@@ -1,0 +1,68 @@
+# Nokia 701 (RM-774) keys -> EStdKey scan codes -> host keys. Taken over from the N8 (same Belle platform,
+# switch.dll GPIO keys) [N8]: to verify against the 701's own switch.dll table.
+# The N8 has no keypad matrix: Menu, Vol +/-, the lock slider and the two camera stages are GPIO keys of the
+# core ROM's switch.dll, a patchable-constant table at 0x801d1758 (Belle Refresh 111.040.1511), 7-word
+# records {gpio, scan, scan, debounce, ?, idle level, mode}; all mode 0: down on press, up on release [V].
+# The same codes are in 011.012's switch.dll at 0x801b718c [V]. Power is not a GPIO key: ssc.ext sends
+# EStdKeyDevice2 down/up when the modem reports the power key over ISI [V]; our keyboard sends it directly.
+# Camera: 0xAB = full press (Qt::Key_Camera), 0xE2 = half press (Qt::Key_CameraFocus), from the N8's
+# QtGui.dll key table [V]. The lock slider springs back: a momentary EStdKeyDeviceF, not a two-code switch.
+# row/col only place the buttons in the phone window. Host keys: F8 Menu, F4 Power, F11/F12 volume,
+# F13 lock, F14 camera, F15 camera half press.
+schema = 1
+device = "nokia-701-rm774"
+
+[[keys]]
+key = "menu"
+label = "Menu"
+scancode = "EStdKeyApplication0"
+host = ["f8"]
+set1 = 0x42
+group = "front"
+row = 1
+col = 0   # switch.dll record 3 @0x801d17ac: gpio 0x01 -> 0xB4 [V]
+
+[[keys]]
+key = "power"
+label = "Power"
+scancode = "EStdKeyDevice2"
+host = ["f4"]
+set1 = 0x3e
+group = "side"   # ssc.ext @0x80415a84: raw key 0xA6 on the modem's power-key indication [V]
+
+[[keys]]
+key = "lock"
+label = "Lock"
+scancode = "EStdKeyDeviceF"
+host = ["f13"]
+group = "side"   # switch.dll record 2 @0x801d1790: gpio 0x4F -> 0xB3, debounce 100 [V]
+
+[[keys]]
+key = "volup"
+label = "Vol +"
+scancode = "EStdKeyIncVolume"
+host = ["f11"]
+set1 = 0x57
+group = "side"   # switch.dll record 0 @0x801d1758: gpio 0x02 -> 0xA2 [V]
+
+[[keys]]
+key = "voldown"
+label = "Vol -"
+scancode = "EStdKeyDecVolume"
+host = ["f12"]
+set1 = 0x58
+group = "side"   # switch.dll record 1 @0x801d1774: gpio 0x41 -> 0xA3 [V]
+
+[[keys]]
+key = "camera-half"
+label = "Cam ½"
+scancode = "EStdKeyApplication19"
+host = ["f15"]
+group = "side"   # switch.dll record 5 @0x801d17e4: gpio 0x26 -> 0xE2 [V]
+
+[[keys]]
+key = "camera"
+label = "Camera"
+scancode = "EStdKeyDevice7"
+host = ["f14"]
+group = "side"   # switch.dll record 4 @0x801d17c8: gpio 0x24 -> 0xAB [V]; sysap.exe compares 0xAB [V]

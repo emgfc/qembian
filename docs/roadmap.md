@@ -19,6 +19,15 @@ Why this order:
     DOS/SysAp power, accessories)
   - a known-good reference boot to compare against
 
+**Firmware as is (2026-11-10):** the list of every change our build makes to the phone's files, and the
+QEMU device that would replace each (VideoCore/KHRN, RAPIDO DSP, Bluetooth HCI + FM, drive map):
+[rom-as-is.md](rom-as-is.md).
+
+**Other Symbian UIs (2026-11-07):** UIQ 3 phones (Sony Ericsson P990, P1i, M600, W950/W960, Motorola
+Z8/Z10; Symbian 9.1-9.3, EKA2) fit the existing kernel, personalities and tools; they need a new
+modem front end, stand-ins and a firmware container reader. UIQ 2 (P800/P900/P910, EKA1) is out of
+scope. [docs/uiq.md](uiq.md).
+
 ## Option 1 work plan
 
 | Step | Content | Exit criterion |
@@ -60,7 +69,7 @@ shortcut is in [hacks.md](hacks.md).
   startup sequence (Startup.exe / SysAp) has not reached the idle state.
 - Next: find who sets `KPSUidStartup` (0x101F8766) key 0x301 and why the startup app does not
   finish (kernel `SYBPROP:` trace, patch 0004); then why AknIconServer renders SVG icons empty.
-- Tooling added: `tools/pcsample.py` (guest PC sampling), `SYBORG_GDB=1|wait` for
+- Tooling added: `tools/pcsample_hmp.py` (guest PC sampling), `SYBORG_GDB=1|wait` for
   `scripts/hybrid-boot.sh`, `romcompose.py --patches` (verified byte patches), stub control hooks.
 
 **Audio (paused 2026-11-05, owner's call):** QEMU `syborg-audio` device (PCM, tones, MP3/AAC via
@@ -153,3 +162,33 @@ contained but real job. (2) Apply the patches RomPatcher+ would apply at ROM com
 kernel faults in `__magic_address_readdesheader1` from `SessionSendSync` (clients passing small
 integers as descriptor pointers, e.g. TmScanServer, Anykey): worth checking against exec92's IPC
 argument-flag translation.
+
+**Later: host GPU presentation and the rest of the settings (parked 2026-11-08 by the owner).**
+Design and reasons in docs/gpu-host-review.md (sections 2 and 3, status table at the top). In order:
+1. Device side of GL scan-out: the syborg-gl context shared with QEMU's display EGL context, a
+   `gl_scanout` path in syborg-fb behind a property (`syborg-fb.scanout=memory|gl`), a fence per
+   present; check with `-display gtk,gl=on` in a throwaway session (review 2.2).
+2. `-display dbus,gl=on,p2p=on` from the daemon and a DMA-BUF listener in `sydb phone` (a small ctypes
+   EGL helper importing the buffer into a QOpenGLWidget); shared memory stays the fallback
+   (`--screen shm|dbus`) (review 2.3). Screenshots and the guest-visible frame buffer keep working.
+3. Supersampling (`scale` = 2: host surfaces at twice the guest size, guest frame buffer downsampled)
+   for a sharp window at 2x, once step 2 shows frames straight from the GPU (review 2.4).
+4. Remaining settings (review 3.2/3.4): `mipmaps`, `pacing=vsync` (gcebe completes `displayed` on the
+   next vsync), `overlay`, `debug`, `epoch` + `reset`, CAPS/CFG registers and a protocol version,
+   MCP tools `gl_get`/`gl_set`, a Rendering menu in the phone window over the same daemon op.
+5. Only if measurements change: host tessellation, zero-copy uploads, rectangle fast path (review
+   4.1; parked because the guest idles 74% during UI work and libEGL is under 2% of samples), and GPU
+   state in snapshots (review 1.1).
+
+## Open issues reported by the owner (2026-11-08, after manual runs)
+
+Not investigated yet; start each with the `symbian-debugging` skill (unanswered ISI requests first, then
+the IPC trace build to find who waits on whom).
+
+| Where | Symptom [owner] | First step |
+|---|---|---|
+| every N8 firmware (011.012, 013.016, Anna, Belle) | a "widget removed" note at boot: a home-screen widget fails to initialise and the home screen drops it | find which widget (home screen / content publisher logs, `cpserver` IPC results: the IPC trace showed cpserver answering the home screen with -1 several times on Anna) and what its publisher waits for |
+| N8 Belle 111.040.1511 | every home-screen widget shows a loading spinner forever | same publisher path as above; also RES_C9 msg 24 is unanswered on Belle only |
+| N8 Anna 025.007 | opening the menu turns the screen fully black and the phone seems to hang | catch/IPC trace while opening the menu from the seeded home screen; compare with the menu on 011.012 (works) |
+| N95 (oracle, 2026-11-08) | the real phone boots with no abnormal thread exits; qembian has 9 (central repository restart, SplashScreen E32USER-CBase 46, WLAN, USB, Bluetooth SDP/FaxModem, lbdtracker, MobileCrash servers) | docs/real-phone-tracing.md "First real recording": fix them one by one, re-run `tools/oracle.py diff` |
+| 5800, N8 (all S60 5th / Symbian^3 phones) | random UI actions take seconds, e.g. Settings, then any item | likely a request to a driver or server that only completes on a timeout: time the action with the IPC trace, look for requests completing after ~1-3 s or with errors, and for unanswered ISI requests sent at that moment (the 3 s haptics stall, H-haptics-fail, was this kind) |

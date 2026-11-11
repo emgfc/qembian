@@ -1,0 +1,13 @@
+// N8 isaaccessldd.ldd stand-in: ISA Access ("IADDriver") front end of the fake modem (iscpeer.inl)
+#include "../../variant.mmh"
+#include <kernel/kern_ext.mmh>
+target			VariantTarget(isaaccessldd,ldd)
+linkas			isaaccessldd.ldd
+targettype		ldd
+sourcepath		.
+source			isaaccessldd.cpp
+noexportlibrary
+library			PlatformLib	// Interrupt:: for the QEMU modem port (iscpeer.inl)
+vendorid		0x70000001
+capability		all
+userinclude		../_shared	// src/standins/_shared: nokiastub.h, iscpeer.inl, stubcert.h

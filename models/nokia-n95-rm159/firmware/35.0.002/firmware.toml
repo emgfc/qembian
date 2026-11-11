@@ -1,0 +1,21 @@
+# Firmware 35.0.002 of nokia-n95-rm159, written by tools/device.py firmware-add from the ROM store entry RM-159/35.0.002.
+# Merged over models/nokia-n95-rm159/model.toml. Not booted yet unless [status] says so.
+
+[firmware]
+version = "35.0.002"
+
+[[firmware.files]]
+role = "core"
+glob = "RM-159_35.0.002_PR.C0R"
+
+[[firmware.files]]
+role = "rofs2"
+glob = "RM-159_35.0.002_PR.v17"
+
+[firmware.identity]
+sw = { version = "35.0.002", date = "18-11-09", type_code = "RM-159" }
+
+[status]
+level = "L0-untested"
+updated = "2026-11-10"
+open = ["not booted on this firmware yet"]

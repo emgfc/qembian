@@ -35,6 +35,9 @@ for p in patches/qemu-modern/*.patch; do
   basename "$p" >> "$SRC/.syborg-patches"
 done
 cp src/qemu-syborg/hw/arm/syborg*.{c,h} "$SRC/hw/arm/"
+# the host EGL/OpenVG (the Khronos RI built for the host, C++): a static library linked into the device
+scripts/build-syvg.sh > build/logs/syvg-build.log 2>&1 || { tail -20 build/logs/syvg-build.log; exit 1; }
+cp src/syvg/syvg.h "$SRC/hw/arm/"
 grep -q 'config SYBORG' "$SRC/hw/arm/Kconfig" || cat >> "$SRC/hw/arm/Kconfig" <<'EOF'
 
 config SYBORG
@@ -48,13 +51,21 @@ sed -i "/CONFIG_SYBORG/d" "$SRC/hw/arm/meson.build"
 FILES=$(cd src/qemu-syborg/hw/arm && ls syborg*.c | sed "s/.*/'&'/" | paste -sd, -)
 # syborg-audio decodes MP3/AAC with FFmpeg (libavcodec, libswresample from the host);
 # syborg-gl renders with the host GPU through libepoxy (EGL surfaceless + GLES 2)
-sed -i "1a arm_common_ss.add(when: 'CONFIG_SYBORG', if_true: [files($FILES), dependency('libavcodec'), dependency('libavutil'), dependency('libswresample'), dependency('epoxy')])" "$SRC/hw/arm/meson.build"
+sed -i "1a arm_common_ss.add(when: 'CONFIG_SYBORG', if_true: [files($FILES), dependency('libavcodec'), dependency('libavutil'), dependency('libswresample'), dependency('epoxy'), declare_dependency(link_args: ['$ROOT/build/syvg/libsyvg.a', '-lstdc++'])])" "$SRC/hw/arm/meson.build"
 
 mkdir -p "$B/build"
 cd "$B/build"
+# link-time optimisation (cross-unit inlining in the TCG hot paths, a few percent); no TCG plugins
+# (nothing here uses them; their hooks cost in slow paths). docs/perf.md
+OPTS="--enable-lto --disable-plugins"
 if [ ! -f build.ninja ]; then
   "../qemu-$VER/configure" --prefix="$INST" --target-list=arm-softmmu --disable-docs \
-    --disable-werror 2>&1 | tee "$ROOT/build/logs/qemu-modern-configure.log"
+    --disable-werror $OPTS 2>&1 | tee "$ROOT/build/logs/qemu-modern-configure.log"
+  echo "$OPTS" > .syborg-configure
+elif [ "$(cat .syborg-configure 2>/dev/null)" != "$OPTS" ]; then
+  # an existing tree configured with other options: change them in place
+  pyvenv/bin/meson configure -Db_lto=true -Dplugins=false . 2>&1 | tail -3
+  echo "$OPTS" > .syborg-configure
 fi
 ninja 2>&1 | tee "$ROOT/build/logs/qemu-modern-build.log" | grep -E 'error|warning: .*syborg|FAILED' || true
 ninja install > "$ROOT/build/logs/qemu-modern-install.log" 2>&1

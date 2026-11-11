@@ -1,0 +1,12 @@
+// als.ldd stand-in (see als.cpp)
+#include "../../variant.mmh"
+#include <kernel/kern_ext.mmh>
+target			VariantTarget(als,ldd)
+linkas			als.ldd
+targettype		ldd
+sourcepath		.
+source			als.cpp
+noexportlibrary
+vendorid		0x70000001
+capability		all
+userinclude		../_shared

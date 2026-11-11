@@ -1,0 +1,625 @@
+qembian: TLB work for Symbian on ARMv6 (docs/perf.md "QEMU TLB").
+
+- accel/tcg/cputlb.c: per-ASID TLB contexts. An ASID change parks the current softmmu TLB and
+  jump cache (16 slots, LRU) instead of flushing; page invalidations, code-page protection and
+  translation cache flushes reach the parked contexts; any other flush drops them.
+  SYBORG_ASID_TLB=0: off.
+- DACR writes (ARMv6): TLB entries record their short-descriptor domain (ptw.c); only domains
+  whose access level falls are dropped (and the jump cache when code ever ran from them), not the
+  whole TLB. SYBORG_DACR_TRACK=0: off.
+- target/arm/cpu.c: ARMv6 uses 4K target pages like v7 (no tiny pages; XP=1 guests have no 1K
+  subpage permissions; ptw.c warns otherwise). SYBORG_V6_1K_PAGES=1: 1K pages.
+- TB_JMP_CACHE_BITS 12 -> 14.
+
+--- a/accel/tcg/cputlb.c
++++ b/accel/tcg/cputlb.c
+@@ -147,6 +147,13 @@
+     desc->window_max_entries = max_entries;
+ }
+ 
++/* qembian ASID contexts (defined after tlb_reset_dirty) */
++static void asid_ctx_drop_all_locked(CPUState *cpu);
++static uint32_t asid_cur_domains, asid_cur_code_domains;    /* defined with the contexts */
++static void asid_ctx_flush_page_locked(CPUState *cpu, MMUIdxMap idxmap, vaddr page, vaddr mask);
++static void asid_ctx_jmp_clear_page(CPUState *cpu, vaddr page_addr);
++static void asid_ctx_reset_dirty_locked(CPUState *cpu, uintptr_t start, uintptr_t length);
++
+ static void tb_jmp_cache_clear_page(CPUState *cpu, vaddr page_addr)
+ {
+     CPUJumpCache *jc = cpu->tb_jmp_cache;
+@@ -388,6 +395,10 @@
+         int mmu_idx = ctz32(work);
+         tlb_flush_one_mmuidx_locked(cpu, mmu_idx, now);
+     }
++    asid_ctx_drop_all_locked(cpu);      /* qembian: parked address spaces go too */
++    if (all_dirty == 0) {
++        asid_cur_domains = asid_cur_code_domains = 0;   /* every cached index was flushed */
++    }
+ 
+     qemu_spin_unlock(&cpu->neg.tlb.c.lock);
+ 
+@@ -544,6 +555,7 @@
+             tlb_flush_page_locked(cpu, mmu_idx, addr);
+         }
+     }
++    asid_ctx_flush_page_locked(cpu, idxmap, addr, -1);    /* qembian: every ASID */
+     qemu_spin_unlock(&cpu->neg.tlb.c.lock);
+ 
+     /*
+@@ -552,6 +564,8 @@
+      */
+     tb_jmp_cache_clear_page(cpu, addr - TARGET_PAGE_SIZE);
+     tb_jmp_cache_clear_page(cpu, addr);
++    asid_ctx_jmp_clear_page(cpu, addr - TARGET_PAGE_SIZE);
++    asid_ctx_jmp_clear_page(cpu, addr);
+ }
+ 
+ /**
+@@ -734,6 +748,7 @@
+             tlb_flush_range_locked(cpu, mmu_idx, d.addr, d.len, d.bits);
+         }
+     }
++    asid_ctx_drop_all_locked(cpu);      /* qembian: ranges (ARMv8 TLBI) are rare here */
+     qemu_spin_unlock(&cpu->neg.tlb.c.lock);
+ 
+     /*
+@@ -937,9 +952,328 @@
+                                          start, length);
+         }
+     }
++    asid_ctx_reset_dirty_locked(cpu, start, length);
+     qemu_spin_unlock(&cpu->neg.tlb.c.lock);
+ }
+ 
++/*
++ * qembian: ASID-tagged TLB contexts for ARMv6/v7 short-descriptor guests.
++ *
++ * Without them every change of the ASID (CONTEXTIDR) flushes the whole softmmu TLB and the jump
++ * cache: on Symbian, where every client/server IPC switches address space, QEMU then spent most
++ * of its time refilling the TLB and looking translation blocks up in the hash table. (DACR
++ * writes, the other frequent flush, drop only the entries of domains whose access level falls:
++ * tlb_flush_domains.) Instead the
++ * current TLB tables and jump cache are parked under the old ASID and the new ASID's are brought
++ * back (or fresh ones made), like a CPU with an ASID-tagged TLB.
++ * Correctness: guests must invalidate by MVA/ASID when they change a mapping (they must on real
++ * hardware too). Page invalidations are applied to every parked context; any by-mmuidx or range
++ * flush (TLBIALL, TLBIASID, DACR, SCTLR..., memory map changes) drops them all; code-page write
++ * protection (tlb_reset_dirty) is applied to them; a translation cache flush clears their jump
++ * caches. Single vCPU only (the syborg board); SYBORG_ASID_TLB=0 turns it off.
++ */
++#define ASID_CTX_MAX 16
++typedef struct AsidCtx {
++    bool valid;
++    uint64_t key;
++    uint64_t lru;
++    MMUIdxMap dirty;
++    uint32_t domains;                    /* short-descriptor domains its entries came from */
++    uint32_t code_domains;               /* ... of which ever executable (jump cache) */
++    CPUTLBDesc d[NB_MMU_MODES];
++    CPUTLBDescFast f[NB_MMU_MODES];
++    CPUJumpCache *jc;
++} AsidCtx;
++
++static AsidCtx asid_ctx[ASID_CTX_MAX];
++static CPUState *asid_cpu;
++static uint32_t asid_cur_domains;        /* the current context's (see AsidCtx.domains) */
++static uint32_t asid_cur_code_domains;   /* the current context's (see AsidCtx.code_domains) */
++static uint64_t asid_tick;
++static int asid_enabled = -1;
++static uint64_t asid_stat[6];            /* switches, hits, misses, drops, page flushes, evictions */
++
++static void asid_ctx_stats(void)
++{
++    static int64_t last;
++    int64_t now = get_clock_realtime();
++    if (getenv("SYBORG_ASID_TLB_STATS") && now - last > 5000000000LL) {
++        last = now;
++        fprintf(stderr, "asid-tlb: switches %" PRIu64 " hits %" PRIu64 " misses %" PRIu64
++                " drops %" PRIu64 " page flushes %" PRIu64 " evictions %" PRIu64 "\n",
++                asid_stat[0], asid_stat[1], asid_stat[2], asid_stat[3], asid_stat[4], asid_stat[5]);
++    }
++}
++
++static void asid_ctx_free_locked(AsidCtx *c)
++{
++    for (int i = 0; i < NB_MMU_MODES; i++) {
++        g_free(c->f[i].table);          /* whole arrays: index order does not matter here */
++        g_free(c->d[i].fulltlb);
++        c->f[i].table = NULL;
++        c->d[i].fulltlb = NULL;
++    }
++    if (c->jc) {
++        g_free_rcu(c->jc, rcu);
++        c->jc = NULL;
++    }
++    c->valid = false;
++}
++
++static void asid_ctx_drop_all_locked(CPUState *cpu)
++{
++    if (cpu != asid_cpu) {
++        return;
++    }
++    for (int k = 0; k < ASID_CTX_MAX; k++) {
++        if (asid_ctx[k].valid) {
++            asid_ctx_free_locked(&asid_ctx[k]);
++            asid_stat[3]++;
++        }
++    }
++}
++
++static void asid_ctx_flush_page_locked(CPUState *cpu, MMUIdxMap idxmap, vaddr page, vaddr mask)
++{
++    if (cpu != asid_cpu) {
++        return;
++    }
++    for (int k = 0; k < ASID_CTX_MAX; k++) {
++        AsidCtx *c = &asid_ctx[k];
++        if (!c->valid) {
++            continue;
++        }
++        asid_stat[4]++;
++        for (int midx = 0; midx < NB_MMU_MODES; midx++) {
++            if (!((idxmap & c->dirty) >> midx & 1)) {
++                continue;               /* nothing cached in that index */
++            }
++            CPUTLBDesc *d = &c->d[midx];
++            CPUTLBDescFast *f = &c->f[mmuidx_to_fast_index(midx)];   /* f[] is stored reversed */
++            if ((page & d->large_page_mask) == d->large_page_addr) {
++                tlb_mmu_flush_locked(d, f);
++                continue;
++            }
++            uintptr_t i = (page >> TARGET_PAGE_BITS) & (f->mask >> CPU_TLB_ENTRY_BITS);
++            if (tlb_flush_entry_mask_locked(&f->table[i], page, mask)) {
++                d->n_used_entries--;
++            }
++            for (int v = 0; v < CPU_VTLB_SIZE; v++) {
++                if (tlb_flush_entry_mask_locked(&d->vtable[v], page, mask)) {
++                    d->n_used_entries--;
++                }
++            }
++        }
++    }
++}
++
++static void asid_ctx_jmp_clear_page(CPUState *cpu, vaddr page_addr)
++{
++    if (cpu != asid_cpu) {
++        return;
++    }
++    int i0 = tb_jmp_cache_hash_page(page_addr);
++    for (int k = 0; k < ASID_CTX_MAX; k++) {
++        CPUJumpCache *jc = asid_ctx[k].valid ? asid_ctx[k].jc : NULL;
++        for (int i = 0; jc && i < TB_JMP_PAGE_SIZE; i++) {
++            qatomic_set(&jc->array[i0 + i].tb, NULL);
++        }
++    }
++}
++
++static void asid_ctx_reset_dirty_locked(CPUState *cpu, uintptr_t start, uintptr_t length)
++{
++    if (cpu != asid_cpu) {
++        return;
++    }
++    for (int k = 0; k < ASID_CTX_MAX; k++) {
++        AsidCtx *c = &asid_ctx[k];
++        if (!c->valid) {
++            continue;
++        }
++        for (int midx = 0; midx < NB_MMU_MODES; midx++) {
++            if (!(c->dirty >> midx & 1)) {
++                continue;
++            }
++            CPUTLBDesc *desc = &c->d[midx];
++            CPUTLBDescFast *fast = &c->f[mmuidx_to_fast_index(midx)];
++            unsigned int n = tlb_n_entries(fast);
++            for (unsigned int i = 0; i < n; i++) {
++                tlb_reset_dirty_range_locked(&desc->fulltlb[i], &fast->table[i], start, length);
++            }
++            for (unsigned int i = 0; i < CPU_VTLB_SIZE; i++) {
++                tlb_reset_dirty_range_locked(&desc->vfulltlb[i], &desc->vtable[i], start, length);
++            }
++        }
++    }
++}
++
++/* entries of the given domains out of one context's tables */
++static void tlb_drop_domains_locked(CPUTLBDesc *d, CPUTLBDescFast *f, uint32_t domains)
++{
++    size_t n = tlb_n_entries(f);
++    for (size_t i = 0; i < n; i++) {
++        uint8_t dp = d->fulltlb[i].extra.arm.domain_plus1;
++        if (dp && (domains >> (dp - 1) & 1) && !tlb_entry_is_empty(&f->table[i])) {
++            memset(&f->table[i], -1, sizeof(f->table[i]));
++            d->n_used_entries--;
++        }
++    }
++    for (int v = 0; v < CPU_VTLB_SIZE; v++) {
++        uint8_t dp = d->vfulltlb[v].extra.arm.domain_plus1;
++        if (dp && (domains >> (dp - 1) & 1) && !tlb_entry_is_empty(&d->vtable[v])) {
++            memset(&d->vtable[v], -1, sizeof(d->vtable[v]));
++            d->n_used_entries--;            /* as tlb_flush_vtlb_page_mask_locked */
++        }
++    }
++}
++
++/*
++ * qembian: the access to these short-descriptor domains fell (DACR): their entries go from every
++ * context (current and parked), entries of other domains stay. Contexts that never cached such
++ * a domain are skipped (Symbian: unlocking the IPC alias domain costs nothing, locking it drops
++ * the alias pages only).
++ */
++void tlb_flush_domains(CPUState *cpu, uint32_t domains)
++{
++    bool code;
++
++    assert_cpu_is_self(cpu);
++    qemu_spin_lock(&cpu->neg.tlb.c.lock);
++    /*
++     * The jump cache does not consult the TLB on a hit: if code ever ran from one of these
++     * domains in a context (recorded at fill time, kept after the entry is evicted), that
++     * context's jump cache goes too, so the next fetch re-walks and faults like the CPU.
++     */
++    code = asid_cur_code_domains & domains;
++    asid_cur_code_domains &= ~domains;
++    if (asid_cur_domains & domains) {
++        for (int i = 0; i < NB_MMU_MODES; i++) {
++            if (cpu->neg.tlb.c.dirty >> i & 1) {
++                tlb_drop_domains_locked(&cpu->neg.tlb.d[i], cpu_tlb_fast(cpu, i), domains);
++            }
++        }
++        asid_cur_domains &= ~domains;
++    }
++    for (int k = 0; cpu == asid_cpu && k < ASID_CTX_MAX; k++) {
++        AsidCtx *c = &asid_ctx[k];
++        bool pc = c->valid && (c->code_domains & domains);
++        if (!c->valid || !((c->domains | c->code_domains) & domains)) {
++            continue;
++        }
++        for (int i = 0; i < NB_MMU_MODES; i++) {
++            if (c->dirty >> i & 1) {
++                tlb_drop_domains_locked(&c->d[i], &c->f[mmuidx_to_fast_index(i)], domains);
++            }
++        }
++        c->domains &= ~domains;
++        c->code_domains &= ~domains;
++        for (int i = 0; pc && c->jc && i < TB_JMP_CACHE_SIZE; i++) {
++            qatomic_set(&c->jc->array[i].tb, NULL);
++        }
++    }
++    qemu_spin_unlock(&cpu->neg.tlb.c.lock);
++    if (code) {
++        tcg_flush_jmp_cache(cpu);       /* no running code of a domain without access */
++    }
++}
++
++/*
++ * a translation cache flush: parked jump caches may point at freed blocks. Runs from
++ * tb_flush__exclusive_or_serial (no vCPU running), hence without the TLB lock.
++ */
++void tlb_asid_tb_flushed(void)
++{
++    for (int k = 0; k < ASID_CTX_MAX; k++) {
++        CPUJumpCache *jc = asid_ctx[k].valid ? asid_ctx[k].jc : NULL;
++        for (int i = 0; jc && i < TB_JMP_CACHE_SIZE; i++) {
++            qatomic_set(&jc->array[i].tb, NULL);
++        }
++    }
++}
++
++void tlb_asid_switch(CPUState *cpu, uint64_t old_key, uint64_t new_key)
++{
++    if (asid_enabled < 0) {
++        const char *e = getenv("SYBORG_ASID_TLB");
++        asid_enabled = !(e && !strcmp(e, "0"));
++    }
++    assert_cpu_is_self(cpu);
++    if (!asid_enabled || (asid_cpu && asid_cpu != cpu) || !cpu->tb_jmp_cache) {
++        tlb_flush(cpu);
++        return;
++    }
++    asid_cpu = cpu;
++    if (old_key == new_key) {
++        return;
++    }
++    asid_stat[0]++;
++    qemu_spin_lock(&cpu->neg.tlb.c.lock);
++    AsidCtx *n = NULL, *o = NULL;
++    for (int k = 0; k < ASID_CTX_MAX; k++) {
++        AsidCtx *c = &asid_ctx[k];
++        if (c->valid && c->key == new_key) {
++            n = c;
++        } else if (c->valid && c->key == old_key) {
++            asid_ctx_free_locked(c);     /* stale copy of the current one: cannot happen */
++        }
++    }
++    for (int k = 0; k < ASID_CTX_MAX; k++) {    /* a free slot, else the least recently used */
++        AsidCtx *c = &asid_ctx[k];
++        if (c == n) {
++            continue;
++        }
++        if (!c->valid) {
++            o = c;
++            break;
++        }
++        if (!o || c->lru < o->lru) {
++            o = c;
++        }
++    }
++    if (o->valid) {
++        asid_ctx_free_locked(o);
++        asid_stat[5]++;
++    }
++    /* park the current address space */
++    memcpy(o->d, cpu->neg.tlb.d, sizeof(o->d));
++    memcpy(o->f, cpu->neg.tlb.f, sizeof(o->f));
++    o->dirty = cpu->neg.tlb.c.dirty;
++    o->domains = asid_cur_domains;
++    o->code_domains = asid_cur_code_domains;
++    o->jc = cpu->tb_jmp_cache;
++    o->key = old_key;
++    o->lru = ++asid_tick;
++    o->valid = true;
++    if (n) {                                     /* bring the new one back */
++        memcpy(cpu->neg.tlb.d, n->d, sizeof(n->d));
++        memcpy(cpu->neg.tlb.f, n->f, sizeof(n->f));
++        cpu->neg.tlb.c.dirty = n->dirty;
++        asid_cur_domains = n->domains;
++        asid_cur_code_domains = n->code_domains;
++        qatomic_set(&cpu->tb_jmp_cache, n->jc);
++        n->jc = NULL;
++        for (int i = 0; i < NB_MMU_MODES; i++) {   /* the tables are the CPU's now */
++            n->f[i].table = NULL;
++            n->d[i].fulltlb = NULL;
++        }
++        n->valid = false;
++        asid_stat[1]++;
++    } else {                                     /* never seen (or dropped): empty tables */
++        int64_t now = get_clock_realtime();
++        for (int i = 0; i < NB_MMU_MODES; i++) {
++            tlb_mmu_init(&cpu->neg.tlb.d[i], cpu_tlb_fast(cpu, i), now);
++        }
++        cpu->neg.tlb.c.dirty = 0;
++        asid_cur_domains = 0;
++        asid_cur_code_domains = 0;
++        qatomic_set(&cpu->tb_jmp_cache, g_new0(CPUJumpCache, 1));
++        asid_stat[2]++;
++    }
++    qemu_spin_unlock(&cpu->neg.tlb.c.lock);
++    asid_ctx_stats();
++}
++
+ /* Called with tlb_c.lock held */
+ static inline void tlb_set_dirty1_locked(CPUTLBEntry *tlb_entry,
+                                          vaddr addr)
+@@ -1154,6 +1488,15 @@
+      */
+     desc->fulltlb[index] = *full;
+     full = &desc->fulltlb[index];
++    if (full->extra.arm.domain_plus1) {     /* qembian: tlb_flush_domains */
++        uint32_t bit = 1u << (full->extra.arm.domain_plus1 - 1);
++        asid_cur_domains |= bit;
++        if (full->prot & PAGE_EXEC) {
++            /* code from this domain may sit in the jump cache long after this
++               entry is evicted: remembered until a full flush */
++            asid_cur_code_domains |= bit;
++        }
++    }
+     full->xlat_offset = iotlb - addr_page;
+     full->section = section;
+     full->phys_addr = paddr_page;
+--- a/accel/tcg/tb-maint.c
++++ b/accel/tcg/tb-maint.c
+@@ -781,6 +781,7 @@
+     CPU_FOREACH(cpu) {
+         tcg_flush_jmp_cache(cpu);
+     }
++    tlb_asid_tb_flushed();      /* qembian: parked jump caches */
+ 
+     qht_reset_size(&tb_ctx.htable, CODE_GEN_HTABLE_SIZE);
+     tb_remove_all();
+--- a/accel/tcg/tb-jmp-cache.h
++++ b/accel/tcg/tb-jmp-cache.h
+@@ -12,7 +12,7 @@
+ #include "qemu/rcu.h"
+ #include "exec/cpu-common.h"
+ 
+-#define TB_JMP_CACHE_BITS 12
++#define TB_JMP_CACHE_BITS 14     /* qembian: 12 upstream; Symbian kernel + DLL working sets */
+ #define TB_JMP_CACHE_SIZE (1 << TB_JMP_CACHE_BITS)
+ 
+ /*
+--- a/include/exec/cputlb.h
++++ b/include/exec/cputlb.h
+@@ -125,6 +125,15 @@
+  * use one of the other functions for efficiency.
+  */
+ void tlb_flush(CPUState *cpu);
++/*
++ * qembian: a translation context change (ARMv6/v7 short descriptors: the ASID): park the
++ * current TLB and jump cache under @old_key, bring back @new_key's (accel/tcg/cputlb.c);
++ * tlb_asid_tb_flushed after tb_flush.
++ */
++void tlb_asid_switch(CPUState *cpu, uint64_t old_key, uint64_t new_key);
++void tlb_asid_tb_flushed(void);
++/* qembian: drop the entries (every context) whose short-descriptor domain is in @domains */
++void tlb_flush_domains(CPUState *cpu, uint32_t domains);
+ 
+ /**
+  * tlb_flush_all_cpus_synced:
+--- a/include/hw/core/cpu.h
++++ b/include/hw/core/cpu.h
+@@ -266,6 +266,8 @@
+             uint8_t pte_attrs;
+             uint8_t shareability;
+             bool guarded;
++            /* qembian: short-descriptor domain + 1 (0: none), for DACR changes */
++            uint8_t domain_plus1;
+         } arm;
+     } extra;
+ };
+--- a/target/arm/helper.c
++++ b/target/arm/helper.c
+@@ -365,11 +365,58 @@
+     return CP_ACCESS_OK;
+ }
+ 
++/*
++ * qembian: an ASID's TLB context key (tlb_asid_switch): ASID and security state
++ */
++static uint64_t arm_tlb_ctx_key(bool secure, uint32_t asid)
++{
++    return (uint64_t)secure << 8 | (asid & 0xff);
++}
++
++/* access level of a DACR domain field: 0 no access (incl. reserved), 1 client, 2 manager */
++static int dacr_level(uint32_t v)
++{
++    return v == 1 ? 1 : v == 3 ? 2 : 0;
++}
++
+ static void dacr_write(CPUARMState *env, const ARMCPRegInfo *ri, uint64_t value)
+ {
+     ARMCPU *cpu = env_archcpu(env);
++    uint32_t old = raw_read(env, ri);
+ 
++    if (old == value) {
++        return;         /* qembian: unchanged domains change no translation */
++    }
+     raw_write(env, ri, value);
++    static int track = -1;
++    if (track < 0) {
++        const char *e = getenv("SYBORG_DACR_TRACK");
++        track = !(e && !strcmp(e, "0"));
++    }
++    /*
++     * ARMv6 only: an ARMv5 guest (Symbian's moving memory model) changes the DACR on
++     * thread switches and flushes on process switches anyway, so it gains nothing here.
++     */
++    if (track && arm_feature(env, ARM_FEATURE_V6) &&
++        !arm_feature(env, ARM_FEATURE_PMSA) && !extended_addresses_enabled(env)) {
++        /*
++         * qembian: TLB entries carry their domain (ptw.c); only the domains
++         * whose access level drops can make a cached entry too permissive
++         * (more access: missing permissions are re-walked). Symbian's
++         * flexible memory model toggles its IPC alias domain around every
++         * cross-process copy: a flush each time cost most of QEMU's time.
++         */
++        uint32_t drop = 0;
++        for (int d = 0; d < 16; d++) {
++            if (dacr_level((value >> (2 * d)) & 3) < dacr_level((old >> (2 * d)) & 3)) {
++                drop |= 1u << d;
++            }
++        }
++        if (drop) {
++            tlb_flush_domains(CPU(cpu), drop);
++        }
++        return;
++    }
+     tlb_flush(CPU(cpu)); /* Flush TLB as domain not tracked in TLB */
+ }
+ 
+@@ -392,14 +439,20 @@
+ {
+     ARMCPU *cpu = env_archcpu(env);
+ 
+-    if (raw_read(env, ri) != value && !arm_feature(env, ARM_FEATURE_PMSA)
++    uint64_t old = raw_read(env, ri);
++    if (old != value && !arm_feature(env, ARM_FEATURE_PMSA)
+         && !extended_addresses_enabled(env)) {
+         /*
+          * For VMSA (when not using the LPAE long descriptor page table
+-         * format) this register includes the ASID, so do a TLB flush.
+-         * For PMSA it is purely a process ID and no action is needed.
++         * format) this register includes the ASID (bits 7:0): switch TLB
++         * contexts (qembian: tlb_asid_switch parks the old address space's
++         * entries instead of flushing them). PROCID alone changes nothing
++         * the TLB holds. For PMSA it is purely a process ID.
+          */
+-        tlb_flush(CPU(cpu));
++        if ((old ^ value) & 0xff) {
++            bool s = access_secure_reg(env);
++            tlb_asid_switch(CPU(cpu), arm_tlb_ctx_key(s, old), arm_tlb_ctx_key(s, value));
++        }
+     }
+     raw_write(env, ri, value);
+ }
+--- a/target/arm/ptw.c
++++ b/target/arm/ptw.c
+@@ -7,6 +7,7 @@
+  */
+ 
+ #include "qemu/osdep.h"
++#include "qemu/error-report.h"
+ #include "qemu/log.h"
+ #include "qemu/range.h"
+ #include "qemu/main-loop.h"
+@@ -1213,6 +1214,14 @@
+             phys_addr = (desc & 0xfffff000) | (address & 0xfff);
+             ap = (desc >> (4 + ((address >> 9) & 6))) & 3;
+             result->f.lg_page_size = 12;
++            if (TARGET_PAGE_BITS > 10 && ((desc >> 4) & 0xff) != (((desc >> 4) & 3) * 0x55)) {
++                static bool warned;     /* qembian: 4K target pages on ARMv6 (cpu.c) */
++                if (!warned) {
++                    warned = true;
++                    warn_report("arm: 4K page with differing 1K subpage permissions "
++                                "(XP=0 guest): run with SYBORG_V6_1K_PAGES=1");
++                }
++            }
+             break;
+         case 3: /* 1k page, or ARMv6 "extended small (4k) page" */
+             if (type == 1) {
+@@ -1231,6 +1240,14 @@
+             } else {
+                 phys_addr = (desc & 0xfffffc00) | (address & 0x3ff);
+                 result->f.lg_page_size = 10;
++                if (TARGET_PAGE_BITS > 10) {
++                    static bool warned;     /* qembian: see cpu.c */
++                    if (!warned) {
++                        warned = true;
++                        warn_report("arm: 1K tiny page with 4K target pages: "
++                                    "run with SYBORG_V6_1K_PAGES=1");
++                    }
++                }
+             }
+             ap = (desc >> 4) & 3;
+             break;
+@@ -1247,6 +1264,7 @@
+         goto do_fault;
+     }
+     result->f.phys_addr = phys_addr;
++    result->f.extra.arm.domain_plus1 = domain + 1;     /* qembian: DACR changes (helper.c) */
+     return true;
+ do_fault:
+     fi->domain = domain;
+@@ -1404,6 +1422,7 @@
+     result->f.attrs.space = out_space;
+     result->f.attrs.secure = arm_space_is_secure(out_space);
+     result->f.phys_addr = phys_addr;
++    result->f.extra.arm.domain_plus1 = domain + 1;     /* qembian: DACR changes (helper.c) */
+     return true;
+ do_fault:
+     fi->domain = domain;
+--- a/target/arm/cpu.c
++++ b/target/arm/cpu.c
+@@ -2122,12 +2122,19 @@
+ #ifndef CONFIG_USER_ONLY
+     {
+         int pagebits;
+-        if (arm_feature(env, ARM_FEATURE_V7) &&
++        if ((arm_feature(env, ARM_FEATURE_V7) ||
++             (arm_feature(env, ARM_FEATURE_V6) && !getenv("SYBORG_V6_1K_PAGES"))) &&
+             !arm_feature(env, ARM_FEATURE_M) &&
+             !arm_feature(env, ARM_FEATURE_PMSA)) {
+             /*
+              * v7VMSA drops support for the old ARMv5 tiny pages,
+              * so we can use 4K pages.
++             * qembian: so does ARMv6 (no fine page tables); 1K granules
++             * remain only as v5-format subpage permissions, which XP=1
++             * guests (Symbian on ARM11) do not use (ptw.c warns if one
++             * does). 1K target pages broke TB chaining every 1K and made
++             * each 4K page a "large page" whose TLBIMVA flushes the whole
++             * TLB index. SYBORG_V6_1K_PAGES=1 restores 1K pages.
+              */
+             pagebits = 12;
+         } else {

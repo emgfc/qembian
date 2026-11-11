@@ -6,8 +6,10 @@
 # Symbian Foundation mirrors (Mercurial -> git conversions on GitHub).
 git oss.FCL.sf.os.kernelhwsrv          https://github.com/SymbianSource/oss.FCL.sf.os.kernelhwsrv.git          e0036b02d8a5b370c89e7d4245d856de365e330a
 git oss.FCL.sf.adapt.Qemu              https://github.com/SymbianSource/oss.FCL.sf.adapt.Qemu.git              59747f31a442657782b1c58682c9a9e20fe9c495
+git oss.FCL.sf.os.graphics            https://github.com/SymbianSource/oss.FCL.sf.os.graphics.git            ff133bc50e6158bfb08cc093b0f0055321dcde99
 git oss.FCL.interim.SFTools.LinuxBuild https://github.com/SymbianSource/oss.FCL.interim.SFTools.LinuxBuild.git 5da968bda7c82d2e7cb5392a40447a2523eac077
-# Reference only (not used by the build): QEMU forks.
+# Reference only (not used by the build): Symbian^3 alf/uiaccelerator (N8 EGL/OpenVG needs), QEMU forks.
+git oss.FCL.sf.mw.uiaccelerator        https://github.com/SymbianSource/oss.FCL.sf.mw.uiaccelerator.git        773fc5e215e04584c3e00a1b1fa05c5a8c50440a
 git symbian_tools_qemu                 https://github.com/conexport/symbian_tools_qemu.git                     caf09c0cdd9b876e220372427514a63042f098f0
 #
 # Symbian PDK 4.0a (Symbian Foundation release FCL.single.1054, Dec 2010). md5 952939eaf654023ae058e7047f305551 per archive.org metadata.

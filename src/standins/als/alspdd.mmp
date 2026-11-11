@@ -1,0 +1,11 @@
+// als.pdd stand-in (see alspdd.cpp); [[standins]] file = "als"
+#include "../../variant.mmh"
+#include <kernel/kern_ext.mmh>
+target			VariantTarget(als,pdd)
+linkas			als.pdd
+targettype		pdd
+sourcepath		.
+source			alspdd.cpp
+noexportlibrary
+vendorid		0x70000001
+capability		all

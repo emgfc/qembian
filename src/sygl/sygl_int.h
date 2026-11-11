@@ -38,6 +38,7 @@ typedef struct SySurface
 	int hw;				/* rendered by the host GL backend (hw.c): color is a read-back copy */
 	u32 hwId;
 	int hwDirty;		/* host has drawn since the last read-back */
+	int stencil;		/* a stencil buffer (OpenGL ES 2 configs, SYGL_GCE builds) */
 	} SySurface;
 
 struct SyContext;
@@ -64,6 +65,9 @@ typedef struct SyThread
 	int hwDraw;			/* word index of the open SYGL_DRAW, -1 none */
 	SySurface* hwDrawSurf;
 	u32 hwNextId, hwTexGen, hwOwner;
+	/* Symbian^3 EGL front (src/khr/eglmux.cpp): the thread's bound API, which side served its last call */
+	int api;
+	int muxSide;
 	} SyThread;
 
 /* trace of the first EGL calls of each thread with the caller's address (sygl entry points are
@@ -93,6 +97,18 @@ int sy_bitmap_info(void* aBmp, int* aW, int* aH, int* aMode);			/* CFbsBitmap*: 
 int sy_bitmap_copy(void* aBmp, u32* aPix, int aW, int aH, int aToBitmap);	/* 0 ok, -1 unsupported mode */
 void sy_dsa_destroy(SySurface* aS);
 int sy_display_ctl(SyThread* aT, int aFn, void* a1);	/* DisplayDriver DoControl */
+
+#define SY_MAGIC_CONTEXT2 0x53594332u	/* 'SYC2': an OpenGL ES 2 context (src/khr/gl2.c) */
+void* sy_gl2_create(void* aShare, int aApi);	/* SYGL_GCE builds: src/khr/gl2.c; aApi 1 = OpenGL ES 1.1, 2 = ES 2 */
+int sy_gl2_api(const void* aCtx);		/* 1 or 2 */
+int sy_gl2_tex_from_surface(void* aCtx, SySurface* aS, int aRgba);	/* eglBindTexImage: 0 ok */
+void* sy_gl1_proc(const char* aName);	/* eglGetProcAddress (src/khr/gl1.c) */
+void sy_gl2_destroy(void* aCtx);
+void sy_gl2_made_current(void* aCtx, SySurface* aDraw);
+
+/* ---- Symbian^3 window surfaces (src/khr/plat_n8.cpp, SYGL_GCE builds) ---- */
+int sy_gce_window_new(SySurface* aS);	/* 0 ok: aS->dsa = the window context (eglos) */
+void sy_gce_present(SySurface* aS);		/* the frame to the window (host surface, else aS->color) */
 
 /* ---- host GL backend (hw.c, docs/gpu-roadmap.md "Host GL backend") ---- */
 int sy_hw_on(SyThread* aT);								/* 1: the host renders */

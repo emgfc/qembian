@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """kabi (personality sym92): compare the kernel ABI that third-party drivers see on the N95 (its own 9.2 ekern.exe in
-build/devices/<id>/core-flat.img) with our kernel's (ekern.exe in build/devices/<id>/hybrid.img).
+build/roms/<id>/<fw>/core-flat.img) with our kernel's (ekern.exe in build/roms/<id>/<fw>/hybrid.img).
 
 Drivers import ekern by ordinal; the ordinals match (eabi/ekernu.def), so each exported vtable
 (_ZTV...) can be read from both ROMs slot by slot and every entry named through the export tables
@@ -14,7 +14,7 @@ import argparse, bisect, json, os, re, struct, subprocess, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(ROOT, 'tools'))
-import device as devmodel                       # the device's build dir ($SYBORG_DEVICE / devices/default)
+import device as devmodel                       # the device's build dir ($SYBORG_DEVICE / the registry default)
 N95 = devmodel.paths(devmodel.load())['dir']
 DEF = os.path.join(ROOT, 'build', 'epocroot', 'sf', 'os', 'kernelhwsrv', 'kernel', 'eka', 'eabi', 'ekernu.def')
 SYM = os.path.join(ROOT, 'build', 'epocroot', 'epoc32', 'release', 'armv5', 'udeb', '_syborg_ekern.exe.sym')

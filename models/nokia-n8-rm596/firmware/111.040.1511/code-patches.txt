@@ -1,0 +1,7 @@
+# Byte patches for firmware 111.040.1511 (the nokia-n8-rm596 ones; fmradioaudiocontrol.dll at 0x80853218,
+# ConstructL 8 bytes shorter before the leave, the four routing methods unchanged): address  old  new  # why [hack]
+fmradioaudiocontrol.dll+0x13c  fff798ef  c046c046   # fmradioaudiocontrol.dll ConstructL: no leave  [H-fmradio-nosession]
+fmradioaudiocontrol.dll+0x1a2  10b54068  00207047   # fmradioaudiocontrol.dll routing method 1  [H-fmradio-nosession]
+fmradioaudiocontrol.dll+0x1ac  10b54068  00207047   # fmradioaudiocontrol.dll routing method 2 (Lac: slot +0x10)  [H-fmradio-nosession]
+fmradioaudiocontrol.dll+0x1b6  10b54068  00207047   # fmradioaudiocontrol.dll routing method 3  [H-fmradio-nosession]
+fmradioaudiocontrol.dll+0x1c0  10b54068  00207047   # fmradioaudiocontrol.dll routing method 4  [H-fmradio-nosession]

@@ -1,0 +1,28 @@
+Kernel-side SVCs use the native exec table. Kern::HalFunction (and any kernel code that calls an exec through
+SWI) is compiled with this kernel's numbers, but the slow SWI path dispatched it with the current thread's
+table: in a thread of a personality whose numbers differ (Belle FP2, sym102) the exyin stand-in's display
+mode query (HAL group 4 function 23 from inside the digitiser HAL) ran SessionSendSync and panicked fbserv
+KERN-EXEC 0. An SVC whose caller was not in user mode now takes the native table.
+
+--- a/kernel/eka/nkern/arm/vectors.cia
++++ b/kernel/eka/nkern/arm/vectors.cia
+@@ -183,6 +183,8 @@
+ 	asm("b swi_entry_2 ");
+ 	asm("__ExecReturnViaIp: ");
+ 	asm(".word ExecReturnViaIp ");
++	asm("__EpocSlowExecEntries: ");
++	asm(".word EpocSlowExecTable + 12 ");	// the native table's entries (limit and handlers before them)
+ 
+ 	asm("fast_swi_exit: ");
+ #ifdef __CHECK_LOCK_STATE__
+@@ -202,6 +204,10 @@
+ 	asm("mov r10, r11 ");					// r10->scheduler
+ 	asm("ldr r4, [r9, #%a0]" : : "i" _FOFF(NThread,iSlowExecTable));
+ 	asm("mrs r11, spsr ");					// spsr_svc into r11
++	// syborg-pg: an SVC from supervisor mode (kernel code: Kern::HalFunction and the like, compiled with
++	// this kernel's numbering) uses the native table, not the thread's personality table
++	asm("tst r11, #0x0f ");					// caller's mode: user = 0x10
++	asm("ldrne r4, __EpocSlowExecEntries ");
+ 	asm("adr lr, slow_swi_exit ");
+ 	asm("add r6, r4, r12, lsr #6 ");		// r6->dispatch table entry
+ 	asm("ldr r5, [r4, #-12] ");				// r5=limit

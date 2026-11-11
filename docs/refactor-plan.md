@@ -85,9 +85,9 @@ flow for a new phone. Rules:
 
 `tests/device-smoke.sh <id>` (step 0 creates it), on top of sydb:
 1. `sydb start --device-id <id> --seed build/runs/mtc-drives --fresh` (headless); fail if
-   `milestones.idle` is not reached within `expected_idle_s × 1.5` (today ~26 s → 40 s budget; the
-   seeded phone skips the first-boot queries and has reached idle in about 15 s in recent runs —
-   take the measured number from the first green run as the budget).
+   `milestones.idle` is not reached within the budget (2026-11-08: `--budget S` / `SMOKE_BUDGET`,
+   default 90 s; it was `milestones.expected_idle_s` × 1.5 in the profile until the cleanup removed
+   it: boot time belongs to the host, not to the phone).
 2. `sydb screenshot` → not uniformly black.
 3. `sydb key multimedia`, wait 4 s, `sydb wg` shows Carousel focused, screenshot changed, no
    `thread.panic` event for Carousel (GL path, host backend). Repeat once with `--gl soft`
@@ -256,6 +256,8 @@ green; smoke with both backends.
 
 ## Step 11 [L] — stand-in families and the modem state at run time
 
+(2026-11-08: the unread knobs `sim`, `battery_bars`, `mtc_state`, `charger`, `rtc_valid`, `phone_lock`
+were removed from the family; add each back with its code when it gets wired.)
 Files: `[modem]` knobs (`sim`, `battery_bars`, `imei`, `power_off_delay_s`) read by `iscpeer.inl`
 from the platform device/DTB instead of constants, so one `nokiaiscdriver.ldd` build serves every
 BB5 phone; family READMEs in `platform/families/`.

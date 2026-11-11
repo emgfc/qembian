@@ -12,7 +12,10 @@
  *              settings, -global syborg-platform.config=...), DEVICE_ID (NUL-terminated string at +0x800,
  *              -global syborg-platform.device-id=ID, the device profile's id), the device tree blob at
  *              +0x1000, 16 MB window)
- *   0x60000000 flash: 128 MB read-only window, the N95's ROFS partition (stands for its NAND);
+ *   0xc001d000 accelerometer (syborg_sensor.c: gravity vector set by the host, qom-set /machine/sensor accel
+ *              "x,y,z"; no IRQ, the stand-in samples it)
+ *   0x60000000 flash: read-only window, 128 MB unless -global syborg-platform.flash-mb=N (the device
+ *              profile's board.flash.size_mb), the ROFS partitions (stands for the phone's NAND);
  *              filled with -device loader,file=ROFS,addr=0x60000000,force-raw=on (scripts/run-modern.sh
  *              does it for ROM.rofs); read by MEDROFS.PDD, so ROFS takes no RAM as on the phone
  * hostfs/snapshot/virtio/nand/usbtest are not modelled; accesses to them read as zero
@@ -65,6 +68,8 @@ struct SyborgPlatformState {
     uint32_t ram_mb;            /* set by the board from -m */
     char *device_id;            /* device profile id (tools/device.py qemu-args) */
     char *config;               /* stand-in settings: "key=value;..." (tools/device.py qemu-args) */
+    uint32_t flash_mb;          /* size of the read-only flash window at 0x60000000 (board.flash.size_mb) */
+    char *flash_file;           /* its contents (<rom>.rofs); the generic loader caps raw images at the RAM size */
 };
 
 static uint64_t syborg_platform_read(void *opaque, hwaddr offset, unsigned size)
@@ -133,13 +138,15 @@ static void syborg_platform_realize(DeviceState *dev, Error **errp)
     SyborgPlatformState *s = SYBORG_PLATFORM(dev);
 
     memory_region_init_io(&s->iomem, OBJECT(s), &syborg_platform_ops, s,
-                          "syborg-platform", 0x1000000);
+                          "syborg-platform", 0x8000);   /* the 8 pages the bootstrap maps (DTB < 28 KB) */
     sysbus_init_mmio(SYS_BUS_DEVICE(s), &s->iomem);
 }
 
 static const Property syborg_platform_properties[] = {
     DEFINE_PROP_STRING("device-id", SyborgPlatformState, device_id),
     DEFINE_PROP_STRING("config", SyborgPlatformState, config),
+    DEFINE_PROP_UINT32("flash-mb", SyborgPlatformState, flash_mb, 128),
+    DEFINE_PROP_STRING("flash-file", SyborgPlatformState, flash_file),
 };
 
 static void syborg_platform_class_init(ObjectClass *oc, const void *data)
@@ -211,7 +218,12 @@ static void syborg_init(MachineState *machine)
     sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, pic[13]);
 
     /* host GL backend for the guest's GLES rasteriser (syborg_gl.c; -global syborg-gl.backend=off) */
-    sysbus_create_simple(TYPE_SYBORG_GL, 0xc000f000, NULL);
+    {   /* at a stable QOM path for qom-get/qom-set of its settings: /machine/gl */
+        DeviceState *gl = qdev_new(TYPE_SYBORG_GL);
+        object_property_add_child(OBJECT(machine), "gl", OBJECT(gl));
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(gl), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(gl), 0, 0xc000f000);
+    }
 
     for (int i = 0; i < 4; i++) {
         dev = qdev_new(TYPE_SYBORG_SERIAL);
@@ -259,11 +271,55 @@ static void syborg_init(MachineState *machine)
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, 0xc0011000);
 
+    /* the fake BB5 modem (syborg_modem.c): port 0 at 0xc0019000 (IRQ 15), port 1 at 0xc001b000 (IRQ 16);
+       its settings are the platform's board config (modem.*, audio.ring_units) */
+    {
+        DeviceState *modem = qdev_new(TYPE_SYBORG_MODEM);
+        if (plat->config) {
+            qdev_prop_set_string(modem, "config", plat->config);
+        }
+        object_property_add_child(OBJECT(machine), "modem", OBJECT(modem));
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(modem), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(modem), 0, 0xc0019000);
+        sysbus_mmio_map(SYS_BUS_DEVICE(modem), 1, 0xc001b000);
+        sysbus_connect_irq(SYS_BUS_DEVICE(modem), 0, pic[15]);
+        sysbus_connect_irq(SYS_BUS_DEVICE(modem), 1, pic[16]);
+    }
+
+    /* the accelerometer (syborg_sensor.c), after the modem's 4 pages; /machine/sensor for qom-set */
+    {
+        DeviceState *sensor = qdev_new(TYPE_SYBORG_SENSOR);
+        object_property_add_child(OBJECT(machine), "sensor", OBJECT(sensor));
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(sensor), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(sensor), 0, 0xc001d000);
+    }
+
     /* read-only flash window (ROFS partition), outside RAM */
     {
         MemoryRegion *flash = g_new(MemoryRegion, 1);
-        memory_region_init_rom(flash, NULL, "syborg.flash", 128 * MiB, &error_fatal);
+        uint32_t mb = SYBORG_PLATFORM(dev)->flash_mb;   /* -global syborg-platform.flash-mb (<= 1024) */
+        if (mb < 1 || mb > 1024) {
+            error_report("syborg: flash-mb %u out of range (1..1024)", mb);
+            exit(1);
+        }
+        memory_region_init_rom(flash, NULL, "syborg.flash", (uint64_t)mb * MiB, &error_fatal);
         memory_region_add_subregion(sysmem, 0x60000000, flash);
+        const char *ff = SYBORG_PLATFORM(dev)->flash_file;
+        if (ff && *ff) {
+            gchar *data = NULL;
+            gsize len = 0;
+            GError *err = NULL;
+            if (!g_file_get_contents(ff, &data, &len, &err)) {
+                error_report("syborg: flash-file %s: %s", ff, err->message);
+                exit(1);
+            }
+            if (len > (gsize)mb * MiB) {
+                error_report("syborg: flash-file %s is %zu bytes, the flash window %u MB", ff, (size_t)len, mb);
+                exit(1);
+            }
+            memcpy(memory_region_get_ram_ptr(flash), data, len);
+            g_free(data);
+        }
     }
 
     syborg_binfo.ram_size = machine->ram_size;

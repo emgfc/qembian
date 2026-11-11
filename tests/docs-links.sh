@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Every relative markdown link in docs/, devices/, personalities/ and CLAUDE.md resolves.
+# Every relative markdown link in docs/, models/, personalities/, platform/ and CLAUDE.md resolves.
 #   tests/docs-links.sh      (exit 1 and the broken links listed)
 cd "$(dirname "$0")/.."
 python3 - <<'PY'
 import os, re, sys
 bad = 0
-files = ['CLAUDE.md'] + [os.path.join(d, f) for top in ('docs', 'devices', 'personalities', 'platform')
+files = ['CLAUDE.md'] + [os.path.join(d, f) for top in ('docs', 'models', 'personalities', 'platform')
                          for d, _, fs in os.walk(top) for f in fs if f.endswith('.md')]
 for p in files:
     for m in re.finditer(r'\]\(([^)#\s]+)(#[^)]*)?\)', open(p, encoding='utf-8', errors='replace').read()):

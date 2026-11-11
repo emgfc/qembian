@@ -1,0 +1,24 @@
+# Nokia N73 Music Edition (RM-133), firmware 4.0839.42.2.1 (the last N73 release), language pack V05
+# with English. Same platform as nokia-n73-rm132: every table of that profile is deep-merged under this
+# one; here only what belongs to this firmware (files, identity, addresses).
+schema = 2
+extends = "nokia-n73-rm132"
+
+[device]
+id = "nokia-n73-rm133"
+model = "N73 Music Edition"
+type_code = "RM-133"
+aliases = ["n73me"]
+notes = "Firmware 4.0839.42.2.1; language pack V05: English, German, Russian, Bulgarian, Romanian, Ukrainian."
+
+[firmware]
+default = "4.0839.42.2.1"                   # models/nokia-n73-rm133/firmware/<name>/: the firmware a bare id loads
+
+# [[firmware.files]]: the RM-132 globs (core .fpsx + rofx .V??); the layout inside differs and is read by tools/fw/layout.py
+
+[firmware.rom]                             # probe.py header [V]: same model as RM-132, size 0x1500000
+
+[status]
+level = "L1"                               # English UI, idle, menu, Switch off (2026-11-10)
+updated = "2026-11-10"
+open = ["FaxModem.exe panics KERN-EXEC 3", "RES_94 and PN_PHONE_INFO 0x15 unanswered"]

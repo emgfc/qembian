@@ -1,0 +1,97 @@
+# Nokia N8 (RM-596) with N8 Reborn, a custom firmware (2026-09-12) on Belle Refresh 111.040.1511. Modified
+# core image with stock language packs (Euro_2 used) and the Germany customer variant. Extends the stock
+# Belle Refresh profile (personality sym101); here only what belongs to this firmware (files, identity).
+extends = "111.040.1511"                 # another firmware of this model
+
+[device]
+id = "nokia-n8-rm596-reborn"
+model = "N8 (Reborn CFW on Belle Refresh)"
+aliases = []
+notes = "Custom firmware N8 Reborn (core modified, 2026-09-12), Euro_2 rofs2 02.01, Germany rofs3 C14.01."
+
+[firmware]
+store = "RM-596/111.040.1511~reborn-20260912"                   # the ROM store entry (custom firmware of a stock version: tools/fw/store.py)
+version = "111.040.1511-reborn-20260912"
+obtain = """
+The N8 Reborn CFW package (Nokia_N8_Reborn_CFW_20260912.zip: core, rofs2 packs, rofs3 C00/C14, U01 uda).
+Put the files in roms/RM-596/111.040.1511~reborn-20260912/ (git-ignored).
+"""
+
+[[firmware.files]]
+role = "core"
+glob = "RM-596_111.040.1511_79u_prd.core.fpsx"
+
+[[firmware.files]]
+role = "rofs2"
+glob = "RM-596_111.040.1511_02.01_Euro_2_*_prd.rofs2.fpsx"
+
+[[firmware.files]]
+role = "rofs3"
+glob = "RM-596_111.040.1511_C14.01_*_prd.rofs3.fpsx"
+
+[firmware.identity]
+sw = { version = "111.040.1511", date = "2012-07-28", type_code = "RM-596" }   # Resource/versions/sw.txt [V] (the same as stock)
+
+[firmware.identity.sha256]          # sw.txt is stock: the modified images tell this firmware apart
+"core-flat.img" = "438c6d04e44dcda74d2f2ab56248ec4e9a69764f1188467c0257e81e8dccd99c"
+"rofs1.img" = "10160174be72013985f8607d037de63938dd68f40756d661bb8830686f16ee07"
+
+[rom]
+rofs_patches = []   # as Delight's; to check against this firmware
+
+# As Delight, a custom ROFS1 may carry its own kernel drivers for the real phone. On the composite Z: a ROFS file
+# shadows the core image, so its sys/bin/lightpdd.pdd replaced our LightPdd stand-in and the lights
+# service left -5 (lightsaserver, system-permanent: kernel fault 102). Point that entry at our stand-in.
+# (Lists of unnamed tables replace the parent's, so the H-khr entries are repeated.)
+[[rom.rofs_replace]]
+image = 1
+path = "sys/bin/lightpdd.pdd"
+standin = "lightpdd.pdd"
+hack = "H-delight-own-drivers"
+
+[[rom.rofs_replace]]
+image = 1
+path = "sys/bin/libEGL.dll"
+built = "khr/libEGL.dll"
+hack = "H-khr"
+
+[[rom.rofs_replace]]
+image = 1
+path = "sys/bin/libOpenVG.dll"
+built = "khr/libOpenVG.dll"
+hack = "H-khr"
+
+[[rom.rofs_replace]]
+image = 1
+path = "sys/bin/libOpenVGU.dll"
+built = "khr/libOpenVGU.dll"
+hack = "H-khr"
+
+[[rom.rofs_replace]]
+image = 1
+path = "sys/bin/libGLES_CM.dll"
+built = "khr/libGLES_CM.dll"
+hack = "H-khr"
+
+[[rom.rofs_replace]]
+image = 1
+path = "sys/bin/libGLESv1_CM.dll"
+built = "khr/libGLESv1_CM.dll"
+hack = "H-khr"
+
+[[rom.rofs_replace]]
+image = 1
+path = "sys/bin/libGLESv2.dll"
+built = "khr/libGLESv2.dll"
+hack = "H-khr"
+
+# N8 Belle start-up (docs/devices/nokia-n8-rm596/belle-emergency-only.md): sastartupservice raises "SIM not ready"
+# besides "SIM removed" when it first sees status 06 in global state 103 (security check); that late event turned
+# KPSSimStatus 104 into 103 -> EmergencyCallsOnly (105). Seen in an earlier state it raises once and sets its done
+# flag [V Delight 0x80e711a6]. A real modem reports "no SIM" when its SIM server starts, right after SAServer
+# subscribes: send SIM_IND {05 06} on channel 35 at subscription.
+[modem]
+indications = [{ res = 0x09, msg = 0xEF, data = "05 06", channel = 35 }]
+# SIM_STATUS service 01 (SIM lock): the real modem answers {01 24} with no SIM [V real N8 Delight, phonet 2026-11-11], but with
+# 0x24 our start-up stops at the security check (sastartupservice takes its retry path, 0x80e71aa8) [V]; the family
+# value 01 (lock OK) passes. Open: what else the real SIM server sends that makes 0x24 work.

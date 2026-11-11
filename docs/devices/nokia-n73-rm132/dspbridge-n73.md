@@ -1,7 +1,7 @@
 # N73 (RM-132) DSP bridge ("Hwa" 1.1.1071): what differs from the N95 stand-in
 
 Static analysis of the N73 `Sys/Bin/bridgeapi.dll` (XIP, code `0xf8523f58`, 0x5000 bytes, Thumb) and
-`Sys/Bin/Bal.dll` (code `0xf8502178`, 0xb74 bytes) in `build/devices/nokia-n73-rm132/core-flat.img`.
+`Sys/Bin/Bal.dll` (code `0xf8502178`, 0xb74 bytes) in `build/roms/nokia-n73-rm132/<fw>/core-flat.img`.
 Import thunks were resolved against the N73 euser/efsrv export tables + S60 3rd FP1 `.dso` names.
 Mock-level only. Compare with `docs/devices/nokia-n95-8gb-rm320/nokia-dspbridge.md` (N95, "Hwa"
 1.1.1540). Tags: [verified] = seen in the N73 code, [inferred] = best guess.

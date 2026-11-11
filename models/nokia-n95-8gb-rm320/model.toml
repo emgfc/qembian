@@ -1,0 +1,269 @@
+# Nokia N95 8GB (RM-320): the first qembian device profile.
+# Every value below is what the repository uses today; the comment names the file it comes from.
+# Schema: docs/devices.md. Evidence tags: [V] checked against code/firmware, [I] inferred.
+schema = 2
+family = "bb5-s60"                         # platform/families/bb5-s60.toml, merged under this file
+
+[device]
+id = "nokia-n95-8gb-rm320"
+vendor = "Nokia"
+model = "N95 8GB"
+type_code = "RM-320"                       # Nokia type designation (docs/devices/nokia-n95-8gb-rm320/n95-firmware-inventory.md)
+aliases = ["n95-8gb", "n95"]
+market = "global"
+notes = "The RM-321 is the China variant without WLAN: models/nokia-n95-8gb-rm321 extends this one."
+
+[platform]
+os_version = "9.2"                         # Symbian OS 9.2 (docs/roadmap.md)
+ui = "s60-3.1"                             # S60 3rd Edition Feature Pack 1
+personality = "sym92"                      # exec numbering + driver ABI: personalities/sym92 (today personalities/sym92, tools/personality/kabi.py)
+soc = "omap2420"                           # TI OMAP2420, ARM1136 r0p2 (docs/hacks.md H-cpu-arm1136)
+
+# ---------------------------------------------------------------------------------------------
+# Firmware: what to obtain and how it is taken apart. No bytes from it are committed.
+[firmware]
+default = "35.0.001"                   # models/nokia-n95-8gb-rm320/firmware/<name>/: the firmware a bare id loads
+container = "fiasco-bb5"                   # tools/fiasco.py
+
+[firmware.rom]
+base = 0x80000000                          # TRomHeader romBase; same as our Syborg ROM [V]
+kernel_data = 0xC8000000                   # [V] docs/devices/nokia-n95-8gb-rm320/n95-firmware-inventory.md
+memory_model = "multiple"
+paged = true                               # flattened by tools/rom_unpage.py -> core-flat.img
+
+# ---------------------------------------------------------------------------------------------
+# Board: what the one QEMU binary is told at run time (tools/device.py qemu-args).
+[board]
+cpu = "arm1136-r2"                         # mc->default_cpu_type (src/qemu-syborg/hw/arm/syborg.c), patch qemu-baseport 0011
+ram_mb = 168                               # H-ram-168: 128 MB on the phone + unpaged core image (patch qemu-baseport 0010)
+ram_mb_real = 128                          # the phone's own RAM, for the record
+
+[board.display]
+width = 240                                # UI size (wsini.ini; -global syborg-fb.width/height, dtb framebuffer:width/height)
+height = 320
+native_orientation = "landscape"           # panel is 320x240, rotated by the display controller (H-lcd-native-landscape)
+line_pitch = 1280                          # bytes per line at every rotation, as on the device (patch qemu-baseport 0013)
+touch = false                              # S60 3rd: -global syborg-pointer.input=off
+
+[board.audio]
+dsp = "ehwa"                               # DSP bridge stand-in feeds it (H-dspbridge)
+
+[board.gl]
+device = "syborg-gl"                       # 0xc000f000, host EGL/GLES 2 backend (H-gles-host)
+backend = "host"                           # -global syborg-gl.backend=host|off; sydb --gl soft
+
+
+[board.flash]
+size_mb = 128                              # board.flash: the flash window medrofs serves the ROFS images from
+[[board.drives]]
+letter = "D"
+local_drive = 0
+kind = "iram"
+flags = "FS_FORMAT_ALWAYS,FS_SYNC_DRIVE"
+
+[[board.drives]]
+letter = "C"
+local_drive = 1
+kind = "nvmem"                             # syborg-nvmem at 0xc0010000, -drive if=mtd
+image = "nvmemory.img"
+size = "64M"                               # scripts/run-modern.sh NVMEM_SIZE
+flags = "FS_FORMAT_CORRUPT,FS_SCANDRIVE"
+
+[[board.drives]]
+letter = "E"
+local_drive = 2
+kind = "nvmem2"                            # mednvmem2.pdd, second NVMemory at 0xc000d000 (H-mednvmem2)
+image = "nvmemory2.img"
+size = "1G"
+removable = true
+flags = "FS_FORMAT_CORRUPT"
+
+[[board.drives]]
+letter = "Z"
+local_drive = 8
+kind = "composite"                         # ROFS1 + ROFx served by medrofs.pdd
+flags = "FS_COMPOSITE"
+
+# ---------------------------------------------------------------------------------------------
+# Hardware the phone has (presence drives the skin, the stand-in list and the "done" levels).
+[hardware]
+wlan = true                                # RM-320 global; RM-321 (China) = false
+bluetooth = true
+camera = { main_mp = 5, front = true, key = "two-stage" }   # camera untested; CamServerCore needs a stand-in
+fm_radio = true
+gps = true
+accelerometer = true                       # Nokia accelerometerldd/pdd absent; no stand-in yet (docs/phone-skin.md)
+slides = ["keypad", "media"]               # two-way slider; media slide = landscape layout (EKeyDeviceA/B)
+leds = ["keypad-backlight", "display-backlight"]   # SALightsService targets (H-light)
+memory_card = false                        # 8 GB mass memory; E: is modelled as a card anyway
+mass_memory_gb = 8
+tv_out = true                              # d_display TV-out controls return 0 (not modelled)
+dsp = "ti-dsp-bridge"                      # TI DSP/BIOS bridge (ehwa/ehwaomap)
+gpu = "powervr-mbx"                        # replaced by sygl (H-gles-trampolines)
+
+# ---------------------------------------------------------------------------------------------
+# Guest side: what is built per device.
+[kernel]
+baseport = "syborg"                        # patches/qemu-baseport (common) + the macros below
+patchsets = ["platform", "sym92", "policy"]   # see docs/devices.md §4.2 for the split of patches/kernelhwsrv
+missing_drivers = ["keypad.dll", "accelerometerldd.ldd", "accelerometerpdd.pdd", "services.ldd", "omaplcd.ldd"]   # firmware kernel-side files with no stand-in (documented gaps)
+
+[kernel.lcd]                               # macros of the LCD HAL extension (src/standins/lcd/lcd_n95.mmp)
+target = "lcd_n95"
+
+# Kernel-side stand-ins composed into the ROM below the user-side window (generated bld.inf,
+# scripts/build-standins.sh). Order matters: rombuild lays files out in obey order.
+[[standins]]
+name = "nokiaiscdriver"
+kind = "ldd"
+family = "nokia-bb5"
+role = "modem link (ISC channels 0..31), fake CMT peer iscpeer.inl"
+
+[[standins]]
+name = "xbus"
+kind = "ldd"
+family = "nokia-bb5"
+role = "load-only"
+
+[[standins]]
+name = "iscisimultiplexer"
+kind = "ldd"
+family = "nokia-bb5"
+role = "load-only"
+
+[[standins]]
+name = "nokiaiscdriverextension"
+kind = "ldd"
+family = "nokia-bb5"
+role = "modem link (ISC channels 32..63)"
+options = { ISC_CHANNEL_BASE = 32, ISC_LDD_NAME = "NokiaISCDriverExtension" }
+
+[[standins]]
+name = "custom"
+kind = "ldd"
+family = "nokia-bb5"
+role = "startup mode (controls 32/2/1 -> 0 = normal)"
+
+[[standins]]
+name = "sosadlserver"
+kind = "ldd"
+family = "nokia-bb5"
+role = "accepts everything (purpose unknown)"
+
+[[standins]]
+name = "d_display"
+kind = "ldd"
+family = "nokia-omap2"
+role = "DisplayDriver: caps, rotation, partial mode, DSB, vsync wait 0x7f01, sygl command stream 0x7f10/11"
+
+[[standins]]
+name = "secldd"
+kind = "ldd"
+family = "nokia-bb5"
+role = "SecEnv: identity transform + stub device certificate (H-secenv-cert)"
+
+[[standins]]
+name = "ehwa"
+kind = "ldd"
+family = "nokia-omap2"
+role = "TI DSP bridge LDD (H-dspbridge): playback nodes to syborg-audio"
+
+[[standins]]
+name = "ehwaomap"
+kind = "pdd"
+family = "nokia-omap2"
+role = "TI DSP bridge PDD"
+
+[[standins]]
+name = "dvfs_interface"
+kind = "ldd"
+family = "nokia-omap2"
+role = "performance levels: every request completes KErrNone (H-dvfs)"
+
+[[standins]]
+name = "mobilecrashdriver"
+kind = "ldd"
+family = "common"
+role = "MobileCrash driver: no crash data; controls KErrNone, requests stay pending (mc_useragent died KERN-EXEC 0 without it)"
+
+[[standins]]
+name = "lightldd"
+kind = "ldd"
+family = "nokia-bb5"
+role = "backlight LDD: accepts everything (H-lightdrv)"
+
+[[standins]]
+name = "lightpdd"
+kind = "pdd"
+family = "nokia-bb5"
+role = "backlight PDD: load-only"
+
+[[standins]]
+name = "medrofs"
+kind = "extension"
+family = "common"
+role = "ROFS1 + ROFx from the flash window on local drive 8"
+
+[[standins]]
+name = "mednvmem2"
+kind = "extension"
+family = "common"
+role = "second NVMemory (E:) on local drive 2 (patch qemu-baseport 0006)"
+
+
+# ---------------------------------------------------------------------------------------------
+# Fake modem (ISI over ISC). Simple replies are a table; stateful ones are code in the stand-in.
+[modem]
+
+# ---------------------------------------------------------------------------------------------
+# ROM composition (tools/romcompose.py; driven today by scripts/hybrid-boot.sh).
+[rom]
+code_patches = ["code-patches.txt"]        # (H-keysound-nommf, H-splash-behind, H-startuptone-nommf)
+files = [{ rom = "Sys/Data/ESTARTCOMP.TXT", local = "ESTARTCOMP.TXT" }]   # CR LF!
+
+# Named variants of the composed ROM (scripts/compose-exp.sh): same device, different patch set.
+[rom.variants.audio-exp]
+image = "hybrid-exp.img"                   # build/roms/<id>/<fw>/hybrid-exp.img
+omit_patches = ["H-keysound-nommf", "H-startuptone-nommf"]   # MMF works through the DSP stand-in; startup jingle plays
+notes = "ROM of the n95-gui instance (rom_variant = \"audio-exp\"). Key tones through the fake DSP are still being verified."
+
+# ---------------------------------------------------------------------------------------------
+# GL: the phone's libgles_cm.dll entry points are redirected to our GLES 1.1/EGL (sygl).
+[gl]
+impl = "sygl"                              # src/sygl (to become src/sygl), H-gles-blob/-trampolines/-present/-window-fixed
+target_dll = "libgles_cm.dll"
+ordinals = "gl/libgles_cm.ordinals"        # models/nokia-n95-8gb-rm320/gl/libgles_cm.ordinals (from the SDK .dso: names only)
+imports = "gl/n95imports.txt"              # models/nokia-n95-8gb-rm320/gl/n95imports.txt: ROM exports the blob calls
+blob_addr = 0x80320000                     # SYGL_BASE: gap between our files and the user side
+entry_patches = "gl/gles-patches.txt"      # generated by tools/gen-gles-glue.py
+surface_model = "wsegl-strict"             # H-gles-window-fixed: size/position fixed at creation like libpvrTechviewWSEGL
+present = "dsa"                            # H-gles-present
+vsync_request = 0x7f01                     # d_display request completing at the next vsync
+cmd_controls = [0x7f10, 0x7f11]            # d_display -> syborg-gl command stream
+[gl.identity]                              # H-gles-identity: apps pick their render path by these strings
+vendor = "Nokia"
+renderer = "1.2.19.1 HW PowerVR MBX with VGP"
+version = "OpenGL ES-CM 1.1"
+egl_vendor = "Imagination Technologies"
+egl_version = "1.1 build 3.3.33.750.2"
+
+# ---------------------------------------------------------------------------------------------
+# What the tools watch for (sydb daemon, tools/boot_milestones.py, syb_report).
+[milestones]
+idle = "sets 101f8766/41 = 203"            # tools/sydb/daemon.py IDLE_RE: SysAp self-test OK = Active Standby up
+
+
+# ---------------------------------------------------------------------------------------------
+# Phone window (tools/sydb/phone.py). Geometry only; key names refer to keymap.toml.
+[skin]
+layout = "skin.toml"                       # optional; the window falls back to a generic S60 layout from keymap.toml
+orientation_key = "media-slide"            # Landscape button = the media slide (F13/F14)
+
+# Where this device stands (docs/adding-a-device.md "done" levels).
+[props]
+startup = { category = 0x101F8766, state = 0x41, ui_phase = 0x4 }
+
+[status]
+level = "L5-gl"                            # boots to idle, UI usable, telephony offline, GL on host; audio partial; no connectivity
+updated = "2026-11-06"
+open = ["keyguard emergency-number check (CALL 0x28)", "game audio rate", "Carousel landscape under strict EGL", "camera stand-in", "slide/accelerometer stand-ins", "networking"]

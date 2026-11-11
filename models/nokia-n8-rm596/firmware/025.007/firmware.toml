@@ -1,0 +1,40 @@
+# Nokia N8 (RM-596) with firmware 025.007 (Russia; Symbian Anna, product 059G159). Same phone as
+# nokia-n8-rm596: every table of that profile is deep-merged under this one; here only what belongs to
+# the firmware version (files, identity, addresses: code patches, ROM layout values).
+# (an overlay of models/nokia-n8-rm596/model.toml; device model v2)
+
+[device]
+id = "nokia-n8-rm596-v25"
+model = "N8 (025.007 Anna Russia)"
+aliases = []
+notes = "Firmware 025.007 (Symbian Anna), product 059G159 (Russian rofs2 05.01 NO_FMTX + generic rofs3 00.01)."
+
+[firmware]
+version = "025.007"
+obtain = """
+Flash files of RM-596 025.007 (Anna): prd.core.fpsx, the Russian language pack 05.01 (prd.rofs2.fpsx) and the
+generic customer variant 00.01 (prd.rofs3.fpsx). Put them in roms/RM-596/025.007/ (git-ignored).
+"""
+
+[[firmware.files]]
+role = "core"
+glob = "RM-596_025.007_79.92_prd.core.fpsx"
+
+[[firmware.files]]
+role = "rofs2"
+glob = "RM-596_025.007_05.01_Russian_*_prd.rofs2.fpsx"
+
+[[firmware.files]]
+role = "rofs3"
+glob = "RM-596_025.007_00.01_*_prd.rofs3.fpsx"
+
+[firmware.identity]
+sw = { version = "025.007", date = "2011-09-16", type_code = "RM-596" }   # Resource/versions/sw.txt [V]
+
+[firmware.rom]
+user_window_start = 0x8041C5D0             # EDISP.DLL (probe.py header) [V]
+
+[status]
+level = "L1"                               # wizard, home screen, menu, agent (2026-11-08)
+updated = "2026-11-08"
+open = ["opening the menu turns the screen black, phone seems to hang (owner)", "power key: no power menu"]

@@ -1,0 +1,23 @@
+Bootstrap: pick the MMU permission table by memory type remapping, not by architecture: ARM1176 is
+ARMv6 with remapping (bootcpu.inc defines MEMORY_*, not CACHE_*). ARM1136/ARM926 unchanged.
+
+--- a/baseport/syborg/bootstrap/syborg.s	2026-11-07 11:42:42.725783660 +0100
++++ b/baseport/syborg/bootstrap/syborg.s	2026-11-07 11:42:53.646239787 +0100
+@@ -568,7 +568,7 @@
+ 		
+ 	IF  CFG_MMMultiple
+ ;	IF  CFG_MMFlexible
+-	    IF CFG_ARMV7
++	    IF CFG_ARMV7 :LOR: CFG_MemoryTypeRemapping	; qembian: ARM1176 (ARMv6 with remapping) too
+ 		BTP_ENTRY   CLIENT_DOMAIN, PERM_RORO, MEMORY_FULLY_CACHED,       	1,  1,  0,  0   ; ROM
+ 		BTP_ENTRY   CLIENT_DOMAIN, PERM_RWNO, MEMORY_FULLY_CACHED,       	0,  1,  0,  0   ; kernel data/stack/heap
+ 		BTP_ENTRY   CLIENT_DOMAIN, PERM_RWNO, MEMORY_FULLY_CACHED,       	0,  1,  0,  0   ; super page/CPU page
+@@ -582,7 +582,7 @@
+ 		BTP_ENTRY   CLIENT_DOMAIN, PERM_RONO, MEMORY_STRONGLY_ORDERED,      1,  1,  0,  0   ; temporary identity mapping
+ 		BTP_ENTRY   CLIENT_DOMAIN, UNC_PERM,  MEMORY_STRONGLY_ORDERED,      0,  1,  0,  0   ; uncached
+ 	    ENDIF	
+-	    IF CFG_ARMV6
++	    IF CFG_ARMV6 :LAND: :LNOT: CFG_MemoryTypeRemapping
+ 		BTP_ENTRY   CLIENT_DOMAIN, PERM_RORO, CACHE_WBWA,       1,  1,  0,  0       ; ROM
+ 	        BTP_ENTRY   CLIENT_DOMAIN, PERM_RWNO, CACHE_WBWA,       0,  1,  0,  0       ; kernel data/stack/heap
+ 	        BTP_ENTRY   CLIENT_DOMAIN, PERM_RWNO, CACHE_WBWA,       0,  1,  0,  0       ; super page/CPU page

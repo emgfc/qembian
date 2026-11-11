@@ -14,7 +14,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 CHUNK = 2048                                           # = KAckChunk in devagent.cpp
 sys.path.insert(0, os.path.join(ROOT, 'tools'))
 import device as devmodel                               # tools/device.py: the device profile (docs/devices.md)
-DEVICE = devmodel.load(os.environ.get('SYBORG_DEVICE'))  # $SYBORG_DEVICE or devices/default
+DEVICE = devmodel.load(os.environ.get('SYBORG_DEVICE'))  # $SYBORG_DEVICE or the registry default
 IDLE_RE = re.compile(re.escape(devmodel.get(DEVICE, 'milestones.idle', 'sets 101f8766/41 = 203')))   # SysAp self-test OK = idle
 MSGAC_RE = re.compile(r'^MsgAc: M:(-?\d+) (\S+)->(\S+)')
 MSGCO_RE = re.compile(r'^MsgCo: M:(-?\d+) r:(-?\d+) (\S+)->(\S+)')
@@ -257,7 +257,7 @@ class Session:
 
     def ram_path(self):
         # guest RAM as a shared file: sydb phone maps it and reads the frame buffer directly
-        # (no VNC encoding); /dev/shm, so it costs nothing beyond the RAM QEMU allocates anyway
+        # (no display protocol); /dev/shm, so it costs nothing beyond the RAM QEMU allocates anyway
         import hashlib
         return '/dev/shm/sydb-%s.ram' % hashlib.md5(os.path.abspath(self.sdir).encode()).hexdigest()[:10]
 
@@ -267,7 +267,7 @@ class Session:
             os.unlink(self.ram_path())
         except FileNotFoundError:
             pass
-        for f in ('agent.sock', 'qmp.sock', 'vnc.sock'):
+        for f in ('agent.sock', 'qmp.sock', 'vnc.sock'):   # vnc.sock: left by older sessions
             try:
                 os.unlink(os.path.join(sd, f))
             except FileNotFoundError:
@@ -283,22 +283,33 @@ class Session:
         cmd.append(os.path.abspath(self.rom))
         cmd += ['-serial', 'unix:%s,server=on,wait=off' % os.path.join(sd, 'agent.sock'),
                 '-gdb', 'tcp:127.0.0.1:%d' % self.gdb_port,
-                '-vnc', 'unix:' + os.path.join(sd, 'vnc.sock'),     # the screen for sydb phone
                 '-audiodev', self.audiodev(), '-machine', 'audiodev=snd0',
                 '-object', 'memory-backend-file,id=ram0,size=%dM,share=on,mem-path=%s'
                 % (devmodel.get(DEVICE, 'board.ram_mb', 168), self.ram_path()),
                 '-machine', 'memory-backend=ram0',
                 # GLES: host GPU (syborg-gl, default) or the guest's software rasteriser
                 '-global', 'syborg-gl.backend=' + ('off' if self.gl == 'soft' else 'host'),
+                '-global', 'syborg-gl.frame-file=' + os.path.join(sd, 'frame.seq'),   # sydb phone: whole frames
                 '-global', 'syborg-rtc.offset-file=' + os.path.join(dd, 'rtc-offset'),
                 # snapshots may be taken while gdb holds the machine ('debug'), a run state an incoming
                 # machine cannot enter: do not carry the run state; restores start paused (-S)
                 '-global', 'migration.store-global-state=off'] + self.extra
+        try:                                   # session overrides of the GPU settings (sydb gl set --save)
+            for k, v in sorted(json.load(open(os.path.join(sd, 'gl.json'))).items()):
+                cmd += ['-global', 'syborg-gl.%s=%s' % (k, v)]
+        except (OSError, ValueError):
+            pass
         if self.restore:              # resume a saved machine, paused (-S): sydb resume / dbg attach
             cmd += ['-incoming', 'file:' + os.path.join(self.restore, 'state.bin'), '-S']
             self.state = 'restored'
-        self.qemu = subprocess.Popen(cmd, cwd=ROOT, stdout=subprocess.PIPE, stderr=open(os.path.join(sd, 'qemu.err'), 'w'),
-                                     stdin=subprocess.DEVNULL, start_new_session=True)
+        gpu_env = dict(os.environ)
+        if not self.restore:
+            gpu_env["SYBORG_GL_JOURNAL"] = os.path.join(sd, "gpu-history.bin")
+        else:
+            gpu_env.pop("SYBORG_GL_JOURNAL", None)
+        self.qemu = subprocess.Popen(cmd, cwd=ROOT, env=gpu_env, stdout=subprocess.PIPE, stderr=open(os.path.join(sd, 'qemu.err'), 'w'),
+                                     stdin=subprocess.DEVNULL, start_new_session=True,
+                                     preexec_fn=_die_with_parent if threading.current_thread() is threading.main_thread() else None)
         self.t0 = time.time()
         threading.Thread(target=self._pump, daemon=True).start()
         self.agent = AgentLink(self, os.path.join(sd, 'agent.sock'))
@@ -532,7 +543,7 @@ def screenshot(sess, path=None, scale=1.0, crop=None, only_if_changed=False):
     return {'changed': changed, 'hash': h, 'path': os.path.abspath(out)}
 
 
-# key names -> QEMU qcodes: the device keymap (devices/<id>/keymap.toml via tools/device.py)
+# key names -> QEMU qcodes: the device keymap (models/<id>/keymap.toml via tools/device.py)
 KEYMAP = devmodel.key_aliases(DEVICE)
 
 
@@ -562,6 +573,28 @@ def handle(sess, req):
                 'gdb_port': sess.gdb_port, 'log_lines': sess.log_lines, 'events': sess.ev_seq,
                 'ram': sess.ram_path(), 'rom': os.path.abspath(sess.rom), 'rom_mtime': sess.rom_mtime,
                 'device': DEVICE['_id']}
+    if op == 'gpu_capture':
+        sd = sess.sdir
+        dest = os.path.join(sd, 'gpu-captures')
+        os.makedirs(dest, exist_ok=True)
+        path = os.path.join(dest, 'capture-%s.bin' % time.time_ns())
+        running = sess.qmp('query-status')['status'] == 'running'
+        if not running:
+            raise ValueError('Resume the phone before capturing GPU frames')
+        sess.qmp('stop')
+        try:
+            sess.qmp('qom-set', path='/machine/gl', property='capture', value=path)
+        finally:
+            sess.qmp('cont')
+        for source, suffix in (('syborg_gl2_fn.h', '.gl2.h'), ('syborg_gl_proto.h', '.proto.h')):
+            shutil.copyfile(os.path.join(ROOT, 'src/qemu-syborg/hw/arm', source), path + suffix)
+        with open(path + '.json', 'w') as f:
+            json.dump({'device': DEVICE['_id'], 'frames': 30,
+                       'format': 'SYGLCAP1', 'kind': 'transport-history',
+                       'limitations': ['No driver-internal state or guest RAM',
+                                       'No standalone renderer supplied',
+                                       'Host query return values are not recorded']}, f, indent=2)
+        return {'path': path, 'frames': 30}
     if op == 'stop':
         threading.Thread(target=lambda: (time.sleep(0.2), sess.stop(), os._exit(0)), daemon=True).start()
         return {'ok': True}
@@ -711,7 +744,15 @@ def handle(sess, req):
         if sub == 'pause':
             sess.qmp('stop')
         elif sub == 'resume':
-            sess.qmp('cont')
+            d = getattr(sess, 'dbg', None)
+            if d and d.p and d.p.poll() is None and not d.running:
+                # gdb holds the target: resume through it, or it never puts its breakpoints in
+                # (all-stop gdb inserts them only when it resumes) and catches silently miss
+                if getattr(sess, 'catcher', None) and sess.catcher.frozen:
+                    raise AgentError('a catch hit holds the phone: sydb catch resume')
+                d.mi('-exec-continue')
+            if sess.qmp('query-status')['status'] != 'running':
+                sess.qmp('cont')
             if sess.state == 'restored':
                 sess.state = 'idle'
         return {'status': sess.qmp('query-status')['status'], 'state': sess.state}
@@ -727,9 +768,29 @@ def handle(sess, req):
     raise AgentError('unknown op %r' % op)
 
 
-def serve(sdir, rom, drives, gui, extra, restore=None, audio='wav', gl='host'):
+def _die_with_parent():
+    """QEMU child: SIGKILL when the daemon (the thread that started it) dies, so a crashed or killed
+    daemon leaves no QEMU behind (Linux prctl PR_SET_PDEATHSIG)"""
+    import ctypes
+    ctypes.CDLL(None).prctl(1, signal.SIGKILL)     # PR_SET_PDEATHSIG = 1
+
+
+def serve(sdir, rom, drives, gui, extra, restore=None, audio='wav', gl='host', owner=None):
     sess = Session(sdir, rom, drives, gui, extra, restore, audio, gl)
     sess.start()
+    if owner:                          # sydb phone: the session ends with its window, however that goes
+        def owner_watch():
+            while not sess.stopping:
+                try:
+                    os.kill(owner, 0)
+                except ProcessLookupError:
+                    sess.stop()
+                    os._exit(0)
+                except PermissionError:
+                    pass
+                time.sleep(1)
+        threading.Thread(target=owner_watch, daemon=True).start()
+    signal.signal(signal.SIGHUP, lambda *a: (sess.stop(), os._exit(0)))
     path = os.path.join(sdir, 'ctl.sock')
     try:
         os.unlink(path)

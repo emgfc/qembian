@@ -1,0 +1,3 @@
+# Fake-modem replies of the 808 PureView (RM-807) that differ from the shared table: none. All replies live in
+# platform/isi/replies-bb5.txt (one table for every BB5 phone, docs/cleanup-review.md 2.1); a reply here
+# would override the shared one for the same (resource, request) on this phone only.

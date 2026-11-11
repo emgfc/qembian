@@ -1,0 +1,28 @@
+# Firmware 3.0717.1.4.1 of nokia-n73-rm132 (device model v2: merged over models/nokia-n73-rm132/model.toml). What belongs to this
+# firmware build: its files, identity and addresses. The model is the phone.
+
+[firmware]
+version = "3.0717.1.4.1"                   # sw.txt "V 3.0717.1.4.1 23-04-2007 RM-132" [V]
+obtain = """
+Flash files of an RM-132 software version (Nokia Software Updater / Phoenix leftovers or an archive
+copy): the core .fpsx (SOS*CORE: compressed XIP core + ROFS1) and the language ROFS (.V1x). Put them
+in roms/RM-132/<version>/ (git-ignored) (tools/fw/store.py import DIR files them there).
+"""
+[[firmware.files]]
+role = "core"                              # 3.0717: SOS*CORE raw-deflate core, ROFS1 after it (tools/fw/layout.py)
+glob = "N73_*_C00_PRD_cc.fpsx"
+
+[[firmware.files]]
+role = "rofx"                              # language ROFS; 3.0717: a bare chunk stream with ROFx magic
+glob = "N73_rofx_*.V??"
+
+[firmware.identity]
+sw = { version = "V 3.0717.1.4.1", date = "23-04-2007", type_code = "RM-132" }
+langsw = { version = "V 3.0717.1.4.1-16", type_code = "RM-132" }
+[firmware.identity.sha256]                 # the extracted images (build/roms/<id>/<fw>/)
+"core-flat.img" = "ef0f7fd5bc5fb7f4e5730dd467541acd458adb4d51cba4a00460d3bab08dcea5"
+"rofs1.img" = "c3da3501da2b0aa16213ef62705eeb3f56de49a1259f634648706d3e18d09221"
+"rofs2.img" = "baf22cfebfc489f3dc7984bca1d1d6afe1a9980e90b988e5c33fc3d482573ec2"
+
+[firmware.rom]
+user_window_start = 0xF8093120             # IscApi.dll: the user side starts among the firmware's kernel-side files [V]

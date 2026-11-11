@@ -1,0 +1,27 @@
+# Firmware 100.07.76 of nokia-e71-rm346, written by tools/device.py firmware-add from the ROM store entry RM-346/100.07.76.
+# Merged over models/nokia-e71-rm346/model.toml. Not booted yet unless [status] says so.
+
+[firmware]
+version = "100.07.76"
+
+[[firmware.files]]
+role = "core"
+glob = "rm346_100.07.76_prd.c00"
+
+[[firmware.files]]
+role = "rofs2"
+glob = "rm346_100.07.76_prd.v14"
+
+[[firmware.files]]
+role = "uda"
+glob = "rm346_100.07.76.01U"
+drive = "C"
+optional = true
+
+[firmware.identity]
+sw = { version = "100.07.76", date = "08-06-2008", type_code = "RM-346" }
+
+[status]
+level = "L0-untested"
+updated = "2026-11-10"
+open = ["not booted on this firmware yet"]

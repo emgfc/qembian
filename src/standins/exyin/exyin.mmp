@@ -1,0 +1,19 @@
+// EXYIN.DLL: touch-screen digitiser on the Syborg pointer device (see exyin.cpp)
+#include "../../variant.mmh"
+#include <kernel/kern_ext.mmh>
+target			VariantTarget(exyin,dll)
+targettype		kext
+linkas			exyin.dll
+OS_LAYER_SYSTEMINCLUDE_SYMBIAN
+SYSTEMINCLUDE	AsspNKernIncludePath
+userinclude		../../specific
+userinclude		../_shared		// boardconfig.h
+sourcepath		../../../../../../os/kernelhwsrv/kernel/eka/drivers/xyin
+source			d_xyin.cpp		// the kernel's generic DDigitiser (EPL)
+sourcepath		.
+source			exyin.cpp
+library			PlatformLib
+noexportlibrary
+uid				0x1000008d 0x100039ea
+vendorid		0x70000001
+capability		all

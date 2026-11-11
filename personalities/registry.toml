@@ -5,8 +5,11 @@
 schema = 1
 [ids]
 native = 0
-sym92 = 1        # Symbian OS 9.2  (S60 3rd Edition FP1)      personalities/sym92
+sym92 = 1        # Symbian OS 9.2  (S60 3rd Edition FP2)      personalities/sym92
 sym93 = 2        # Symbian OS 9.3  (S60 3rd Edition FP2)      not yet
-sym94 = 3        # Symbian OS 9.4  (S60 5th Edition)          not yet
-symbian3 = 4     # Symbian^3 / Anna / Belle                   not yet
+sym94 = 3        # Symbian OS 9.4  (S60 5th Edition)          personalities/sym94 (S45 inserted, SEE..SF2 added)
+symbian3 = 4     # Symbian^3 / Anna                       personalities/symbian3 (our numbering, 9.2 RMutex::Wait)
 sym91 = 5        # Symbian OS 9.1  (S60 3rd Edition)          personalities/sym91 (9.2 tables, 9.1 loader layout)
+sym101 = 6       # Symbian OS 10.1 (Nokia Belle)              personalities/sym101 (Symbian^3 tables + S10b..S114)
+sym102 = 7       # Symbian OS 10.1 FP2 (Nokia Belle FP2)      personalities/sym102 (sym101 shifted: S11/S12/Sd8 inserted)
+sym92l91 = 8     # Symbian OS 9.2 early F32 (S60 3.1: E71, N81 8GB)  personalities/sym92l91 (sym92 tables, 9.1 loader layout)

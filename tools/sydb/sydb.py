@@ -1,25 +1,39 @@
 #!/usr/bin/env python3
 """sydb: qembian's adb-like dev/debug bridge to the virtual phone (see docs/sydb.md).
 
+Which phone: --instance NAME (a device instance, tools/instance.py: build/instances/NAME), --session DIR
+(any session directory; an instance's directory is one), else the primary instance of $SYBORG_DEVICE
+(default: models/registry.toml `default`), made at its first start (build/instances/<device id>).
+
+  sydb phone [NAME] [--fresh] [--scale 2]   emulator window of instance NAME: screen, phone keys (long
+                                     presses), reset/pause/screenshot/snapshot, slider; starts the
+                                     session if none runs and ends it when the window closes
   sydb start [--seed DIR] [--fresh] [--gui] [--rom ROM] [--audio wav|host|DRIVER] [--paused | --catch-panics]
                                               boot a session, wait for idle
   sydb stop | status | wait idle|agent|REGEX [--timeout S]
   sydb install | uninstall           agent on/off C: incl. its Starter startup-list record (session stopped)
   sydb ls PATH | push LOCAL REMOTE | pull REMOTE LOCAL | rm PATH | mkdir PATH
   sydb run PATH [ARGS...] [--wait S] | rerun LOCAL.exe [ARGS...] [--wait S] | kill PID|NAME
+  sydb sis install ITEM... [--drive E] [--lang N] [--keep] [--timeout S]
+                                     install without the installer UI: every installer question is
+                                     answered yes and logged (<session>/sis/NAME.log, serial SISINST:);
+                                     ITEM = local file/dir (copied over the agent link) or phone path
+                                     E:\\x.sisx / E:\\dir\\ (installed in place)
+  sydb drive ls|put|get|mkdir|rm LETTER ...   files in the session's drive images, session stopped
+                                     (fast: e.g. drive put E ~/games/ installs, then sis install E:\\installs\\)
   sydb ps [PATTERN] | threads [PATTERN] | apps [FILTER] | launch UID|CAPTION | mem
   sydb startup add|rm|check PATH [w0 w1 w2] | startup list   (Starter's dynamic startup list)
   sydb wg | fg WGID | unlock | lock | keepawake on|off|unlocked
   sydb prop get CAT KEY | prop set CAT KEY VALUE              (hex category/key)
   sydb key KEY... [--delay S] | type TEXT | screenshot [OUT.png] [--scale F] [--changed]
+  sydb gl [get] | gl set NAME=V... [--save]   host GPU settings (msaa, filter, compose), stats
+  sydb accel [portrait|landscape|flat|X,Y,Z]  the gravity vector (milli-g) the accelerometer reports; no arg: read
   sydb log [--grep RE] [--since T] [--max N] [--head] | events [--since SEQ] [--wait S] [--kind K]
   sydb update-agent                  push a rebuilt devagent.exe/dafs.exe and restart the agent live
   sydb dbg attach|break LOC [--thread T]|continue [--wait S]|wait|step|next|stepi|finish|regs|bt|
            mem ADDR [LEN]|write ADDR HEX|eval EXPR|symbols NAME [ELF]|interrupt|detach|cmd GDBCMD
   sydb strace MATCH [--secs S]       IPC messages to/from processes matching MATCH (kernel KIPC trace)
   sydb tui                           curses view: status, window groups, events, log, command line
-  sydb phone [--scale 2]             emulator window: screen, phone keys (long presses), reset/pause/
-                                     screenshot/snapshot, slider (starts a session if none runs)
   sydb catch add --at ADDR [--thread RE] [--max N] [--action dump|freeze]   dump each time ADDR runs
   sydb catch add [--kind panic|kill|terminate|exit|any] [--thread RE] [--category CAT] [--reason N]
                  [--action dump|freeze] [--snapshot] [--once]   catch thread deaths (see docs/sydb.md)
@@ -28,21 +42,95 @@
   sydb fork SNAP [--into DIR] [--run] [--gui]   resume a snapshot in a new session (paused by default)
   sydb restore SNAP [--run]          the same into this session  | sydb pause | resume
   sydb gc [--keep-auto 5] [--keep-dumps 200] [--no-forks] [--dry-run]   retention (also after each catch hit)
-  sydb qmp CMD [JSON-ARGS] | hmp CMD | mcp (MCP stdio server) | --json (raw JSON output) | --session DIR
+  sydb qmp CMD [JSON-ARGS] | hmp CMD | mcp (MCP stdio server) | --json (raw JSON output)
+  --instance NAME | --session DIR   (before or after the command)
 Keys: QKeyCode names or aliases lsk rsk ok menu star hash clear back call end power volup voldown; 1.5 or 10 = pause in seconds (1 = key 1);
       KEY:SECONDS = hold (long press), e.g. menu:1.5 opens the task switcher.
 """
-import argparse, json, os, shutil, socket, subprocess, sys, time, zlib
+import argparse, json, os, re, shutil, socket, subprocess, sys, tempfile, time, zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, os.path.join(ROOT, 'tools'))
-import device as devmodel  # tools/device.py: build paths of the device ($SYBORG_DEVICE / devices/default)
+import device as devmodel  # tools/device.py: build paths of the device ($SYBORG_DEVICE / $SYBORG_INSTANCE)
+import instance as instmod  # tools/instance.py: device instances
+
+
+def _pick_instance(argv):
+    """the instance this command runs on: --instance NAME, `phone NAME`, or a --session DIR that is an
+    instance. Its device and [overrides] then hold for this process and every tool it starts
+    (SYBORG_DEVICE, SYBORG_INSTANCE); --instance becomes --session DIR. None: no instance named."""
+    name = None
+    if '--instance' in argv:
+        i = argv.index('--instance')
+        if i + 1 >= len(argv):
+            sys.exit('sydb: --instance NAME')
+        name = argv[i + 1]
+        del argv[i:i + 2]
+    elif '--session' in argv:
+        i = argv.index('--session')
+        d = os.path.abspath(argv[i + 1]) if i + 1 < len(argv) else ''
+        if os.path.isfile(os.path.join(d, 'instance.toml')):
+            name = d
+    else:
+        rest = [x for x in argv if x != '--json']
+        if len(rest) > 1 and rest[0] == 'phone' and not rest[1].startswith('-'):
+            name = rest[1]
+            argv.remove(name)
+    if name is None:
+        return None
+    try:
+        inst = instmod.read(name)
+        dev = instmod.device_id(inst)
+    except (instmod.InstanceError, devmodel.DeviceError) as e:
+        sys.exit('sydb: %s' % e)
+    # the phone named on the command line wins over a SYBORG_DEVICE left in the shell (it only picks the
+    # primary phone of a device when no phone is named)
+    if os.environ.get('SYBORG_DEVICE') and devmodel.resolve(os.environ['SYBORG_DEVICE']) != dev:
+        sys.stderr.write('sydb: phone %s is %s; SYBORG_DEVICE=%s ignored\n' % (inst['name'], dev, os.environ['SYBORG_DEVICE']))
+    os.environ['SYBORG_DEVICE'] = dev
+    os.environ['SYBORG_INSTANCE'] = inst['_dir']
+    if '--session' not in argv:
+        argv[:0] = ['--session', inst['_dir']]
+    return inst
+
+
+_ARGV = sys.argv[1:]
+INSTANCE = _pick_instance(_ARGV)
+sys.argv[1:] = _ARGV
 DEVPATHS = devmodel.paths(devmodel.load())
 sys.path.insert(0, HERE)
-DEFAULT_SESSION = os.path.join(ROOT, 'build', 'sydb')
+DEVICE_ID = devmodel.load()['_id']
+# no instance named: the device's primary instance (its drives are that phone's), made at the first start
+# as build/instances/<device id>
+_PRIMARY = None if INSTANCE else instmod.primary_for(DEVICE_ID)
+DEFAULT_SESSION = _PRIMARY['_dir'] if _PRIMARY else instmod.idir(DEVICE_ID.replace('@', '_'))
+if _PRIMARY and '--session' not in sys.argv:
+    os.environ['SYBORG_INSTANCE'] = _PRIMARY['_dir']	# its [overrides] for the daemon and the tools it runs
+    INSTANCE = _PRIMARY
 AGENT_EXE = os.path.join(ROOT, 'build', 'n95apps', 'devagent.exe')
 DAFS_EXE = os.path.join(ROOT, 'build', 'n95apps', 'dafs.exe')
+SISINST_EXE = os.path.join(ROOT, 'build', 'n95apps', 'sisinst.exe')  # `sis install` (src/n95apps/devagent/sisinst.cpp)
+SIS_ERRORS = {   # Software Install results (appinstall swi/inc/swi/sisinstallerrors.h) and the usual system ones
+    0: 'installed', -1: 'not found', -3: 'cancelled (a dialog said no, or the installer gave up)',
+    -5: 'not supported', -11: 'already exists', -14: 'in use', -20: 'corrupt', -21: 'access denied',
+    -26: 'disk full', -46: 'permission denied (capabilities / signing)', -10147: 'would overwrite a file',
+    -10149: 'not enough space to install', -10200: 'installer leave', -10250: 'policy file corrupt',
+    -10251: 'signature scheme not supported', -10252: 'digest not supported', -10253: 'bad hash',
+    -10254: 'security error (signature / certificate)', -10263: 'bad usage'}
+HOOK_EXE = os.path.join(ROOT, 'build', 'n95apps', 'boothook.exe')  # the boot hook (docs/agent-autostart.md)
+
+
+def hook_name():
+    """the program of this firmware's EStart the boot hook stands in for (device.py boot_hook_name)"""
+    try:
+        n = devmodel.boot_hook_name(devmodel.load())
+    except OSError:
+        n = None
+    if not n:
+        die('no boot hook name for %s: its EStart starts none of %s (docs/agent-autostart.md)'
+            % (DEVICE_ID, ', '.join(devmodel.BOOT_HOOK_NAMES)))
+    return n
 AGENT_PATH = 'c:\\sys\\bin\\devagent.exe'
 import startlist
 
@@ -87,17 +175,18 @@ def drive_put(drives, local, remote_dir, name=None):
     d = ''
     for part in remote_dir.strip('/').split('/'):       # mkdir -p (errors = already there)
         d += '/' + part
-        subprocess.run([os.path.join(ROOT, 'scripts', 'n95-drive.sh'), 'mkdir', 'c', d], env=env, capture_output=True, stdin=subprocess.DEVNULL)
-    args = [os.path.join(ROOT, 'scripts', 'n95-drive.sh'), 'put', 'c', local, remote_dir]
+        subprocess.run([os.path.join(ROOT, 'scripts', 'drive.sh'), 'mkdir', 'c', d], env=env, capture_output=True, stdin=subprocess.DEVNULL)
+    tmp = None
+    if name and os.path.basename(local) != name:        # copy under the final name: mtools' mren asserts on
+        tmp = tempfile.mkdtemp(prefix='sydb-put-')       # some firmware FAT images (N97 UDA)
+        shutil.copy(local, os.path.join(tmp, name))
+        local = os.path.join(tmp, name)
+    args = [os.path.join(ROOT, 'scripts', 'drive.sh'), 'put', 'c', local, remote_dir]
     r = subprocess.run(args, env=env, capture_output=True, text=True)
+    if tmp:
+        shutil.rmtree(tmp, ignore_errors=True)
     if r.returncode:
-        die('n95-drive.sh failed: ' + (r.stderr or r.stdout)[-500:])
-    if name and os.path.basename(local) != name:
-        r = subprocess.run(['mren', '-o', '-i', os.path.join(drives, 'nvmemory.img'),
-                            '::' + remote_dir.rstrip('/') + '/' + os.path.basename(local),
-                            '::' + remote_dir.rstrip('/') + '/' + name], capture_output=True, text=True)
-        if r.returncode:
-            die('mren failed: ' + r.stderr[-300:])
+        die('drive.sh failed: ' + (r.stderr or r.stdout)[-500:])
 
 
 def cmd_install(sdir, a):
@@ -106,17 +195,27 @@ def cmd_install(sdir, a):
         die('stop the session first (the C: image is in use)')
     if not os.path.exists(os.path.join(drives, 'nvmemory.img')):
         die('no drives in %s yet: run "sydb start --seed DIR" (or --fresh) once' % drives)
-    for f in (AGENT_EXE, DAFS_EXE):
+    for f in (AGENT_EXE, DAFS_EXE, HOOK_EXE):
         if not os.path.exists(f):
             die('%s missing: run src/n95apps/devagent/build.sh' % f)
     drive_put(drives, AGENT_EXE, '/sys/bin')
     drive_put(drives, DAFS_EXE, '/sys/bin')
-    drive_rm(drives, '/sys/bin/HALSettings.exe')        # the old autostart hack, if present
-    # autostart: a record in Starter's dynamic startup list (what a SIS install registers)
-    data = drive_read(drives, '/' + startlist.PATH)
-    drive_write(drives, '/' + startlist.PATH,
-                startlist.add(data, AGENT_PATH, open(AGENT_EXE, 'rb').read()))
-    print('installed devagent.exe + dafs.exe on C: and registered devagent in Starter\'s startup list')
+    # autostart, one mechanism on every OS generation (docs/agent-autostart.md): EStart starts
+    # HALSettings.exe (9.2+) or LanguageSelection.exe (9.1) by bare name and the loader searches C: before
+    # Z:, so the hook installed under that name starts the agent and then the real z: program
+    hook = hook_name()
+    for n in devmodel.BOOT_HOOK_NAMES:
+        if n != hook:
+            drive_rm(drives, '/sys/bin/' + n)
+    drive_put(drives, HOOK_EXE, '/sys/bin', name=hook)
+    data = drive_read(drives, '/' + startlist.PATH)      # an older install's Starter record: the agent
+    if data:                                             # would start twice
+        new = startlist.remove(data, AGENT_PATH)
+        if new:
+            drive_write(drives, '/' + startlist.PATH, new)
+        else:
+            drive_rm(drives, '/' + startlist.PATH)
+    print('installed devagent.exe + dafs.exe on C: and the boot hook c:\\sys\\bin\\%s' % hook)
 
 
 def cmd_uninstall(sdir, a):
@@ -130,9 +229,9 @@ def cmd_uninstall(sdir, a):
             drive_write(drives, '/' + startlist.PATH, new)
         else:
             drive_rm(drives, '/' + startlist.PATH)
-    for f in ('devagent.exe', 'dafs.exe', 'HALSettings.exe'):
+    for f in ('devagent.exe', 'dafs.exe') + devmodel.BOOT_HOOK_NAMES:
         drive_rm(drives, '/sys/bin/' + f)
-    print('removed devagent from the startup list and devagent.exe/dafs.exe from C:')
+    print('removed devagent.exe, dafs.exe and the boot hook from C:')
 
 
 def mt(drives, *args):
@@ -166,29 +265,70 @@ def drive_rm(drives, path):
     mt(drives, 'mdel', '::' + path)
 
 
-DEVICE = {'nvmemory.img': 'drive-c.img', 'nvmemory2.img': 'drive-e.img', 'rtc-offset': 'rtc-offset'}
-DEVICE_SESSION = os.path.join(ROOT, 'build', 'sydb-device')
-DEVICE_ROM = os.path.join(DEVPATHS['dir'], 'hybrid-exp.img')   # the owner's run-gui ROM (sound on)
+def session_instance(sdir):
+    """the instance a session directory is (None: a plain session)"""
+    try:
+        return instmod.read(os.path.abspath(sdir)) if os.path.isfile(os.path.join(sdir, 'instance.toml')) else None
+    except instmod.InstanceError:
+        return None
 
 
-def use_device(drives):
-    # --device: the session runs on scripts/run-gui.sh's phone in place (build/devices/<id>/drive-c.img,
-    # drive-e.img, rtc-offset), as links in <session>/drives
-    os.makedirs(drives, exist_ok=True)
-    for link, f in DEVICE.items():
-        src = os.path.join(DEVPATHS['dir'], f)
-        if f.endswith('.img'):
-            if not os.path.exists(src):
-                die('%s missing: boot once with scripts/run-gui.sh' % src)
-            if subprocess.run(['pgrep', '-f', 'qemu-system-arm.*' + os.path.realpath(src)],
-                              stdout=subprocess.DEVNULL).returncode == 0:
-                die('%s is in use by a running QEMU (run-gui?): close it first' % src)
-        dst = os.path.join(drives, link)
-        if os.path.islink(dst) or os.path.exists(dst):
-            if os.path.islink(dst) and os.path.realpath(dst) == os.path.realpath(src):	# old links name build/n95/...
-                continue
-            die('%s exists and is not a link to the run-gui device: use another --session' % dst)
-        os.symlink(src, dst)
+def setting(key, default, sdir=None):
+    """an instance setting (settings.audio, gl, scale) of the session's instance, else default"""
+    inst = session_instance(sdir) if sdir else INSTANCE
+    return (inst or {}).get('settings', {}).get(key, default) if inst else default
+
+
+def session_rom(sdir):
+    """the ROM a session boots by default: its instance's (rom_variant), else the device's hybrid.img"""
+    inst = session_instance(sdir)
+    if inst:
+        try:
+            return instmod.rom(inst)
+        except (instmod.InstanceError, devmodel.DeviceError) as e:
+            die(str(e))
+    return DEVPATHS['rom']
+
+
+def cmd_drive(sdir, rest):
+    """sydb drive ls|put|get|mkdir|rm LETTER ...: files in the session's drive images, with the session
+    stopped (two writers corrupt the FAT). Disk to disk, so large packages go in at once instead of over
+    the agent's serial link. put takes files and directories (their files) and creates the target dir."""
+    ap = argparse.ArgumentParser(prog='sydb drive')
+    ap.add_argument('sub', choices=['ls', 'put', 'get', 'mkdir', 'rm'])
+    ap.add_argument('letter'); ap.add_argument('args', nargs='*')
+    x = ap.parse_args(rest)
+    imgs = {d['letter'].upper(): d['image'] for d in devmodel.get(devmodel.load(), 'board.drives', [])
+            if d.get('image')}
+    L = x.letter.rstrip(':').upper()
+    if L not in imgs:
+        die('%s has no drive image for %s: (drives with images: %s)' % (DEVICE_ID, L, ', '.join(sorted(imgs))))
+    img = os.path.join(sdir, 'drives', imgs[L])
+    if not os.path.exists(img):
+        die('%s does not exist: boot the session once (the phone formats its drives)' % img)
+    if Client(sdir).alive():
+        die('the session is running: sydb stop first (two writers corrupt the FAT)')
+    drive = [os.path.join(ROOT, 'scripts', 'drive.sh')]
+    env = dict(os.environ, DRIVE_E=img)
+    norm = lambda p: p.replace('\\', '/').split(':', 1)[-1] if re.match(r'^[A-Za-z]:', p) else p.replace('\\', '/')
+    if x.sub == 'put':
+        if not x.args:
+            die('put needs LOCAL... [DIR]')
+        files, dst = x.args, '/'
+        if len(files) > 1 and not os.path.exists(files[-1]):
+            files, dst = files[:-1], norm(files[-1])
+        exp = []
+        for f in files:
+            exp += [os.path.join(f, n) for n in sorted(os.listdir(f)) if os.path.isfile(os.path.join(f, n))] \
+                if os.path.isdir(f) else [f]
+        d = ''
+        for part in dst.strip('/').split('/'):
+            if part:
+                d += '/' + part
+                subprocess.run(drive + ['mkdir', 'e', d], env=env, capture_output=True, stdin=subprocess.DEVNULL)
+        sys.exit(subprocess.run(drive + ['put', 'e'] + exp + [dst], env=env).returncode)
+    sys.exit(subprocess.run(drive + [x.sub, 'e'] + [norm(a) if i == 0 else a for i, a in enumerate(x.args)],
+                            env=env).returncode)
 
 
 def cmd_start(sdir, a):
@@ -198,15 +338,38 @@ def cmd_start(sdir, a):
         return
     drives = os.path.join(sdir, 'drives')
     os.makedirs(sdir, exist_ok=True)
-    if getattr(a, 'device', False):
-        use_device(drives)
+    if os.path.abspath(sdir) == os.path.abspath(DEFAULT_SESSION) and not os.path.isfile(os.path.join(sdir, 'instance.toml')):
+        # the device's first phone: its primary instance (tools/instance.py)
+        inst = instmod.new(os.path.basename(sdir), DEVICE_ID, primary=True)
+        instmod.write(inst)
+        os.environ['SYBORG_INSTANCE'] = inst['_dir']
+        print('new instance %s (%s): tools/instance.py rename/clone/set' % (inst['name'], DEVICE_ID))
     if a.fresh and os.path.isdir(drives):
         shutil.rmtree(drives)
+    # a session's drives belong to one phone: never boot another phone's C:/E: (the session records
+    # its device)
+    mark = os.path.join(sdir, 'device')
+    has = os.path.isdir(drives) and bool(os.listdir(drives))
+    owner_dev = open(mark).read().strip() if os.path.exists(mark) else (devmodel.default_device() if has else None)
+    if owner_dev and owner_dev != DEVICE_ID and not a.seed and has:
+        die('session %s holds %s drives, not %s: use --fresh (wipes them) or another --session' % (sdir, owner_dev, DEVICE_ID))
+    open(mark, 'w').write(DEVICE_ID + '\n')
     if a.seed:
         if os.path.isdir(drives):
             shutil.rmtree(drives)
         shutil.copytree(a.seed, drives)
     os.makedirs(drives, exist_ok=True)
+    if getattr(a, 'no_uda', False):
+        os.environ['SYBORG_UDA'] = '0'          # also for the drives run-modern.sh creates
+    prof = devmodel.load()
+    for kind, name in (('nvmem', 'nvmemory.img'), ('nvmem2', 'nvmemory2.img')):
+        # a drive with a user data layer is made now (blank ones by run-modern.sh at the first boot), so
+        # the agent can go onto a factory C: before the first boot
+        d = [x for x in devmodel.get(prof, 'board.drives', []) if x.get('kind') == kind]
+        src = d and devmodel.uda_image(prof, d[0]['letter'])
+        if src and os.path.exists(src) and not os.path.exists(os.path.join(drives, name)) \
+                and os.environ.get('SYBORG_UDA', '1') != '0':
+            print(devmodel.drive_image(prof, kind, os.path.join(drives, name)))
     if a.seed or a.fresh or a.install:
         if os.path.exists(os.path.join(drives, 'nvmemory.img')):
             cmd_install(sdir, a)
@@ -215,7 +378,8 @@ def cmd_start(sdir, a):
     subprocess.Popen([sys.executable, os.path.abspath(__file__), '--session', sdir, '_daemon', rom, drives,
                       '--audio', getattr(a, 'audio', None) or 'wav', '--gl', getattr(a, 'gl', None) or 'host']
                      + (['--gui'] if a.gui else [])
-                     + (['--paused'] if getattr(a, 'paused', False) or getattr(a, 'catch_panics', False) else []),
+                     + (['--paused'] if getattr(a, 'paused', False) or getattr(a, 'catch_panics', False) else [])
+                     + (['--owner', str(a.owner)] if getattr(a, 'owner', None) else []),
                      stdout=log, stderr=log, stdin=subprocess.DEVNULL,
                      start_new_session=True, cwd=ROOT)
     for _ in range(100):
@@ -321,10 +485,6 @@ def main():
     sdir = DEFAULT_SESSION
     if '--session' in argv:
         i = argv.index('--session'); sdir = os.path.abspath(argv[i + 1]); del argv[i:i + 2]
-    elif '--device' in argv:          # your run-gui phone's session, for every command
-        sdir = DEVICE_SESSION
-        if argv and argv[0] not in ('start', 'install', 'phone'):
-            argv.remove('--device')
     if not argv or argv[0] in ('-h', '--help', 'help'):
         print(__doc__); return
     cmd, rest = argv[0], argv[1:]
@@ -335,28 +495,32 @@ def main():
         ap.add_argument('--gui', action='store_true'); ap.add_argument('--restore')
         ap.add_argument('--audio', default='wav'); ap.add_argument('--gl', default='host')
         ap.add_argument('--paused', action='store_true')
+        ap.add_argument('--owner', type=int, help='stop the session when this process is gone (sydb phone)')
         x = ap.parse_args(rest)
-        daemon.serve(sdir, x.rom, x.drives, x.gui, ['-S'] if x.paused else [], x.restore, x.audio, x.gl)
+        daemon.serve(sdir, x.rom, x.drives, x.gui, ['-S'] if x.paused else [], x.restore, x.audio, x.gl, x.owner)
         return
     if cmd == 'phone':                 # emulator window: screen + phone keys + machine controls
         ap = argparse.ArgumentParser(prog='sydb phone')
-        ap.add_argument('--scale', type=float, default=2.0)
-        ap.add_argument('--audio', default='host', help='sound of a session it starts: host (speakers, default), wav, or a QEMU audiodev driver')
-        ap.add_argument('--device', action='store_true', help="your run-gui phone (drives in place, session build/sydb-device)")
-        ap.add_argument('--rom', help='ROM of a session it starts (default hybrid.img, with --device hybrid-exp.img)')
+        ap.add_argument('--scale', type=float, help="screen scale (default: the instance's settings.scale, else 1)")
+        ap.add_argument('--audio', help="sound of a session it starts: host (speakers), wav, or a QEMU audiodev driver "
+                        "(default: the instance's settings.audio, else host)")
+        ap.add_argument('--rom', help="ROM of a session it starts (default: the instance's, tools/instance.py get NAME rom)")
         ap.add_argument('--install', action='store_true', help='install/update the sydb agent on its C: first')
         ap.add_argument('--keep', action='store_true', help='leave the session running when the window closes')
+        ap.add_argument('--fresh', action='store_true', help='start from empty drives (a factory-fresh phone); restarts a running session')
+        ap.add_argument('--no-uda', action='store_true', help="new drives start blank, without the firmware's user data layer")
         ap.add_argument('--restart', action='store_true', help='restart a running session first (fresh boot, current ROM)')
-        ap.add_argument('--gl', choices=['host', 'soft'], default='host', help='GLES on the host GPU (default) or the software rasteriser')
+        ap.add_argument('--gl', choices=['host', 'soft'], help="GLES on the host GPU or the software rasteriser (default: the instance's settings.gl, else host)")
         x = ap.parse_args(rest)
-        if x.device and sdir == DEFAULT_SESSION:
-            sdir = DEVICE_SESSION
+        x.audio = x.audio or setting('audio', 'host')
+        x.gl = x.gl or setting('gl', 'host')
+        x.scale = x.scale or setting('scale', 1.0)
         c0 = Client(sdir)
         if c0.alive():
             st = c0.call({'op': 'status'})
             rom = st.get('rom')
             stale = rom and os.path.exists(rom) and os.path.getmtime(rom) > (st.get('rom_mtime') or 0) + 1
-            if x.restart or stale:
+            if x.restart or stale or x.fresh:
                 print('session %s %s: restarting it' % (sdir, 'runs an older build of ' + os.path.basename(rom)
                                                         if stale else 'is running'), flush=True)
                 x.rom = x.rom or rom                 # the same ROM file, now its current build
@@ -370,8 +534,10 @@ def main():
         started = False
         if not Client(sdir).alive():
             subprocess.run([sys.executable, os.path.abspath(__file__), '--session', sdir, 'start', '--no-wait',
-                            '--audio', x.audio, '--gl', x.gl] + (['--device'] if x.device else []) + (['--rom', x.rom] if x.rom else [])
-                           + (['--install'] if x.install else []), check=True)
+                            '--audio', x.audio, '--gl', x.gl] + (['--rom', x.rom] if x.rom else [])
+                           + (['--install'] if x.install else []) + (['--fresh'] if x.fresh else [])
+                           + (['--no-uda'] if x.no_uda else [])
+                           + ([] if x.keep else ['--owner', str(os.getpid())]), check=True)
             started = True
         import phone
         rc = phone.main(sdir, x.scale)
@@ -394,23 +560,30 @@ def main():
     if cmd in ('fork', 'restore'):
         cmd_fork(sdir, cmd, rest)
         return
+    if cmd == 'drive':
+        cmd_drive(sdir, rest)
+        return
     if cmd in ('start', 'install'):
         ap = argparse.ArgumentParser(prog='sydb ' + cmd)
         ap.add_argument('--seed'); ap.add_argument('--fresh', action='store_true')
         ap.add_argument('--gui', action='store_true'); ap.add_argument('--install', action='store_true')
+        ap.add_argument('--no-uda', action='store_true', help="new drives start blank, without the firmware's "
+                        'user data layer (default: a copy of it where the profile declares one)')
         ap.add_argument('--no-wait', action='store_true'); ap.add_argument('--timeout', type=float, default=180)
-        ap.add_argument('--gl', choices=['host', 'soft'], default='host', help='GLES on the host GPU (syborg-gl, default) or the software rasteriser')
-        ap.add_argument('--device', action='store_true', help="run on scripts/run-gui.sh's phone (build/devices/<id>/drive-c.img, "
-                        'drive-e.img, rtc-offset) in place; ROM default build/devices/<id>/hybrid-exp.img')
-        ap.add_argument('--audio', default='wav', help='wav (<session>/audio.wav, default), host (speakers: '
-                        '$AUDIO or pipewire, like run-gui) or any QEMU audiodev driver (pa, alsa, sdl, none)')
-        ap.add_argument('--rom')
+        ap.add_argument('--gl', choices=['host', 'soft'], help="GLES on the host GPU (syborg-gl) or the software rasteriser "
+                        "(default: the instance's settings.gl, else host)")
+        ap.add_argument('--audio', help="wav (<session>/audio.wav), host (speakers: $AUDIO or pipewire) or any QEMU "
+                        "audiodev driver (pa, alsa, sdl, none); default: the instance's settings.audio, else wav")
+        ap.add_argument('--rom', help="default: the instance's ROM (its rom_variant), else the device's hybrid.img")
         ap.add_argument('--paused', action='store_true', help='QEMU starts stopped (-S): arm catches or '
                         'breakpoints for early boot, then sydb resume')
         ap.add_argument('--catch-panics', action='store_true', help='start stopped, arm a freeze+snapshot catch '
                         'on the first panic, resume, wait for idle; on a timeout print what was caught')
+        ap.add_argument('--owner', type=int, help=argparse.SUPPRESS)	# sydb phone: the session ends with it
         a = ap.parse_args(rest)
-        a.rom = a.rom or (DEVICE_ROM if a.device else DEVPATHS['rom'])
+        a.rom = a.rom or session_rom(sdir)
+        a.audio = a.audio or setting('audio', 'wav', sdir)
+        a.gl = a.gl or setting('gl', 'host', sdir)
         (cmd_start if cmd == 'start' else cmd_install)(sdir, a)
         return
 
@@ -485,6 +658,94 @@ def main():
                     res['exit'] = {k: hit[0][k] for k in ('type', 'reason', 'category') if k in hit[0]}
                     break
         print(json.dumps(res))
+    elif cmd == 'sis':
+        ap = argparse.ArgumentParser(prog='sydb sis')
+        ap.add_argument('sub', choices=['install'])
+        ap.add_argument('items', nargs='+', help='local .sis/.sisx files or directories (copied over the agent '
+                        'link), or phone paths: E:\\x.sisx, or E:\\dir\\ for every package in it (no copy)')
+        ap.add_argument('--drive', default='E', help='target drive the installer is told to pick (else most space)')
+        ap.add_argument('--lang', type=int, default=-1, help='language code to pick (default English, else the first)')
+        ap.add_argument('--keep', action='store_true', help='leave copied packages on the phone')
+        ap.add_argument('--timeout', type=float, default=900, help='per package')
+        x = ap.parse_args(rest)
+        if not os.path.exists(SISINST_EXE):
+            die('%s missing: src/n95apps/devagent/build.sh' % SISINST_EXE)
+        stage = None
+        for d in ('E:\\sydb\\', 'C:\\data\\sydb\\'):         # the mass memory if there is one
+            agent('mkdir', [d])
+            if agent('ls', [d]).get('ok'):
+                stage = d
+                break
+        if not stage:
+            die('no staging directory on E: or C:')
+        is_sis = lambda n: n.lower().endswith(('.sis', '.sisx'))
+        jobs = []                                       # (phone path, local path to copy or None)
+        for it in x.items:
+            if re.match(r'^[A-Za-z]:\\', it):
+                if it.endswith('\\'):
+                    r = need(agent('ls', [it]))
+                    jobs += [(it + i['name'], None) for i in sorted(r['items'], key=lambda i: i['name'].lower())
+                             if i.get('type') != 'dir' and is_sis(i['name'])]
+                else:
+                    jobs.append((it, None))
+            elif os.path.isdir(it):
+                jobs += [(None, os.path.join(it, n)) for n in sorted(os.listdir(it)) if is_sis(n)]
+            elif os.path.isfile(it):
+                jobs.append((None, it))
+            else:
+                die('%s: no such file (phone paths start with a drive letter: E:\\...)' % it)
+        if not jobs:
+            die('no .sis/.sisx packages found')
+        need(c.call({'op': 'put', 'local': SISINST_EXE, 'remote': 'C:\\sys\\bin\\sisinst.exe', 'stamp': True}))
+        os.makedirs(os.path.join(sdir, 'sis'), exist_ok=True)
+        results = []
+        for remote, local in jobs:
+            name = re.sub(r'[^A-Za-z0-9._-]', '_', os.path.basename(local) if local else remote.rsplit('\\', 1)[-1])
+            print('== %s' % (local or remote))
+            if local:
+                remote = stage + name
+                t0 = time.time()
+                need(c.call({'op': 'put', 'local': os.path.abspath(local), 'remote': remote}))
+                print('pushed %d bytes in %.1f s -> %s' % (os.path.getsize(local), time.time() - t0, remote))
+            log = stage + name + '.log'
+            ev0 = c.call({'op': 'events', 'since': 0})['last']
+            r = need(agent('run', ['C:\\sys\\bin\\sisinst.exe'],
+                           raw='%s drive=%s lang=%d log=%s' % (remote, x.drive[:1].upper(), x.lang, log)))
+            end, ex = time.time() + x.timeout, None
+            while ex is None and time.time() < end:
+                e = c.call({'op': 'events', 'since': ev0, 'wait': min(5, end - time.time()), 'kinds': ['agent.exit']})
+                ev0 = e['last']
+                hit = [v for v in e['events'] if v.get('pid') == r.get('pid')]
+                if hit:
+                    ex = hit[0]
+            local_log = os.path.join(sdir, 'sis', name + '.log')
+            g = c.call({'op': 'get', 'remote': log, 'local': local_log})
+            if g.get('ok'):
+                sys.stdout.write(open(local_log, errors='replace').read())
+            else:
+                print('(no log: %s; the serial log has the SISINST: lines)' % g.get('error'))
+            if ex is None:
+                print('sisinst still running after %d s (pid %s): see %s/serial.log (SISINST:); stopping here'
+                      % (x.timeout, r.get('pid'), sdir))
+                results.append((name, 'timeout'))
+                break
+            if ex is not None:
+                agent('rm', [log])
+                if local and not x.keep:
+                    agent('rm', [remote])
+            if ex.get('type') != 'kill':
+                res = 'died: %s %s %s' % (ex.get('type'), ex.get('category', ''), ex.get('reason'))
+            else:
+                code = ex.get('reason', 0)
+                res = '%d %s' % (code, SIS_ERRORS.get(code, '(see sisinstallerrors.h / system errors)'))
+            print('result %s; log %s' % (res, local_log))
+            results.append((name, res))
+        if len(results) > 1:
+            print('== summary')
+            for n, res in results:
+                print('  %-40s %s' % (n, res))
+        if any(not res.startswith('0 ') for _, res in results):
+            sys.exit(1)
     elif cmd == 'kill':
         out(agent('kill', rest[:2]))
     elif cmd in ('ps', 'threads'):
@@ -586,6 +847,66 @@ def main():
         x = ap.parse_args(rest)
         out(c.call({'op': 'gc', 'keep_auto': x.keep_auto, 'keep_dumps': x.keep_dumps, 'forks': not x.no_forks,
                     'dry': x.dry_run}, timeout=120))
+    elif cmd == 'gl':                     # host GPU settings and statistics (QOM /machine/gl)
+        def qom_get(prop):
+            r = c.call({'op': 'qmp', 'cmd': 'qom-get', 'args': {'path': '/machine/gl', 'property': prop}})
+            if 'error' in r:
+                raise SystemExit('sydb gl: %s' % r['error'])
+            return r.get('return')
+        if not rest or rest[0] in ('get', 'stats'):
+            vals = {k: qom_get(k) for k in ('msaa', 'filter', 'compose')}
+            st = json.loads(qom_get('stats'))
+            if js:
+                print(json.dumps({'settings': vals, 'stats': st}))
+            else:
+                print('settings: ' + ', '.join('%s=%s' % kv for kv in vals.items()))
+                print('stats:    ' + ', '.join('%s=%s' % kv for kv in st.items()))
+        elif rest[0] == 'set':
+            save = '--save' in rest
+            sets = [a for a in rest[1:] if a != '--save']
+            if not sets:
+                raise SystemExit('sydb gl set NAME=VALUE... [--save]   (msaa=0|2|4|8|16 filter=auto|nearest|linear compose=host|guest)')
+            changed = {}
+            for a in sets:
+                k, _, v = a.partition('=')
+                val = int(v) if k == 'msaa' and v.isdigit() else v
+                r = c.call({'op': 'qmp', 'cmd': 'qom-set', 'args': {'path': '/machine/gl', 'property': k, 'value': val}})
+                if 'error' in r:
+                    raise SystemExit('sydb gl set %s: %s' % (a, r['error']))
+                changed[k] = val
+            if save:                       # applied as -global at the next start of this session
+                path = os.path.join(sdir, 'gl.json')
+                try:
+                    cur = json.load(open(path))
+                except (OSError, ValueError):
+                    cur = {}
+                cur.update(changed)
+                json.dump(cur, open(path, 'w'), indent=1)
+            print('set ' + ', '.join('%s=%s' % kv for kv in changed.items()) + (' (saved)' if save else ''))
+        else:
+            raise SystemExit('sydb gl [get] | sydb gl set NAME=VALUE... [--save]')
+    elif cmd == 'accel':                  # the phone's gravity vector (QEMU syborg-sensor; accelerometer stand-in)
+        named = {'portrait': '0,1000,0', 'landscape': '1000,0,0', 'flat': '0,0,1000'}
+        if rest:
+            v = named.get(rest[0], rest[0])
+            need(c.call({'op': 'qmp', 'cmd': 'qom-set', 'args': {'path': '/machine/sensor', 'property': 'accel', 'value': v}}))
+        r = need(c.call({'op': 'qmp', 'cmd': 'qom-get', 'args': {'path': '/machine/sensor', 'property': 'accel'}}))
+        print(r.get('return'))
+    elif cmd == 'tap':                    # touch phones: press at screen pixel (x, y), hold, release
+        ap = argparse.ArgumentParser(prog='sydb tap')
+        ap.add_argument('x', type=int); ap.add_argument('y', type=int)
+        ap.add_argument('--ms', type=int, default=120, help='how long the finger stays down')
+        x = ap.parse_args(rest)
+        disp = devmodel.get(devmodel.load(), 'board.display', {})
+        w, h = disp.get('width', 240), disp.get('height', 320)
+        ax, ay = int(x.x * 0x7fff / max(w - 1, 1)), int(x.y * 0x7fff / max(h - 1, 1))
+        pos = [{'type': 'abs', 'data': {'axis': 'x', 'value': ax}}, {'type': 'abs', 'data': {'axis': 'y', 'value': ay}}]
+        need(c.call({'op': 'qmp', 'cmd': 'input-send-event', 'args': {'events': pos + [
+            {'type': 'btn', 'data': {'down': True, 'button': 'left'}}]}}))
+        time.sleep(x.ms / 1000.0)
+        need(c.call({'op': 'qmp', 'cmd': 'input-send-event', 'args': {'events': pos + [
+            {'type': 'btn', 'data': {'down': False, 'button': 'left'}}]}}))
+        print('tap %d,%d (%d ms)' % (x.x, x.y, x.ms))
     elif cmd in ('pause', 'resume'):
         out(c.call({'op': 'vm', 'sub': cmd}))
     elif cmd == 'qmp':
@@ -596,14 +917,13 @@ def main():
     elif cmd == 'update-agent':    # deploy a rebuilt agent without stopping the session
         need(c.call({'op': 'put', 'local': AGENT_EXE, 'remote': 'C:\\data\\sydb\\devagent.new', 'stamp': True}))
         need(c.call({'op': 'put', 'local': DAFS_EXE, 'remote': 'C:\\sys\\bin\\dafs.exe', 'stamp': True}))
+        need(c.call({'op': 'put', 'local': HOOK_EXE, 'remote': 'C:\\sys\\bin\\' + hook_name(), 'stamp': True}))
         need(agent('upgrade', ['C:\\data\\sydb\\devagent.new']))
         time.sleep(1.5)
         r = need(c.call({'op': 'wait', 'what': 'agent', 'timeout': 30}))
         if not r.get('agent'):
             die('agent did not come back')
-        # the startup list pins the exe's MD5: register the new binary
-        need(agent('startup', ['add', AGENT_PATH]))
-        print('agent restarted (pid %s), startup list entry updated' % r['hello'].get('pid'))
+        print('agent restarted (pid %s)' % r['hello'].get('pid'))
     elif cmd == 'strace':
         # strace MATCH [--secs S]: IPC messages to/from processes whose name contains MATCH
         ap = argparse.ArgumentParser(); ap.add_argument('match'); ap.add_argument('--secs', type=float, default=5)

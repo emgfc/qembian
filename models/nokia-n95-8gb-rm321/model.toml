@@ -1,0 +1,32 @@
+# Nokia N95 8GB China variant (RM-321): same hardware without WLAN [I: type code from Nokia's
+# variant list, not checked against a firmware]. Shows how a variant inherits: every table of the
+# base profile is deep-merged, scalars and arrays here replace the base's, `remove` lists drop
+# entries of a base array-of-tables by `name`.
+schema = 2
+extends = "nokia-n95-8gb-rm320"
+
+[device]
+id = "nokia-n95-8gb-rm321"
+model = "N95 8GB (China)"
+type_code = "RM-321"
+market = "china"
+aliases = []
+
+[firmware]
+default = "unknown"                   # models/nokia-n95-8gb-rm321/firmware/<name>/: the firmware a bare id loads
+# ---------------------------------------------------------------------------------------------
+[hardware]
+wlan = false
+
+# The ROM differs, so every address-bearing input is per variant: byte patches, GL entry patches
+# and the blob gap must be regenerated from this ROM (tools/device.py gen --device nokia-n95-8gb-rm321).
+[rom]
+code_patches = ["code-patches.txt"]          # the N95's, module-relative (tools/fw/patches.py): resolved against this ROM
+[gl]
+entry_patches = "gl/gles-patches.txt"
+imports = "gl/n95imports.txt"                # addresses resolve from this variant's symindex at build time
+
+[status]
+level = "L0-none"
+updated = ""
+open = ["everything: no firmware inventoried yet"]

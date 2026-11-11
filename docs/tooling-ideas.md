@@ -45,7 +45,7 @@ a rough cost.
   structured report incl. the "likely blocked" IPC wait list.
 - `tools/syb_gdb.py` (2026-11-05): leave tracer with module filter, breakpoints with kernel
   expressions (kernel DWARF loaded), current-thread names, symbolised sampling.
-- `tools/isi.py` + `platform/isi/replies-bb5.txt + devices/<id>/isi-replies.txt` (2026-11-05): ISI names, unanswered-request
+- `tools/isi.py` + `platform/isi/replies-bb5.txt + models/<id>/isi-replies.txt` (2026-11-05): ISI names, unanswered-request
   summary, reply table as data.
 
 - `tools/syb_sym.py` (2026-11-05): address → module/export/function/literal, symbol search,
@@ -84,3 +84,51 @@ away. Symbian has no fork(), but three things would give the same effect:
 **Done 2026-11-06** as `sydb catch` + `sydb snap`/`fork` (docs/sydb.md "Catch, snapshots and
 forks"), host side through gdb on cold paths (User::Panic, DThread::Die) plus QMP migration, with
 no kernel change. Record/replay (3) is still open.
+
+- **Disassemble a RAM-loaded (ROFS) DLL** (2026-11-07, 5730 NOKIATSY): `tools/e32load.py` does not read
+  byte-pair compressed images. Workaround used: `elf2e32_next --dump=hc --e32input=X`, then turn the
+  hex code dump into a binary and `objdump -b binary -m arm -M force-thumb` it (no import names).
+  Wanted: byte-pair support in e32load.py, or `tools/fw/probe.py code NAME` doing the extract +
+  decompress + ELF with import names in one step.
+- **Find what start-up waits on**: the manual loop was syb_report on a log cut before the shutdown,
+  then requests completed with -33/-3 to sysstart, then the next ISCPEER line. A `syb_report.py
+  --until T --who sysstart` view (open requests of one client at time T, with the modem messages they
+  caused) would make it one command.
+
+- **Byte-pair compressed E32 images** (`0x102822AA`): `tools/e32load.py` reads only deflate/none, so
+  ROFS executables of Symbian^3 (N8) cannot be loaded or symbolised; the composition research needed
+  a throwaway decompressor. Add byte-pair decoding to e32load (and so to syb_sym for ROFS code).
+- **Ghidra `fn` on N8 core DLLs** (`syb_sym.py fn gce.dll ...`) produced no `ghidra/*.c`; check the
+  headless import for the N8 core image.
+- **elf2e32_next `--libpath` with several entries looped forever** (it never advanced past the first);
+  fixed in patches/elf2e32_next/0002-libpath-search.patch for the container build. The host build in
+  ~/work/elf2e32_next is unpatched, so src/khr/build.sh links every import library into one directory.
+- **`sydb wait-screen [--changed] [--stable MS] [--timeout S]`**: block until the screen changes and is
+  stable, print the elapsed time. Timing UI steps (tap, then wait) was done with a scratch script that
+  polled screenshot hashes; scripted flows also raced the first-boot wizard without it.
+- **TLB/flush statistics on demand** (QEMU HMP command or QOM property): ASID context hits/misses,
+  domain drops, large-page full flushes per index. Today they are printed to stderr every 5 s with
+  `SYBORG_ASID_TLB_STATS=1`, and the large-page counter does not exist yet (docs/perf.md).
+
+- 2026-11-09 (N8 Settings delay): `tools/ipc_latency.py` added (slow and open IPC requests from a KIPC-traced
+  serial.log). Still missing: a way to keep the KIPC bit on without `sydb strace` (a `sydb trace ipc on|off`),
+  catch thread filters that work for kernel-side breakpoints (thread names resolve to '?'), and a
+  "who is this thread blocked on" query (wait object of a thread, from the kernel's NThread state).
+
+- 2026-11-09 (5800 Settings root cause): IPC tracing needs message/session IDs,
+  stable thread identity across renames, and notification-vs-synchronous labeling.
+  `ipc_latency.py` currently pairs FIFO by client name/opcode, so cross-server
+  collisions and gaps can produce misleading durations. A modem audit should flag
+  mismatched service identifiers even when `deliver` exists. A request-semaphore
+  wait alone must not be displayed as proof of an idle app. See the review in
+  `docs/devices/nokia-n8-rm596/settings-delay.md`.
+
+- 2026-11-10 (701/808 bring-up): a waiting thread's *user* call stack. In the flexible model gdb reads
+  only the current process, so a thread blocked in User::WaitForRequest had to be caught with a hardware
+  breakpoint inside EUser's WaitForRequest loop conditioned on its NThread (TheScheduler.iCurrentThread,
+  0xC8000C28 on the syborgfx udeb kernel), then woken. A `sydb ustack THREAD` (switch to the thread's
+  address space, dump and symbolise its stack from the saved user SP) would have made it one command.
+  `tools/sydb/gdb/threads-blocked.gdb`'s "nstate" reads NThreadBase+77, which on this kernel is
+  iTimer.iState (always 0); only its "nwait" (+40) is right. Also missing: `sydb mem` (free/total RAM
+  pages; read here from TheMmu.iRamPageAllocator by hand) and a pending-sync-IPC list per thread
+  (the scratch pairing script paired file-server messages wrongly).

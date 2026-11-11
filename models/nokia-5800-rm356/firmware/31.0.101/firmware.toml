@@ -1,0 +1,40 @@
+# Firmware 31.0.101 of nokia-5800-rm356 (device model v2: merged over models/nokia-5800-rm356/model.toml). What belongs to this
+# firmware build: its files, identity and addresses. The model is the phone.
+
+[firmware]
+version = "31.0.101"
+obtain = """
+Flash files of an RM-356 software version: prd.core.C00 (SOS+CORE + SOS+ROFS1), prd.rofs2.V05 (ROFS2)
+and one C0x_prd.rofs3.fpsx customer variant (ROFS3). Put them in roms/RM-356/<version>/
+(git-ignored) (tools/fw/store.py import DIR files them there).
+"""
+[[firmware.files]]
+role = "core"                              # SOS+CORE + SOS+ROFS1 [V partition names]
+glob = "RM-356_*_prd.core.C00"
+
+[[firmware.files]]
+role = "rofs2"                             # language pack
+glob = "RM-356_*_prd.rofs2.V??"
+
+[[firmware.files]]
+role = "rofs3"                             # customer variant
+glob = "RM-356_*_C01_prd.rofs3.fpsx"            # customer variant C01
+
+[firmware.identity]                         # filled from the inventory
+sw = { version = "V 31.0.101", date = "16-09-2009", type_code = "RM-356" }   # Resource/versions/sw.txt [V]
+langsw = {}
+drivers = ["proximityldd.ldd", "wlanldd.ldd"]
+[firmware.identity.sha256]
+"core-flat.img" = "7e5c51639926d9f9e6ade21f46c1aed4950a56592e669aceb1e4e65548133ea5"
+"rofs1.img" = "2c8627150b67402e6a47efd3adf71c806b73a7744bdc6273db48dab893a34f3e"
+"rofs2.img" = "8e6b479b4807abda34d6a37be6b512f688e146062897de8ba10f7498938c9885"
+
+[firmware.rom]
+user_window_start = 0x80286DD0             # ecomp.fsy (probe.py header) [V]
+# User data layer: the C: drive the flasher writes after the ROM layers (factory content: installed apps,
+# Starter list, media). New session drives start as a copy (docs/devices.md "User data layer").
+[[firmware.files]]
+role = "uda"
+glob = "RM356_*_U01.uda.fpsx"
+drive = "C"
+optional = true

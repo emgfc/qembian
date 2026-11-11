@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Carve files out of a Symbian ROFS image by name (no directory walk).
 
-  tools/research/rofs_extract.py build/devices/<id>/rofs1.img NAME [NAME ...] [--out DIR]
-  tools/research/rofs_extract.py build/devices/<id>/rofs1.img --list
+  tools/research/rofs_extract.py build/roms/<id>/<fw>/rofs1.img NAME [NAME ...] [--out DIR]
+  tools/research/rofs_extract.py build/roms/<id>/<fw>/rofs1.img --list
 
 Scans the directory-entry area for the UTF-16LE file name and reads the TRofsEntry fields that
 precede it. Entry layout (verified on rofs1.img against the E32 header of DATAPORT.CSY at 0x202a0):

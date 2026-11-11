@@ -14,6 +14,7 @@
 
 #include "locmedia.h"
 #include "platform.h"
+#include "boardconfig.h"
 #include <kernel/kernel.h>
 #include <e32rom.h>
 #include <partitions.h>
@@ -30,7 +31,8 @@ static TLinAddr RofsBase = 0;
 static TInt RofsSize = 0;
 
 const TPhysAddr KFlashPhys = 0x60000000;
-const TInt KFlashWindow = 128 << 20;
+// the window size: board config medrofs.flash_mb (board.flash.size_mb, default 128)
+#define KFlashWindow (BoardConfigInt("medrofs.flash_mb", 128) << 20)
 
 static TInt FindRofs()
 	{

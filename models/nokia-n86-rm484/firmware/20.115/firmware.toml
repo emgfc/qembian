@@ -1,0 +1,31 @@
+# Firmware 20.115 of nokia-n86-rm484, written by tools/device.py firmware-add from the ROM store entry RM-484/20.115.
+# Merged over models/nokia-n86-rm484/model.toml. Not booted yet unless [status] says so.
+
+[firmware]
+version = "20.115"
+
+[[firmware.files]]
+role = "core"
+glob = "RM-484_20.115_prd.core.fpsx"
+
+[[firmware.files]]
+role = "rofs2"
+glob = "RM-484_20.115_005_prd.language.fpsx"
+
+[[firmware.files]]
+role = "rofs3"
+glob = "RM-484_20.115_55.1_prd.customer.fpsx"
+
+[[firmware.files]]
+role = "uda"
+glob = "RM-484_20.115_003_U001.uda.fpsx"
+drive = "C"
+optional = true
+
+[firmware.identity]
+sw = { version = "20.115", date = "21-09-2009", type_code = "RM-484" }
+
+[status]
+level = "L0-untested"
+updated = "2026-11-10"
+open = ["not booted on this firmware yet"]

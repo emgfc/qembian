@@ -1,0 +1,13 @@
+--- a/baseport/syborg/fb/syborg_fb.cpp
++++ b/baseport/syborg/fb/syborg_fb.cpp
+@@ -304,7 +304,9 @@
+ 	        NKern::ThreadLeaveCS();
+ 		Kern::Fault("AllocVideoRam 2",r);
+ 	}
+-	iSecurevRamPhys = ivRamPhys + vSize;
++	// the address this allocation returned: the two buffers are adjacent only when RAM happens to be free
++	// right after the first (N8 025.007: the page after it held a page table, AssignPage faulted)
++	iSecurevRamPhys = TSyborg::VideoRamPhysSecure();
+ 	TInt r2 = DPlatChunkHw::New(iSecureChunk,iSecurevRamPhys,vSize,EMapAttrUserRw|EMapAttrBufferedC);
+ 
+ 	NKern::ThreadLeaveCS();

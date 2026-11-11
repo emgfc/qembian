@@ -22,7 +22,7 @@ import argparse, os, shutil, signal, subprocess, sys, threading, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, 'tools'))
-import device as devmodel  # tools/device.py: build paths of the device ($SYBORG_DEVICE / devices/default)
+import device as devmodel  # tools/device.py: build paths of the device ($SYBORG_DEVICE / the registry default)
 DEVPATHS = devmodel.paths(devmodel.load())
 
 
@@ -31,8 +31,8 @@ def main():
     ap.add_argument('--secs', type=float, default=30)
     ap.add_argument('--trace', default='0x80000C40')
     ap.add_argument('--rom', default=DEVPATHS['rom'],
-                    help='ROM image to compose into and boot (default: the working build/devices/<id>/hybrid.img)')
-    ap.add_argument('--patches', help='byte-patch file for the compose (default: the profile's rom.code_patches)')
+                    help='ROM image to compose into and boot (default: the working build/roms/<id>/<fw>/hybrid.img)')
+    ap.add_argument('--patches', help="byte-patch file for the compose (default: the profile's rom.code_patches)")
     ap.add_argument('--no-compose', action='store_true')
     ap.add_argument('--shot', type=float, action='append', default=[])
     ap.add_argument('--key', action='append', default=[])

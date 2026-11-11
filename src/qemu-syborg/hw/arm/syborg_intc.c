@@ -136,11 +136,20 @@ static const Property syborg_intc_properties[] = {
     DEFINE_PROP_UINT32("num-interrupts", SyborgIntcState, num, 32),
 };
 
+/* a machine reset: every source disabled; the line levels are the devices' (they lower their own) */
+static void syborg_intc_reset(DeviceState *dev)
+{
+    SyborgIntcState *s = SYBORG_INTC(dev);
+    s->enabled = 0;
+    syborg_intc_update(s);
+}
+
 static void syborg_intc_class_init(ObjectClass *oc, const void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(oc);
 
     dc->realize = syborg_intc_realize;
+    device_class_set_legacy_reset(dc, syborg_intc_reset);
     dc->vmsd = &vmstate_syborg_intc;
     device_class_set_props(dc, syborg_intc_properties);
 }

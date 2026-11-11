@@ -1,0 +1,75 @@
+# Nokia 5800 XpressMusic (RM-356) keys -> EStdKey scan codes -> host keys.
+# Scan codes: the 5800's keypad_exp.dll 32-bit matrix table at 0x8010e77c (RM-356 V 31.0.101) [V]; matrix
+# indexes in the comments. A touch phone: Call, Menu, End, camera, volume, and EStdKeyDevice7 (matrix 76,
+# the side lock switch [I]). Power is not in the matrix (power-key path) [I]. Host keys as on the N95.
+schema = 1
+device = "nokia-5800-rm356"
+
+[[keys]]
+key = "menu"
+label = "Menu"
+scancode = "EStdKeyApplication0"
+host = ["f8"]
+set1 = 0x42
+group = "front"
+row = 1
+col = 0   # matrix 37
+
+[[keys]]
+key = "call"
+label = "Call"
+scancode = "EStdKeyYes"
+host = ["f2"]
+set1 = 0x3c
+group = "front"
+row = 2
+col = 0   # matrix 24
+
+[[keys]]
+key = "end"
+label = "End"
+scancode = "EStdKeyNo"
+host = ["f3"]
+set1 = 0x3d
+group = "front"
+row = 2
+col = 2   # matrix 50
+
+[[keys]]
+key = "power"
+label = "Power"
+scancode = "EStdKeyDevice2"
+host = ["f4"]
+set1 = 0x3e
+group = "side"
+
+[[keys]]
+key = "volup"
+label = "Vol +"
+scancode = "EStdKeyIncVolume"
+host = ["f11"]
+set1 = 0x57
+group = "side"   # matrix 89
+
+[[keys]]
+key = "voldown"
+label = "Vol -"
+scancode = "EStdKeyDecVolume"
+host = ["f12"]
+set1 = 0x58
+group = "side"   # matrix 102
+
+[[keys]]
+key = "camera-half"
+label = "Cam ½"
+scancode = "EStdKeyApplication19"
+host = ["f15"]
+set1 = 0x5f
+group = "side"   # matrix 63
+
+[[keys]]
+key = "lock"
+label = "Lock"
+scancode = "EStdKeyDevice7"
+host = ["f13"]
+group = "side"   # matrix 76 [I: the lock switch]

@@ -13,9 +13,9 @@ qemu-args, identify, build, gen keymap-header / key-aliases / qemu-keymap / stan
 identity, `tools/fw/inventory.py`, `src/standins/` composed from `[[standins]]`, `personalities/sym92`
 with `tools/personality/check.py` (driver ABI + exec numbering), key translation in QEMU, RAM size and
 device id from the board, stand-in settings from the board (`[modem]` imei, power-off delay), GL per
-device (`src/sygl`, `devices/<id>/gl`), ISI names shared / replies layered (family + device),
+device (`src/sygl`, `models/<id>/gl`), ISI names shared / replies layered (family + device),
 families (`platform/families/`), stand-in protocol variants from `[[standins]] config`, device docs and hacks
-under `docs/devices/<id>/` and `devices/<id>/hacks.md`, a phone window generated from `keymap.toml`.
+under `docs/devices/<id>/` and `models/<id>/hacks.md`, a phone window generated from `keymap.toml`.
 Personality selection at run time (4.3) is done (registry numbers in the ROM header). Not yet: the LCD HAL from fb registers (`lcd_n95` is still a
 profile-chosen build). Section 1 describes the state *before* the refactor, kept for the record.
 
@@ -28,7 +28,7 @@ profile-chosen build). Section 1 describes the state *before* the refactor, kept
 | Guest baseport `patches/qemu-baseport/` (16 patches on `external/oss.FCL.sf.adapt.Qemu`) | built by `scripts/build-syborg.sh` | keyboard table (0005/0012/0014/0015/0016), LCD modes and pitch (0001/0003/0013), RAM size in the bootstrap (0010), CPU (0011), tick/fast counter (0008/0009), RTC hook (0007), nvmem instance (0006) [V] |
 | Kernel `patches/kernelhwsrv/` (9 patches) | `scripts/build-kernel.sh` | 9.2 exec personality (0001/0005, tables from `personalities/sym92/exec.map`), 9.2 driver ABI (0008/0009), N95 critical-thread policy (0003/0006), debug traces (0002/0004/0007) [V] |
 | Stand-ins `src/standins/` | `scripts/build-standins.sh` copies the tree into the baseport and writes an oby fragment | 15 drivers listed in `bld.inf`; `isi/isi-db.txt` (names + canned replies) → generated `isireplies.h`; stateful modem in `stubs/iscpeer.inl`; `lcd/lcd_n95.mmp` macros [V] |
-| ROM composition `tools/romcompose.py`, `rom/hybrid/` | `scripts/hybrid-boot.sh` / `compose-exp.sh` | `code-patches.txt` (addresses in the RM-320 v35 ROM), `ESTARTCOMP.TXT`, blob address `0x80320000`, `--exec92`, trace mask [V] |
+| ROM composition `tools/romcompose.py`, `rom/hybrid/` | `scripts/hybrid-boot.sh` / `compose-exp.sh` | `code-patches.txt` (module + offset, resolved per firmware: tools/fw/patches.py), `ESTARTCOMP.TXT`, blob address `0x80320000`, `--exec92`, trace mask [V] |
 | GL `src/sygl/` | `build.sh` → `sygl.bin` + `rom/hybrid/gles-patches.txt` via `tools/gen-gles-glue.py` | ordinals of this ROM's `libgles_cm.dll`, `n95imports.txt`, identity strings in `gl.c`/`egl.c`, `SYGL_BASE` [V] |
 | Firmware pipeline `scripts/n95-inventory.sh`, `tools/fiasco.py`, `rom_unpage.py`, `romimg.py`, `swi_map.py`, `xip_imports.py` | outputs to `build/n95/` | `N95_FW_DIR`, `RM-320_*.C0R` globs, SDK paths [V] |
 | sydb `tools/sydb/` | daemon, CLI, MCP, phone window | `IDLE_RE`, key aliases, `HOST_KEYS`, phone-window buttons, ROM defaults (`hybrid.img`, `hybrid-exp.img`), `build/n95` drives [V] |
@@ -42,9 +42,19 @@ Two facts shape the design:
 - **The user side is byte-identical firmware.** Everything that carries an address (byte patches,
   GL entry patches, import tables, symbol index) is per firmware version, not per model.
 
-## 2. Profile format: TOML, one directory per device
+## 2. Profile format: TOML, one directory per phone model
 
-`devices/<id>/device.toml` plus small data files next to it. Format choice: **TOML**.
+A device profile is a phone model, `models/<model>/model.toml` (the phone), with one of its firmware
+overlays, `models/<model>/firmware/<fw>/firmware.toml` (that firmware: files, identity, addresses,
+release-specific overrides), merged by the rules below, plus small data files next to them (device
+model v2, `models/README.md`). Format choice: **TOML**. Below, "the profile" is the merged result
+(`tools/device.py show ID`). Device ids: a model (`nokia-n8-rm596`: its `[firmware] default`),
+`<model>@<fw>`, or the `[device] id` a firmware overlay keeps from before v2 (`nokia-n8-rm596-v13` =
+`nokia-n8-rm596@013.016`). A device instance (the user's phone, `tools/instance.py`, docs/sydb.md)
+runs one device and may lay run-time `[overrides]` over it. Another firmware of a model:
+`tools/fw/store.py import ...`, then `tools/device.py firmware-add MODEL RM-xxx/<version> [--rofs2 ID]
+[--rofs3 ID]` writes its overlay (exact file names, identity from the store) and `MODEL@<version>` is a
+device id like any other (`device.py build`, `sydb`, `SYBORG_DEVICE`); `device.py firmwares` lists them.
 - Python 3.11 reads it from the standard library (`tomllib`), so the `python3 -I` tools gain no
   dependency; every consumer (bash through `tools/device.py`, Python, QEMU via a generated file) is
   covered.
@@ -54,31 +64,33 @@ Two facts shape the design:
 - Arrays of tables (`[[standins]]`, `[[board.drives]]`, `[[keys]]`) map naturally to "one record
   per driver/drive/key", which is most of a profile.
 
-Directory layout of a device:
+Directory layout of a model:
 
 ```
-devices/nokia-n95-8gb-rm320/
-  device.toml          the profile (schema below)
+models/nokia-n95-8gb-rm320/
+  model.toml           the phone (schema below; [firmware] default names the firmware a bare id loads)
+  firmware/35.0.001/   firmware.toml: [firmware] version/obtain/store, [[firmware.files]] globs,
+                       [firmware.identity], addresses; files of that firmware only (composition/ ...)
   keymap.toml          physical keys -> EStdKey -> host keys -> skin placement
   skin.toml            optional phone-window geometry (falls back to a generic S60 layout)
   isi-replies.txt      canned fake-modem replies for this firmware (names stay platform-wide)
   code-patches.txt     byte patches on this ROM (romcompose --patches format, originals verified)
   ESTARTCOMP.TXT       drive map (CR LF)
-  firmware.sha256      checksums of the input files (not the bytes)
   gl/                  libgles_cm.ordinals, n95imports.txt, generated gles-patches.txt
   README.md            status, levels reached, open items, device-specific hacks
 ```
 
 Inheritance: `extends = "<id>"`. Tables deep-merge, scalars and plain arrays in the child replace
 the parent's, arrays of tables merge by `name` (child entries with the same `name` replace; a
-`remove = ["name", ...]` list under the table drops parent entries). The RM-321 example in
-`devices/nokia-n95-8gb-rm321/` sets `hardware.wlan = false`, its own firmware globs and its own
+`remove = ["name", ...]` list under the table drops parent entries; in a plain table it drops the
+parent's keys of those names). The RM-321 example in
+`models/nokia-n95-8gb-rm321/` sets `hardware.wlan = false`, its own firmware globs and its own
 address-bearing files, and inherits the rest. Variants of a *ROM* for the same device (today the
 audio experiment ROM) are `[rom.variants.<name>]`, not separate devices.
 
 **Families.** `family = "<name>"` at the top of a profile merges `platform/families/<name>.toml`
 *under* it (same merge rules as `extends`; a device value always wins; a profile that `extends`
-another takes the family through its parent). Today one family, `bb5-s60` (N95 8GB, N73, 5730):
+another takes the family through its parent). Today one family, `bb5-s60` (N95 8GB, N73, 5730, N79, 5800, N8):
 board machine/timing/audio/flash window, input translation, kernel set-up, the fake-modem scenario
 (`[modem]` knobs, the replies list) and the S60 P&S keys. Shared fake-modem replies are layered the
 same way: `modem.replies` is a list, `["platform/isi/replies-bb5.txt", "isi-replies.txt"]`; a later
@@ -111,24 +123,35 @@ Rules for families (for people and agents adding devices):
 `s60-3.1`, `s60-3.2`, `s60-5.0`, `s60-5.2`…), `personality` (directory under `personalities/`, §4),
 `soc`, `cellular` (`bb5`, `rapido`…: which fake-modem family).
 
-**`[firmware]`** `version`, `container` (`fiasco-bb5`, later others), `checksums`, `obtain` (free
-text: where a user gets their own copy; never a download link to proprietary bytes), `[[files]]`
-with `role` (`core`, `rofx`, `uda`…), `glob`, `partitions` (container partition names → roles),
-`optional`. `[firmware.rom]`: `base`, `kernel_data`, `memory_model`, `paged`,
+**`[firmware]`** `version`, `container` (`fiasco-bb5`, later others), `store` (the ROM store id when
+it is not the unlabelled `<type code>/<version>`), `obtain` (free
+text: where a user gets their own copy; never a download link to proprietary bytes), `sdk_lib`
+(the firmware platform SDK's `armv5/lib`, `~` allowed: `tools/syb_sym.py` names exports from its
+`.dso` ordinals, which differ per platform; `$S60_SDK_LIB` overrides, default S60 3rd FP1), `[[files]]`
+with `role` (`core`, `rofx`, `rofs2`, `rofs3`, `uda`…), `glob`, `optional`: which files form the
+firmware. Where the images are inside each file is read from the file (`tools/fw/layout.py`, since
+2026-11-10: core partition and its compression, ROFS1 in its own partition or after a compressed core,
+the language and customer ROFS by record name or ROFS magic, paging from the ROM header), never
+declared; a `uda` entry also has `drive` (the letter it is written to, `C`): section 2.4. `[firmware.rom]`: `base`, `kernel_data`, `memory_model`, `paged`,
 `user_window_start` (lowest address the user side occupies after our kernel side; the composer
 checks the overlap, the GL blob goes below it).
 
 **`[board]`** everything turned into QEMU arguments at run time. `machine` (always `syborg`),
-`cpu` (QEMU model), `ram_mb`, `ram_mb_real`. Sub-tables:
-- `display`: `width`, `height` (UI size), `native_orientation`, `line_pitch`, `bpp`, `hal_modes`,
-  `hal_mode`, `refresh_hz`, `blank_dim_percent`, `partial_mode`, `touch`, `rotation_caps`;
+`cpu` (QEMU model: `arm1136-r2` for OMAP2420-era phones, `arm926` for the N73, `arm1176` for
+ARMv6K phones such as the N8, with `kernel.baseport = "syborgfx"` (flexible memory model)), `ram_mb`, `ram_mb_real`. Sub-tables:
+- `display`: `width`, `height` (UI size), `native_orientation`, `line_pitch`, `panel_rows`,
+  `caps_words` (board config `d_display.*`), `touch`; `refresh_hz` / `blank_dim_percent` only when
+  measured on the phone (tool defaults 60 / 25);
+  `touch` (true: `-global syborg-pointer.input=on`, the `exyin` stand-in, the cursor in QEMU's window,
+  mouse = finger in `sydb phone`);
   `caps_words` (size in words of the caps block the phone's DisplayDriver client reads: 28 on the
   N95, 27 on the 5730), `panel_rows`. `caps_words`, `native_orientation`, `line_pitch` and
   `panel_rows` reach the `d_display` stand-in through the board config (`disp_*` keys).
 - `timing`: `fast_counter_hz`, `nanokernel_tick_us`, `rtc`.
 - `audio`: `device`, `host_default`, `dsp` (which stand-in feeds the device).
 - `gl`: `device`, `backend` default.
-- `flash`: `base`, `size_mb`, `content` (what the loader puts there).
+- `flash`: `base`, `size_mb` (the window, -global syborg-platform.flash-mb, board config flash_mb for
+  medrofs, romcompose --flash-mb; 256 on the N8), `content` (what the loader puts there).
 - `[[drives]]`: `letter`, `local_drive`, `kind` (`iram`, `nvmem`, `nvmem2`, `composite`, later
   `mmc`), `image`, `size`, `removable`, `flags` (ESTART flags; the tool can generate ESTARTCOMP
   from these later). Several `composite` drives (5730: Z: on local drives 9, 10, 11) mean one
@@ -146,37 +169,60 @@ boots), `critical_thread_policy` (`spare` = H-critical-exit, `strict`), `user_me
 `patchsets` (named directories under `patches/kernelhwsrv/`, §4.2), `place` (`below-user-side`,
 the default: our kernel side goes into the gap below the firmware's user side; `after-firmware`:
 it does not fit there, so it goes after the firmware image and the obey file is padded),
-`[kernel.lcd]` (`target`, `macros` for the LCD HAL extension until §3.3 moves them to registers).
+`[kernel.lcd]` (`target`: the LCD HAL build; its macros live in the build's mmp file).
 
 **`[[standins]]`** kernel-side stand-ins composed into the ROM, in obey order: `name` (directory
-under `src/standins/`), `kind` (`ldd`, `pdd`, `extension`, `lcd`), `family` (`common`,
+under `src/standins/` and its .mmp), `file` (ROM base name and the mmp's target, default `name`: lets an
+LDD and a PDD share one, as `accelerometer.ldd` / `accelerometer.pdd`), `kind` (`ldd`, `pdd`, `extension` (built as .pdd), `kext` (kernel extension
+built as .dll, e.g. the `exyin` digitiser), `kext-ldd` (an LDD that is also a boot-time extension, e.g.
+the surface manager), `lcd`), `family` (`common`,
 `nokia-bb5`, `nokia-omap2`, …), `role` (one line), `options` (MACRO= pairs for the mmp, e.g. ISC
 channel base), `config` (table: the protocol variant this phone's clients speak, e.g.
 `config = { bridge = "omap1710" }` for the N73's DSP bridge, `{ api = 1 }` for its Custom LDD).
 `config` keys reach the stand-in at run time as `<name>.<key>` in the board config
 (`BoardConfig("ehwa.bridge")`, `src/standins/_shared/boardconfig.h`), so one stand-in binary
 serves every variant and never guesses the variant from the arguments it sees.
+`kernel.omit_baseport` lists Syborg baseport files to leave out of this device's kernel side (touch
+phones: `epointer.dll`, the mouse driver, so the `exyin` digitiser owns the pointer device).
 `kernel.missing_drivers` lists the firmware's kernel-side files that have no stand-in (documented
 gaps, read by `tools/fw/inventory.py`'s `kernel-drivers.txt` and the status report).
 
 **`[modem]`** `kind` (`isi-fake-peer`), `names` (platform-wide resource/message names),
 `replies` (one file or a list of layers, later ones win per (resource, request); device-relative
-unless the path has a `/`), `stateful` (which stand-in holds the code), `indications` (unsolicited
+unless the path has a `/`; one shared BB5 table, see below), `indications` (unsolicited
 messages sent once on each channel that subscribes to them: `[{ res = 0x09, msg = 0xEF, data =
-"05 06" }]` (format example: the SIM_IND tried on the 5730, sim-state.md); board config `modem.ind`), plus the state knobs the stateful code
-reads: `sim`, `mtc_state`, `imei`, `battery_bars`, `charger`, `rtc_valid`, `phone_lock`,
-`power_off_delay_s`.
+"05 06", channel = 35, after = "09 C0" }]`: optional `channel` = only that ISC channel, optional
+`after` = sent after the reply to that request instead of at subscription; the 5730's SIM_IND,
+docs/devices/nokia-5730-rm465/sim-state.md; board config `modem.ind`), `sim_service_status`
+(`SIM_STATUS_RESP` status per service, default 06 = no SIM; board config `modem.simst`), `imei`
+(`modem.imei`), `power_off_delay_s` (`modem.power_off_ms`). Other modem state (battery bars, charger,
+RTC, lock) is in the shared reply table; add a knob together with the code that reads it.
 
-**`[rom]`** `code_patches` (files), `files` (rom path ← local), `manifest`, `[rom.variants.<n>]`
-with `omit_patches` (hack ids from the patch file comments) / `add_patches`.
+**`[board.audio]`** `dsp`: the DSP model the stand-ins run (`rapido`: aamdaifdriver plus the ISC peer's
+F3 replies; `ehwa` for the TI DSP bridge), `ring_units` (RAPIDO: DSP ring per stream, default 16, board
+config `audio.ring_units`).
+
+**`[rom]`** `code_patches` (files), `files` (rom path ← local), `manifest`, `[[rom.rofs_patches]]`
+(same-length text edits of files inside a ROFS image, applied to a copy in `<build dir>/gen/`:
+`image`, `path`, `old`, `new`, `encoding` (default utf-16le, CenRep .txt), `hack`),
+`[[rom.rofs_replace]]` (a whole file replaced by one of ours, any size: `image`, `path`, `built` (under
+the build dir) or `local` (a profile file: firmware overlay, else model directory), `hack`; appended to the copy, entry repointed),
+`[[rom.file_edits]]` (one line inserted into a text file of the core ROM: `path`, `after` (the line
+it follows), `insert`, `hack`; generated from the firmware's own copy into `<build dir>/gen/`),
+`[rom.variants.<n>]` with `omit_patches` (hack ids from the patch file comments) / `add_patches`.
 
 **`[gl]`** `impl` (`sygl` or `none`), `target_dll`, `ordinals`, `imports`, `blob_addr`,
 `entry_patches`, `surface_model`, `present`, `vsync_request`, `cmd_controls`, `[gl.identity]`
-strings read from the device's own driver DLLs.
+strings read from the device's own driver DLLs. `[gl.host]`: host GPU settings (§3.1).
 
-**`[milestones]`** serial-log patterns the tools watch (`idle` is what sydb waits for;
-`expected_idle_s` sets the timeout and the smoke test's budget). **`[props]`** P&S keys tools read.
-**`[skin]`** `layout`, `orientation_key`. **`[status]`** `level`, `updated`, `open`.
+**`[composition]`** (Symbian^3 GCE): `impl` (`gcebe`: our composition backend blob, src/gcebe),
+`blob_addr` (where the blob sits in the ROM: freed kernel-side space), `imports` (ROM exports it calls,
+resolved against the firmware's symbol index), `patches` (generated: the rebind of gce.dll's import),
+`rebind` (`module:ordinal=symbol@importer`). Read by tools/device.py build and src/gcebe/build.sh.
+
+**`[milestones]`** `idle`: the serial-log pattern sydb waits for (the firmware's own start-up line).
+No timing expectations: boot time depends on the host (the smoke test takes `--budget`). **`[props]`** P&S keys tools read.
+**`[skin]`** `layout`, `orientation_key`. **`[status]`** `level`, `updated`, `open`, `smoke_skip` (smoke-test checks not brought up on this phone, check -> reason: `switch-off`).
 
 ### 2.2 `keymap.toml`
 
@@ -195,6 +241,31 @@ images from +0x1000:
   ROFx at the previous image's `iMaxImageSize`, as on the phone's flash; one local drive (8).
 - version 2 (`--rofs-drives 9,10,11`, 5730): `{ "SYBROFS\0", size, 2, count, count x { local drive,
   offset, size } }`, each image 4 KB-aligned on its own drive.
+
+### 2.4 User data layer (UDA)
+
+After the ROM layers (core with ROFS1, ROFS2 language, ROFS3 customer) the flasher writes the user data
+area: a FAT drive with the factory content, on every phone we have the C: drive. Seen in our firmware:
+N95 8GB 160 MB FAT16 with 1039 files (N-Gage installer, Welcome, Setting Wizard, Starter's start.dat,
+app registrations, a welcome video); N79 75 MB; 5800 86 MB, nearly empty; N8 255 MB FAT32 with 50-118
+MB of content (wallpapers, Ovi maps cities, communities pictures, ...); N8 Delight 6.7 234 MB, empty
+(only formatted). `udaerase` files have no data (an erase order). `APE_ONLY_ENO` in some N8 packages is
+a separate small production-test ROM, not user data.
+
+- Format (`tools/fw/uda.py`): a FIASCO container whose data chunks are pieces of the drive, written
+  sparse (boot sector, FATs, used clusters); the FAT boot sector is at the lowest flash location; the
+  drive's size is the file system's. `uda.py info FPSX` lists it, `uda.py image FPSX OUT` builds it.
+- Profile: `[[firmware.files]] role = "uda", glob, drive = "C", optional = true`. The N8 base profile
+  declares `RM-596_*_U01.01_*.uda.fpsx`, so every N8 variant takes the U01 file of its own folder.
+- Extraction: `tools/fw/inventory.py` writes `uda-<drive>.img` (sparse) into the firmware cache, linked
+  into the build dir; `--uda-only` does only this step for a device inventoried before. The flash
+  files' hashes are in the ROM store's `rom.toml`.
+- Use: a new session drive is a copy of it (`tools/device.py drive-image [ID] --kind nvmem --out F`;
+  `scripts/run-modern.sh` and `sydb start` call it), so the guest sees the phone's real C: (size and
+  content) instead of a blank drive the phone formats itself. `sydb start` makes it before the first
+  boot, so `--fresh` gets the agent on the first boot too. Existing drives and seeds are not touched.
+- Optional, on by default: `SYBORG_UDA=0` or `sydb start|phone --no-uda` start blank drives of the
+  profile's `size`, as before; `NVMEM_SIZE`/`NVMEM2_SIZE` force a blank drive of that size.
 
 ## 3. Layering: one QEMU binary, per-device guest builds
 
@@ -216,10 +287,26 @@ tools  sydb / syb_run / isi.py / syb_sym read the profile          ....  nothing
 list; `run-modern.sh --device <id>` and the sydb daemon use it. Covered today by existing
 properties [V]: `-cpu board.cpu`, `-m board.ram_mb` (+ the memory backend size the daemon adds),
 `syborg-fb.width/height/refresh-rate/blank-dim`, `syborg-gl.backend`, `syborg-rtc.offset-file`,
-`syborg-pointer.input`, `-drive if=mtd` per `nvmem` drive, `-device loader` for `board.flash`,
+`syborg-pointer.input`, `-drive if=mtd` per `nvmem` drive, `-global syborg-platform.flash-file` for `board.flash`
+(the board reads the ROFS images into its flash window; QEMU's generic loader caps a raw image at the RAM
+size, and Delight's ROFS set is 208 MB),
 `-audiodev`. Added by the refactor [I]: `syborg-keyboard.keymap=FILE` (§3.4),
 `syborg-platform.device-id=STRING` and `syborg-platform.ram-mb` (§3.3), `-dtb` generated from the
 profile instead of patched from the baseport's DTS.
+
+Host GPU settings: `[gl.host]` in the profile (per device, never in a family: they are host
+policy, not facts about the phone) -> `-global syborg-gl.<key>=<value>`; validated by
+`tools/device.py` (`GL_HOST_KEYS`). All of them can also be changed while the phone runs:
+`sydb gl set msaa=4 filter=linear compose=guest [--save]` (`--save` keeps them in the session's
+`gl.json`, applied as `-global` at the next start), `sydb gl` shows them and the device's statistics.
+The device sits at QOM path `/machine/gl` (`qom-get` / `qom-set`). Design and what is planned:
+docs/gpu-host-review.md section 3.
+
+| key | values | default | effect |
+|---|---|---|---|
+| `msaa` | 0, 2, 4, 8, 16 | 8 | OpenVG anti-aliasing samples; existing surfaces are rebuilt with their pixels at their next use |
+| `filter` | auto, nearest, linear | auto | image sampling in fills and composition (auto: the VG image quality decides) |
+| `compose` | host, guest | host | host: frames presented and composed on the GPU; guest: the device refuses both and the guest copies (eglos read-back, gcebe CPU composition): a fallback for debugging |
 
 Which board devices exist is also runtime: all of them are instantiated (unmapped ones read as
 zero, as on 0.9.1 [V `syborg.c`]), and a device the profile does not use is simply left
@@ -235,12 +322,21 @@ not device-specific [V]), the host tools, the kernel per personality (§4), the 
 
 `tools/device.py build <id>` = today's `hybrid-boot.sh --compose-only` generalised:
 1. Baseport build with the profile's LCD macros and keyboard table (until §3.4/§3.3 make them
-   runtime) → `build/devices/<id>/kernel-side.img` (the oby fragment generated from `[[standins]]`
+   runtime) → `<build dir>/kernel-side.img` (the oby fragment generated from `[[standins]]`
    replaces the `grep bld.inf` loop in `build-standins.sh`).
-2. Stand-ins: `src/standins/<name>` for each entry, with `options` as MACROs;
-   `build/devices/<id>/gen/isireplies.h` generated from `platform/isi/names.txt` and the
-   `modem.replies` layers. Every build output is per device (`build/devices/<id>/`:
-   `kernel-side.img`, `gen/`, `hybrid*.img`), so building one phone never overwrites another's.
+2. Stand-ins: `src/standins/<name>` for each entry, with `options` as MACROs. (The fake modem's
+   reply table is not built in: `qemu-args` writes `gen/isi-replies.tab` from `platform/isi/names.txt`
+   and the `modem.replies` layers at every launch for QEMU's `syborg-modem`.)
+   Build layout (device-model-v2 step 3, 2026-11-10): the firmware's flash files are in the ROM store
+   (`roms/<RM>/<version>[~label]/`, `tools/fw/store.py`), what `inventory.py` extracts from them is in
+   `build/firmware/<RM>/<version>/<language>+<customer>/` (shared by every profile on that firmware),
+   the profile's build dir, `build/roms/<id>/<firmware key>/` (`tools/device.py paths dir`), holds
+   the composed ROM, DTB and generated files, with the extraction items linked in. Scripts never
+   spell the path: they ask `tools/device.py paths`. A profile finds its firmware
+   by `[firmware.identity].sw` (or `[firmware] store = "RM-596/111.040.1511~delight-6.7"` for custom
+   builds) and its globs (`tools/device.py paths` prints `firmware_key`, `store`, `cache`, `rom_dir`).
+   Every build output is per device and firmware (`kernel-side.img`, `gen/`, `hybrid*.img`), so
+   building one phone never overwrites another's.
 3. GL blob and entry patches if `gl.impl = "sygl"` (addresses from this device's symbol index).
 4. Compose: `romcompose.py --ours … --n95 core-flat.img --secondary … --exec-personality sym92
    --trace … --file … --rofs … --patches … --blob …`, all from the profile.
@@ -300,7 +396,7 @@ personalities/sym92/
   README.md            evidence: how the map was derived (swi_map + EKA2L1 cross-check), status
 ```
 
-Generated per device, never hand-written: `build/devices/<id>/abi/{euser-swi.json,
+Generated per firmware, never hand-written: `<build dir>/abi/{euser-swi.json,
 swi-vs-ours.txt, kabi-report.txt}` from the device's own `EUser.dll` and `ekern.exe`
 (`tools/fw/inventory.py` does the first two [V]; `tools/personality/check.py` the third). A device declares
 `platform.personality = "sym92"` and the tools **verify** its firmware against that personality:
@@ -346,8 +442,8 @@ mixed in.
 ## 5. Repository layout after the refactor
 
 ```
-devices/<id>/                 profiles and their data (§2)
-devices/default -> nokia-n95-8gb-rm320
+models/<id>/                  phone models and their firmware overlays (§2); models/registry.toml:
+                              known type codes and `default` (the device of a bare command)
 personalities/<name>/         exec map, kabi spec, patches, README (§4)
 platform/                     shared data: symbian/stdkeys.toml (EStdKey numbers), isi/names.txt,
                               isi/replies-bb5.txt (shared fake-modem replies),
@@ -358,17 +454,20 @@ patches/kernelhwsrv/platform/ , policy/  (personality patches live in personalit
 src/qemu-syborg/              the board (one binary)
 src/standins/<name>/          kernel-side stand-ins, one per driver; README with family + evidence
                               (today src/standins/*, medrofs, mednvmem2, lcd)
-src/sygl/                     GLES/EGL implementation (today src/sygl); device inputs in devices/<id>/gl
+src/sygl/                     GLES/EGL implementation (today src/sygl); device inputs in models/<id>/gl
 src/apps/                     guest test apps and the sydb agent (today src/n95apps)
 tools/device.py               profile loader/validator; subcommands: check, show, qemu-args, build, gen, new
 tools/fw/                     firmware pipeline: inventory.py (per device), probe.py (header, EUSER
                               stubs, exec sizes, ROFS, wsini/ESTART); fiasco.py etc. in tools/
 tools/personality/            swi_map.py, exec align/gen, kabi.py (generalised kabi92)
-tools/sydb/, syb_*.py, isi.py, syb_sym.py   take --device-id (default devices/default)
-build/devices/<id>/           every generated artifact of a device: core-flat.img, core.json,
-                              rofs*.img, symindex.json, abi/, kernel-side.img, gen/isireplies.h,
-                              hybrid*.img(.rofs), syborg-device.dtb, kernel-drivers.txt
-firmware/<id>/                the user's own firmware files (git-ignored)
+tools/instance.py             device instances (the user's phones; docs/sydb.md)
+tools/sydb/, syb_*.py, isi.py, syb_sym.py   device: $SYBORG_DEVICE / the instance / registry default
+roms/<RM>/<version>[~label]/  the ROM store: the user's flash files + rom.toml (git-ignored, tools/fw/store.py)
+build/firmware/<RM>/<ver>/<packs>/   what inventory.py extracts: core-flat.img, core.json, rofs*.img,
+                              symindex.json, abi/, kernel-drivers.txt (shared by the profiles on it)
+build/roms/<id>/<fw key>/     the device's build dir: those items linked in, kernel-side.img, gen/,
+                              hybrid*.img(.rofs), syborg-device.dtb
+build/instances/<name>/       device instances: instance.toml, drives/, snapshots, logs
 docs/devices/<id>/            long-form device notes (today docs/n95-*.md), hacks per device
 docs/hacks.md                 platform-wide hacks only
 ```
@@ -386,16 +485,21 @@ hack ids `H-<area>-<name>` (unchanged) with the device id as a prefix when devic
 | `tools/device.py check ID` | profile + inheritance | schema validation, file existence, EStdKey names, address ranges inside the ROM, evidence-tag census |
 | `device.py show ID [--json]` | resolved profile | the merged profile (what every other tool sees) |
 | `device.py qemu-args ID` | `[board]`, `[gl]`, drives | QEMU command line fragment (`run-modern.sh --device`, sydb daemon) |
-| `device.py build ID [--variant audio-exp]` | `[kernel]`, `[[standins]]`, `[modem]`, `[rom]`, `[gl]` | oby fragment, isireplies.h, LCD/keyboard headers, sygl, composed ROM, DTB into `build/devices/ID/` |
+| `device.py build ID [--variant audio-exp]` | `[kernel]`, `[[standins]]`, `[modem]`, `[rom]`, `[gl]` | oby fragment, LCD/keyboard headers, sygl, composed ROM, DTB into the build dir |
 | `device.py gen keymap|controls-doc|skin ID` | `keymap.toml` | QEMU keymap file, EKEYB header, sydb aliases, docs table |
 | `device.py new ID --from BASE` | a base profile | scaffold with `extends`, empty status, TODO markers |
-| `tools/fw/inventory.py --device ID` | `[firmware]`, `firmware/ID/` | `build/devices/ID/{core-flat.img, core.json, rofs*.img, symindex.json, abi/}`, `firmware.sha256`, kernel-side driver list (input for `[[standins]]`) |
+| `tools/fw/inventory.py --device ID` | `[firmware]`, the ROM store entry | `build/firmware/<key>/{core-flat.img, core.json, rofs*.img, abi/}` (linked into the build dir), sha256 check against the store, kernel-side driver list (input for `[[standins]]`) |
 | `tools/personality/check.py --device ID` | `[platform].personality`, `abi/` | unknown SWIs, vtable deltas, suggested overrides |
-| `sydb start --device-id ID` | `[board]`, `[milestones]`, `[props]`, `keymap.toml` | session with the right ROM/drives/args; waits for `milestones.idle`; key aliases |
+| `sydb --instance NAME start` | the instance's device + `[overrides]`: `[board]`, `[milestones]`, `[props]`, `keymap.toml` | session with the right ROM/drives/args; waits for `milestones.idle`; key aliases |
 | `sydb phone` | `keymap.toml`, `skin.toml`, `[hardware]` | buttons, slides, toggles shown only for hardware the phone has |
 | `syb_run.py`, `syb_gdb.py`, `syb_report.py` | milestones, stand-in log prefixes, ISI names | reports per device |
 | `isi.py` | `platform/isi/names.txt` + device replies | decoding and the generated header |
-| `syb_sym.py` | `build/devices/ID/symindex.json` | symbols of this device's ROM |
+| `syb_sym.py` | `<build dir>/symindex.json` | symbols of this device's ROM |
 
 The profile is the only input a new contributor's agent edits; tools fail loudly (`device.py
 check`) rather than booting a half-configured phone.
+
+Fake modem replies: one table for every BB5 phone, `platform/isi/replies-bb5.txt` (the union of what
+each phone needed; a reply to a request a firmware never sends is inert). `models/<id>/isi-replies.txt`
+is only for a true conflict (the same resource and request needing other bytes on that phone);
+`tools/isi.py lint` reports device replies that repeat or override the shared table.

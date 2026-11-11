@@ -209,7 +209,7 @@ struct SWatch
 	TBool iUsed;
 	};
 
-class CAgent
+class CAgent : public CBase	// CBase: zero-filled (iQuit and the rest start 0; plain new left them as the heap had them)
 	{
 public:
 	TInt Start();
@@ -1305,11 +1305,19 @@ struct SDaThreadCreateInfo
 struct SStdEpocThreadCreateInfo;
 IMPORT_C TInt DaSetupThreadHeap(TBool, SStdEpocThreadCreateInfo&) asm("_ZN8UserHeap15SetupThreadHeapEiR24SStdEpocThreadCreateInfo");
 
+// TCppRTExceptionsGlobals (drtaeabi): the thread's C++ exception globals and emergency buffer, which the
+// real EXE startup (CallThrdProcEntry) keeps on each thread's entry stack frame; it registers itself in
+// drtaeabi's TLS. Without it the first leave in any thread of this process (also one that library code
+// traps itself) dies in __cxa_allocate_exception (KERN-EXEC 3). ~0x90 bytes; room for more.
+IMPORT_C void DaExceptionsGlobals(TAny* aThis) asm("_ZN23TCppRTExceptionsGlobalsC1Ev");
+
 extern "C" void DaRunThread(TBool aNotFirst, SDaThreadCreateInfo& aInfo)
 	{
+	TUint64 exceptionGlobals[64];
 	TInt r = DaSetupThreadHeap(aNotFirst, (SStdEpocThreadCreateInfo&)aInfo);
 	if (r == KErrNone)
 		{
+		DaExceptionsGlobals(exceptionGlobals);		// after the heap: its Dll::SetTls allocates
 		if (aNotFirst)
 			r = (*aInfo.iFunction)(aInfo.iPtr);
 		else

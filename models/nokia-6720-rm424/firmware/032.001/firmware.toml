@@ -1,0 +1,31 @@
+# Firmware 032.001 of nokia-6720-rm424, written by tools/device.py firmware-add from the ROM store entry RM-424/032.001.
+# Merged over models/nokia-6720-rm424/model.toml. Not booted yet unless [status] says so.
+
+[firmware]
+version = "032.001"
+
+[[firmware.files]]
+role = "core"
+glob = "rm424_032.001_prd.core.fpsx"
+
+[[firmware.files]]
+role = "rofs2"
+glob = "rm424_032.001_02.01_Euro2_prd.rofs2.fpsx"
+
+[[firmware.files]]
+role = "rofs3"
+glob = "rm424_032.001_C08.01_GREY_prd.rofs3.fpsx"
+
+[[firmware.files]]
+role = "uda"
+glob = "rm424_032.001_U001.000_prd.uda.fpsx"
+drive = "C"
+optional = true
+
+[firmware.identity]
+sw = { version = "032.001", date = "09-Jul-2011", type_code = "RM-424" }
+
+[status]
+level = "L0-untested"
+updated = "2026-11-10"
+open = ["not booted on this firmware yet"]

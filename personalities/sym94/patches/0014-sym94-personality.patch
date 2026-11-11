@@ -1,0 +1,44 @@
+Personality sym94 (Symbian 9.4 / S60 5th Edition): exec tables KExec94* (personalities/sym94/exec.map,
+generated into execpers_map.h), registry number 3, 9.4 TProcessCreateInfo layout (no iFlags).
+
+--- a/kernel/eka/kernel/sexecpers.cpp	2026-11-07 10:21:32.041315545 +0100
++++ b/kernel/eka/kernel/sexecpers.cpp	2026-11-07 10:21:32.063703389 +0100
+@@ -19,6 +19,7 @@
+ const TUint32 KKernelConfigPersonalityShift = 25;
+ const TUint32 KKernelConfigPersonalityMask = 0xfu << KKernelConfigPersonalityShift;
+ const TInt KPersonalitySym92 = 1;
++const TInt KPersonalitySym94 = 3;	// Symbian 9.4 (S60 5th): 9.2 conventions, S45 inserted, SEE..SF2 added (personalities/sym94/README.md)
+ const TInt KPersonalitySym91 = 5;	// Symbian 9.1: the 9.2 numbering is a strict superset (personalities/sym91/README.md)
+ 
+ TBool Exec92Enabled = EFalse;
+@@ -270,6 +271,8 @@
+ 		return;
+ 	if (pers == KPersonalitySym92)
+ 		ExecLoaderProcessTail = sizeof(TProcessCreateInfo) - sizeof(TCodeSegCreateInfo) - 12;
++	else if (pers == KPersonalitySym94)		// 9.4 TProcessCreateInfo ends at iDestructStat (no iFlags)
++		ExecLoaderProcessTail = _FOFF(TProcessCreateInfo, iFlags) - sizeof(TCodeSegCreateInfo);
+ 	else if (pers == KPersonalitySym91)
+ 		{
+ 		ExecLoaderCodeSegSize = _FOFF(TCodeSegCreateInfo, iCodeRelocTable);		// 380
+@@ -285,10 +288,10 @@
+ 		return;
+ 		}
+ 
+-	const TInt16* fastMap = pers == KPersonalitySym91 ? KExec91Fast : KExec92Fast;
+-	const TInt16* slowMap = pers == KPersonalitySym91 ? KExec91Slow : KExec92Slow;
+-	const TInt fastCount = pers == KPersonalitySym91 ? EXEC91_FAST_COUNT : EXEC92_FAST_COUNT;
+-	const TInt slowCount = pers == KPersonalitySym91 ? EXEC91_SLOW_COUNT : EXEC92_SLOW_COUNT;
++	const TInt16* fastMap = pers == KPersonalitySym91 ? KExec91Fast : pers == KPersonalitySym94 ? KExec94Fast : KExec92Fast;
++	const TInt16* slowMap = pers == KPersonalitySym91 ? KExec91Slow : pers == KPersonalitySym94 ? KExec94Slow : KExec92Slow;
++	const TInt fastCount = pers == KPersonalitySym91 ? EXEC91_FAST_COUNT : pers == KPersonalitySym94 ? EXEC94_FAST_COUNT : EXEC92_FAST_COUNT;
++	const TInt slowCount = pers == KPersonalitySym91 ? EXEC91_SLOW_COUNT : pers == KPersonalitySym94 ? EXEC94_SLOW_COUNT : EXEC92_SLOW_COUNT;
+ 	EpocFastExecTable92[0] = fastCount;
+ 	for (TInt n=1; n<fastCount; ++n)
+ 		{
+@@ -333,5 +336,5 @@
+ 		}
+ 	Exec92Enabled = ETrue;
+ 	Kern::Printf("EXEC92: Symbian %s exec personality enabled (%d fast, %d slow; loader structs %d+%d)",
+-		pers == KPersonalitySym91 ? "9.1" : "9.2", fastCount, slowCount, ExecLoaderCodeSegSize, ExecLoaderProcessTail);
++		pers == KPersonalitySym91 ? "9.1" : pers == KPersonalitySym94 ? "9.4" : "9.2", fastCount, slowCount, ExecLoaderCodeSegSize, ExecLoaderProcessTail);
+ 	}

@@ -20,14 +20,28 @@ import json, os, re, struct, sys, threading, time
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, os.path.join(ROOT, 'tools'))
-import device as devmodel  # tools/device.py: build paths of the device ($SYBORG_DEVICE / devices/default)
+import device as devmodel  # tools/device.py: build paths of the device ($SYBORG_DEVICE / the registry default)
 DEVPATHS = devmodel.paths(devmodel.load())
-USER_PANIC = 0x803a9f8a          # EUser.dll _ZN4User5PanicERK7TDesC16i (Thumb 0x803a9f8b), N95 ROM
+USER_PANIC_ORD = 650              # EUser.dll _ZN4User5PanicERK7TDesC16i: ordinals are append-only, the
+                                  # address is the device's (N95 0x803a9f8a, N8 0x80441dde)
 DIE = 'DThread::Die'
 EXIT_TYPES = {0: 'kill', 1: 'terminate', 2: 'panic', 3: 'pending'}
 CONTEXT_TABLES = 'ThreadUserContextTables'
 REGNAMES = ['r0', 'r1', 'r2', 'r3', 'r4', 'r5', 'r6', 'r7', 'r8', 'r9', 'r10', 'r11', 'r12', 'sp', 'lr', 'pc', 'cpsr']
-N95_USER_START, ROM_END = 0x8038f9a0, 0x84000000
+# lowest address of the firmware's user side in the hybrid ROM (below it: our kernel side)
+USER_START = devmodel.get(devmodel.load(), 'firmware.rom.user_window_start', 0x8038f9a0)
+USER_START = int(USER_START, 0) if isinstance(USER_START, str) else USER_START
+ROM_END = 0x84000000
+
+
+def user_panic_address(dbg):
+    """User::Panic in this device's EUser (Thumb bit cleared), from the syb_sym ROM index"""
+    dbg.romsym(0x80000000)                     # loads the index (dbg.rom)
+    m = dbg.rom.byname['euser.dll'] if dbg.rom else None
+    for e in (m or {}).get('exports', []):
+        if e[0] == USER_PANIC_ORD:
+            return e[1] & ~1
+    raise ValueError('User::Panic (EUser ordinal %d) not in the ROM index' % USER_PANIC_ORD)
 CORE_FLAT = DEVPATHS['core_flat']
 
 
@@ -62,21 +76,12 @@ class Catcher:
             re.compile(r['thread'])
         self.next_rule += 1
         self.rules.append(r)
-        self.arm()
-        if at is not None:
-            self.insert_bp('*0x%x' % at, 'at:%d' % r['id'])
+        try:
+            self.arm(extra=[('*0x%x' % at, 'at:%d' % r['id'])] if at is not None else [])
+        except Exception:
+            self.rules.remove(r)
+            raise
         return r
-
-    def insert_bp(self, loc, what):
-        d = self.dbg
-        was = d.running
-        if was:
-            d.mi('-exec-interrupt', timeout=5)
-            d.wait(5)
-        r = d.mi('-break-insert -h %s' % loc)
-        self.bps[int(r['bkpt']['number'])] = what
-        if was and not self.frozen:
-            d.mi('-exec-continue')
 
     def remove(self, rid=None):
         gone = [r for r in self.rules if rid is None or r['id'] == rid]
@@ -89,16 +94,19 @@ class Catcher:
             self.disarm()
         return {'rules': self.rules}
 
-    def arm(self):
-        """attach gdb if needed, insert the two breakpoints, let the phone run"""
+    def arm(self, extra=()):
+        """attach gdb if needed, insert the two breakpoints (and a rule's own), let the phone run.
+        All inserts happen in one stop: gdb puts breakpoints into the target only when it resumes it"""
         d = self.dbg
         if not d.p or d.p.poll() is not None:
             d.start()
-        if not self.bps:
+        want = [] if self.bps else [('*0x%x' % user_panic_address(d), 'panic'), (DIE, 'die')]
+        want += list(extra)
+        if want:
             if d.running:
                 d.mi('-exec-interrupt', timeout=5)
                 d.wait(5)
-            for loc, what in (('*0x%x' % USER_PANIC, 'panic'), (DIE, 'die')):
+            for loc, what in want:
                 r = d.mi('-break-insert -h %s' % loc)
                 self.bps[int(r['bkpt']['number'])] = what
         d.catcher = self
@@ -303,7 +311,7 @@ class Catcher:
 
     def code_bytes(self, a, n):
         """n bytes of code at a: the N95 core image for the N95 user side, else target memory"""
-        if N95_USER_START <= a < ROM_END and os.path.exists(CORE_FLAT):
+        if USER_START <= a < ROM_END and os.path.exists(CORE_FLAT):
             if self.core is None:
                 self.core = open(CORE_FLAT, 'rb').read()
             o = a - 0x80000000

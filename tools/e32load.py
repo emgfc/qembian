@@ -49,7 +49,7 @@ class Bits:
 
 
 def _dev_path(key):
-    """a file of the current device ($SYBORG_DEVICE / devices/default): tools/device.py paths"""
+    """a file of the current device ($SYBORG_DEVICE / the registry default): tools/device.py paths"""
     import importlib.util
     spec = importlib.util.spec_from_file_location('device', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'device.py'))
     d = importlib.util.module_from_spec(spec); spec.loader.exec_module(d)
@@ -161,6 +161,21 @@ def parse(path):
         img = raw
     elif h['comp'] == KUidCompressionDeflate:
         img = raw[:hsize] + inflate(raw, hsize, h['uncomp'])
+    elif h['comp'] == KUidCompressionBytePair:
+        # f32 sf_pgcompr: code, then the rest (data, imports, relocations), each an IndexTableHeader
+        # {iSizeOfData, iDecompressedSize, TUint16 iNumberOfPages}, the TUint16 page sizes, the pages
+        from rom_unpage import bytepair
+        out, pos = bytearray(raw[:hsize]), hsize
+        while pos < len(raw) and len(out) < hsize + h['uncomp']:
+            size, dsize, npages = struct.unpack_from('<IIH', raw, pos)
+            sizes = struct.unpack_from('<%dH' % npages, raw, pos + 10)
+            p = pos + 10 + 2 * npages
+            for n in sizes:
+                out += bytepair(raw[p:p + n], min(4096, dsize))
+                dsize -= 4096
+                p += n
+            pos += size
+        img = bytes(out)
     else:
         raise SystemExit('compression %08x not supported yet' % h['comp'])
     return h, img

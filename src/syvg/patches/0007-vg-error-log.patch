@@ -1,0 +1,23 @@
+qembian: log every VG error (code, calling address in libEGL.dll) through hostgl.cpp khrVgError, once per caller.
+
+--- a/riContext.h
++++ b/riContext.h
+@@ -66,6 +66,9 @@
+ namespace OpenVGRI
+ {
+ 
++void khrVgError(int error, void* caller);	/* qembian: hostgl.cpp logs VG errors (once per caller) */
++
++
+ class VGContext;
+ 
+ /*-------------------------------------------------------------------*//*!
+@@ -194,7 +197,7 @@
+ 
+ 	void			releasePaint(VGbitfield paintModes);
+ 
+-	void			setError(VGErrorCode error)		{ if(m_error == VG_NO_ERROR) m_error = error; }
++	void			setError(VGErrorCode error)		{ khrVgError(error, __builtin_return_address(0)); if(m_error == VG_NO_ERROR) m_error = error; }
+ 
+ 	// Mode settings
+ 	VGMatrixMode					m_matrixMode;

@@ -4,7 +4,7 @@
 #                         [--fb WxH] [--dtb FILE] [--qmp SOCK] [--nvmem FILE] [--nvmem2 FILE] [--name NAME]
 #                         [--] ROM.img [extra qemu args]
 # The board (machine, CPU, RAM, display, ROFS flash window, drive sizes) comes from the device profile
-# (tools/device.py qemu-args; --device ID, else $SYBORG_DEVICE, else devices/default). --fb overrides
+# (tools/device.py qemu-args; --device ID, else $SYBORG_DEVICE, else models/registry.toml default). --fb overrides
 # the display size.
 # Defaults: headless (-display none; --gui: a GTK window, QEMU_DISPLAY=sdl for SDL), serial0 on stdout, fresh 64 MB NVMemory image (C: drive)
 # per run (--nvmem, default build/run-modern/nvmemory-<pid>.img, deleted on exit unless given),
@@ -26,7 +26,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --device) DEVICE="$2"; shift ;;
     --timeout) TIMEOUT="$2"; shift ;;
-    --gui) DISPLAY_OPT=(-display "${QEMU_DISPLAY:-gtk}") ;;   # explicit: a -vnc (sydb adds one) would otherwise be the only display
+    --gui) GUI=1 ;;   # -display chosen below
     --gdb) GDB=(-s) ;;
     --gdb-wait) GDB=(-s -S) ;;
     --serial-log) SERIAL=(-serial "file:$2"); shift ;;
@@ -59,12 +59,26 @@ for img in "$NVMEM" "$NVMEM2"; do
   done
 done
 DEV=(); [ -n "$DEVICE" ] && DEV=("$DEVICE")
+if [ -n "${GUI:-}" ]; then
+  D="${QEMU_DISPLAY:-gtk}"
+  # touch phones: the host mouse is the finger, so keep the cursor visible over the screen
+  T=$(python3 -I "$ROOT/tools/device.py" get "${DEV[@]}" board.display.touch 2>/dev/null)
+  if [ "${T,,}" = "true" ] && [[ "$D" != *show-cursor* ]]; then
+    D="$D,show-cursor=on"
+  fi
+  DISPLAY_OPT=(-display "$D")
+fi
 DEVPY=(python3 -I "$ROOT/tools/device.py")
 mapfile -t BOARD < <("${DEVPY[@]}" qemu-args "${DEV[@]}" --rom "$ROM")
 [ ${#BOARD[@]} -gt 0 ] || { echo "no board arguments from tools/device.py" >&2; exit 1; }
-size() { "${DEVPY[@]}" get "${DEV[@]}" board.drives | python3 -c "import json,sys;print([d['size'] for d in json.load(sys.stdin) if d.get('kind')=='$1'][0])"; }
-[ -e "$NVMEM" ] || truncate -s "${NVMEM_SIZE:-$(size nvmem)}" "$NVMEM"
-[ -e "$NVMEM2" ] || truncate -s "${NVMEM2_SIZE:-$(size nvmem2)}" "$NVMEM2"
+# a new drive: a copy of the firmware's user data layer when the profile declares one (SYBORG_UDA=0:
+# blank), else blank at the profile's size (docs/devices.md "User data layer"); NVMEM_SIZE/NVMEM2_SIZE
+# force a blank drive of that size
+newdrive() {  # kind path size-override
+  if [ -n "$3" ]; then truncate -s "$3" "$2"; else "${DEVPY[@]}" drive-image "${DEV[@]}" --kind "$1" --out "$2" >&2; fi
+}
+[ -e "$NVMEM" ] || newdrive nvmem "$NVMEM" "${NVMEM_SIZE:-}"
+[ -e "$NVMEM2" ] || newdrive nvmem2 "$NVMEM2" "${NVMEM2_SIZE:-}"
 # board from the device profile (with the ROM's ROFS partition in the flash window), then the run
 args=("${BOARD[@]}" -kernel "$ROM" "${DISPLAY_OPT[@]}" "${SERIAL[@]}" -monitor none
       -drive "if=mtd,format=raw,file=$NVMEM" -drive "if=mtd,index=1,format=raw,file=$NVMEM2"
@@ -75,8 +89,10 @@ args=("${BOARD[@]}" -kernel "$ROM" "${DISPLAY_OPT[@]}" "${SERIAL[@]}" -monitor n
 [ -n "$NAME" ] && args+=(-name "$NAME")
 args+=("$@")
 echo ">> $QEMU ${args[*]}" >&2
+# exec: QEMU replaces this shell, so the caller's PID is QEMU itself (sydb's daemon kills it by PID
+# and has it die with the daemon; a QEMU left under a dead shell would run on as an orphan)
 if [ -n "$TIMEOUT" ]; then
-  timeout -k 10 "$TIMEOUT" "$QEMU" "${args[@]}"
+  exec timeout -k 10 "$TIMEOUT" "$QEMU" "${args[@]}"
 else
-  "$QEMU" "${args[@]}"
+  exec "$QEMU" "${args[@]}"
 fi

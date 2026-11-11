@@ -1,0 +1,31 @@
+# Firmware 022.009 of nokia-e52-rm469, written by tools/device.py firmware-add from the ROM store entry RM-469/022.009.
+# Merged over models/nokia-e52-rm469/model.toml. Not booted yet unless [status] says so.
+
+[firmware]
+version = "022.009"
+
+[[firmware.files]]
+role = "core"
+glob = "rm469_022.009_prd.core.fpsx"
+
+[[firmware.files]]
+role = "rofs2"
+glob = "rm469_022.009_05.01_Russian_prd.rofs2.fpsx"
+
+[[firmware.files]]
+role = "rofs3"
+glob = "rm469_022.009_C00.01_DEFAULT_prd.rofs3.fpsx"
+
+[[firmware.files]]
+role = "uda"
+glob = "rm469_022.009_U000.000_prd.uda.fpsx"
+drive = "C"
+optional = true
+
+[firmware.identity]
+sw = { version = "022.009", date = "14-Oct-2009", type_code = "RM-469" }
+
+[status]
+level = "L0-untested"
+updated = "2026-11-10"
+open = ["not booted on this firmware yet"]

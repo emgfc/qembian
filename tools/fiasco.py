@@ -9,8 +9,13 @@ Layout (reverse-engineered on RM-320 35.0.001; see docs/devices/nokia-n95-8gb-rm
     tag 0x28 (marker 0x5D, len 67): same first 45 bytes as 0x27 (key/cert records)
     tag 0x17 (marker 0x54, len 14): data chunk
         desc[6:10] = size u32be, desc[10:14] = flash location u32be
-    tag 0x2E (fpsx UDA, len 25) handled generically: size/location searched.
-Chunks following a partition record belong to that partition.
+    tag 0x2E (fpsx UDA, len 25): size u32be @17, location u32be @21.
+    tag 0x30 (marker 0x54, len 21; E71 RM-346 .v14 / .01U, 2008): data chunk of a block device of its
+        own (eMMC/mass memory image, location from 0 on that device, not flash): desc[8] = device
+        number (08 .01U user data, 09 the .v14's), desc[13:17] = size u32be, desc[17:21] = location.
+        Yielded with name '_dev%02x' (desc[8]): its chunks form that pseudo partition, not the
+        preceding record's.
+Chunks following a partition record belong to that partition (tag 0x30 chunks: their '_devNN').
 
 Usage: fiasco.py FILE [--out DIR]   (writes DIR/<partition>@<lo>.bin, location-ordered, gaps 0xFF,
                                       and DIR/<partition>@<rec_loc>.hdr: the record's payload)
@@ -39,6 +44,9 @@ def blocks(m):
         elif tag == 0x2E:
             size, loc = struct.unpack('>II', d[17:25])
             name = None
+        elif tag == 0x30 and ln >= 21:
+            size, loc = struct.unpack('>II', d[13:21])
+            name = '_dev%02x' % d[8]
         else:
             raise ValueError('unknown tag 0x%x at 0x%x' % (tag, p))
         yield p, tag, d, name, size, loc, q
@@ -60,6 +68,12 @@ def main():
             parts.append(cur)
             # a 0x27 record's own payload is a signature/header blob
             cur.append((q, size))
+        elif name:					# a chunk of its own device (tag 0x30)
+            dev = next((x for x in parts if x[0] == name), None)
+            if dev is None:
+                dev = [name, 0, 0, [], None]
+                parts.append(dev)
+            dev[3].append((loc, q, size))
         else:
             if cur is None:
                 cur = ['_pre', 0, 0, [], None]

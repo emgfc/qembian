@@ -1,0 +1,32 @@
+qembian: an image bound as a render target (EGL pbuffer from a VGImage) gets a host GPU surface
+(src/khr/hostgl.cpp khrHostImageTarget).
+
+--- a/riImage.h	2026-11-07 14:24:19.460491876 +0100
++++ b/riImage.h	2026-11-07 14:24:19.480484908 +0100
+@@ -207,6 +207,8 @@
+ void	khrHostSurfaceNew(Surface* s);
+ void	khrHostSurfaceFree(Surface* s);
+ class Image;
++void	khrHostImageTarget(Surface* s, Image* image);
++class Image;
+ void	khrHostImageFree(Image* i);
+ class Image
+ {
+@@ -291,6 +293,7 @@
+ {
+ public:
+ 	void*			m_host;	//qembian: host GPU surface (src/khr/hostgl.cpp), NULL = guest memory
++	Image*			hostImage() const	{ return m_image; }	//qembian
+ 	Surface(const Color::Descriptor& desc, int width, int height, int numSamples);	//throws bad_alloc
+ 	Surface(Image* image);	//throws bad_alloc
+ 	Surface(const Color::Descriptor& desc, int width, int height, int stride, RIuint8* data);	//throws bad_alloc
+--- a/riImage.cpp	2026-11-07 14:24:19.460565837 +0100
++++ b/riImage.cpp	2026-11-07 14:24:19.461622869 +0100
+@@ -2598,6 +2598,7 @@
+ 	RI_ASSERT(image);
+     m_color = RI_NEW(Surface, (image));
+ 	m_color->addReference();
++	khrHostImageTarget(m_color, image);	//qembian: an image rendered into lives on the host GPU
+     if(maskBits)
+     {
+         VGImageFormat mf = VG_A_1;

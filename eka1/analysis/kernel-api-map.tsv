@@ -1,0 +1,1081 @@
+kind	id_or_ordinal	address	name	detail
+export	1	0x5033d028	EkernExport001	previous=FUN_5033d028
+export	2	0x5033dc78	EkernExport002	previous=FUN_5033dc78
+export	3	0x5033dc38	EkernExport003	previous=
+export	4	0x5032f7cc	EkernExport004	previous=thunk_FUN_5032f7d0
+export	5	0x50336a34	EkernExport005	previous=FUN_50336a34
+export	6	0x50328740	EkernExport006	previous=
+export	7	0x5033f304	EkernExport007	previous=FUN_5033f304
+export	8	0x5031dde4	EkernExport008	previous=FUN_5031dde4
+export	9	0x5032e1f0	EkernExport009	previous=FUN_5032e1f0
+export	10	0x5033dcd0	EkernExport010	previous=
+export	11	0x5033c28c	EkernExport011	previous=
+export	12	0x50329618	EkernExport012	previous=
+export	13	0x5033d56c	EkernExport013	previous=FUN_5033d56c
+export	14	0x5033dd28	EkernExport014	previous=
+export	15	0x5033c2a0	EkernExport015	previous=
+export	16	0x50328258	EkernExport016	previous=FUN_50328258
+export	17	0x50328290	EkernExport017	previous=FUN_50328290
+export	18	0x5031bf0c	EkernExport018	previous=FUN_5031bf0c
+export	19	0x50328200	EkernExport019	previous=FUN_50328200
+export	20	0x5031bcd8	EkernExport020	previous=FUN_5031bcd8
+export	21	0x5032822c	EkernExport021	previous=FUN_5032822c
+export	22	0x503281d0	EkernExport022	previous=FUN_503281d0
+export	23	0x503284a8	EkernExport023	previous=thunk_FUN_5031bcc8
+export	24	0x50328588	EkernExport024	previous=thunk_FUN_5031db88
+export	25	0x50328590	EkernExport025	previous=thunk_FUN_5031dc20
+export	26	0x5032858c	EkernExport026	previous=thunk_FUN_5031dbf0
+export	27	0x5031df34	EkernExport027	previous=FUN_5031df34
+export	28	0x5032af54	EkernExport028	previous=FUN_5032af54
+export	29	0x5032bd24	EkernExport029	previous=FUN_5032bd24
+export	30	0x5032bd58	EkernExport030	previous=FUN_5032bd58
+export	31	0x5032aaf0	EkernExport031	previous=FUN_5032aaf0
+export	32	0x50327cdc	EkernExport032	previous=FUN_50327cdc
+export	33	0x5033d650	EkernExport033	previous=FUN_5033d650
+export	34	0x5033d8cc	EkernExport034	previous=FUN_5033d8cc
+export	35	0x5032be30	EkernExport035	previous=thunk_FUN_50328dd4
+export	36	0x5033f2bc	EkernExport036	previous=FUN_5033f2bc
+export	37	0x5032aafc	EkernExport037	previous=FUN_5032aafc
+export	38	0x5033dbd8	EkernExport038	previous=FUN_5033dbd8
+export	39	0x5033d200	EkernExport039	previous=FUN_5033d200
+export	40	0x50328328	EkernExport040	previous=FUN_50328328
+export	41	0x5031be34	EkernExport041	previous=
+export	42	0x503282fc	EkernExport042	previous=FUN_503282fc
+export	43	0x5032f274	EkernExport043	previous=FUN_5032f274
+export	44	0x5032f2a0	EkernExport044	previous=FUN_5032f2a0
+export	45	0x5033f46c	EkernExport045	previous=
+export	46	0x50335f3c	EkernExport046	previous=
+export	47	0x5032ec5c	EkernExport047	previous=FUN_5032ec5c
+export	48	0x5032ea50	EkernExport048	previous=FUN_5032ea50
+export	49	0x5032ef3c	EkernExport049	previous=FUN_5032ef3c
+export	50	0x5032e908	EkernExport050	previous=FUN_5032e908
+export	51	0x5033f43c	EkernExport051	previous=
+export	52	0x503339a8	EkernExport052	previous=FUN_503339a8
+export	53	0x5031f7ac	EkernExport053	previous=
+export	54	0x5033f3f8	EkernExport054	previous=
+export	55	0x5032bd9c	EkernExport055	previous=
+export	56	0x5032f12c	EkernExport056	previous=thunk_FUN_50399b9c
+export	57	0x50328730	EkernExport057	previous=FUN_50328730
+export	58	0x50337174	EkernExport058	previous=
+export	59	0x503343a8	EkernExport059	previous=FUN_503343a8
+export	60	0x5032f0e4	EkernExport060	previous=FUN_5032f0e4
+export	61	0x50334384	EkernExport061	previous=FUN_50334384
+export	62	0x503343f4	EkernExport062	previous=FUN_503343f4
+export	63	0x5032f0dc	EkernExport063	previous=FUN_5032f0dc
+export	64	0x5032f0c4	EkernExport064	previous=FUN_5032f0c4
+export	65	0x5031ee2c	EkernExport065	previous=FUN_5031ee2c
+export	66	0x5032ac80	EkernExport066	previous=FUN_5032ac80
+export	67	0x5032ad74	EkernExport067	previous=FUN_5032ad74
+export	68	0x5031be3c	EkernExport068	previous=FUN_5031be3c
+export	69	0x5031ef80	EkernExport069	previous=FUN_5031ef80
+export	70	0x5032df50	EkernExport070	previous=FUN_5032df50
+export	71	0x503340a0	EkernExport071	previous=FUN_503340a0
+export	72	0x5032df40	EkernExport072	previous=FUN_5032df40
+export	73	0x50324f60	EkernExport073	previous=
+export	74	0x503270fc	EkernExport074	previous=thunk_FUN_5031bbc0
+export	75	0x5031bbc0	EkernExport075	previous=FUN_5031bbc0
+export	76	0x50327114	EkernExport076	previous=FUN_50327114
+export	77	0x50334368	EkernExport077	previous=FUN_50334368
+export	78	0x503346dc	EkernExport078	previous=
+export	79	0x503285e0	EkernExport079	previous=
+export	80	0x5031e9f0	EkernExport080	previous=FUN_5031e9f0
+export	81	0x5031e8cc	EkernExport081	previous=
+export	82	0x5031c2cc	EkernExport082	previous=FUN_5031c2cc
+export	83	0x5031c2e0	EkernExport083	previous=FUN_5031c2e0
+export	84	0x5032bd00	EkernExport084	previous=FUN_5032bd00
+export	85	0x5031bdfc	EkernExport085	previous=FUN_5031bdfc
+export	86	0x5032855c	EkernExport086	previous=thunk_FUN_5031bce8
+export	87	0x5031bce8	EkernExport087	previous=FUN_5031bce8
+export	88	0x50328448	EkernExport088	previous=FUN_50328448
+export	89	0x5031bc10	EkernExport089	previous=FUN_5031bc10
+export	90	0x50328508	EkernExport090	previous=FUN_50328508
+export	91	0x5031bd08	EkernExport091	previous=FUN_5031bd08
+export	92	0x5031ed04	EkernExport092	previous=
+export	93	0x5031edec	EkernExport093	previous=FUN_5031edec
+export	94	0x5031ed98	EkernExport094	previous=
+export	95	0x5031edb8	EkernExport095	previous=
+export	96	0x5031ed24	EkernExport096	previous=FUN_5031ed24
+export	97	0x5031ec94	EkernExport097	previous=
+export	98	0x5031ef00	EkernExport098	previous=
+export	99	0x5031ed44	EkernExport099	previous=
+export	100	0x5031ed64	EkernExport100	previous=
+export	101	0x5031ece4	EkernExport101	previous=FUN_5031ece4
+export	102	0x5032f264	EkernExport102	previous=
+export	103	0x5032a058	EkernExport103	previous=FUN_5032a058
+export	104	0x5032f260	EkernExport104	previous=FUN_5032f260
+export	105	0x50334478	EkernExport105	previous=
+export	106	0x50334468	EkernExport106	previous=
+export	107	0x50334470	EkernExport107	previous=
+export	108	0x50327ab8	EkernExport108	previous=FUN_50327ab8
+export	109	0x5031e998	EkernExport109	previous=
+export	110	0x5031e874	EkernExport110	previous=
+export	111	0x5031eea0	EkernExport111	previous=
+export	112	0x5032bcf0	EkernExport112	previous=FUN_5032bcf0
+export	113	0x5032df08	EkernExport113	previous=FUN_5032df08
+export	114	0x5032f934	EkernExport114	previous=FUN_5032f934
+export	115	0x5032f964	EkernExport115	previous=FUN_5032f964
+export	116	0x5032f9ec	EkernExport116	previous=FUN_5032f9ec
+export	117	0x5032f99c	EkernExport117	previous=FUN_5032f99c
+export	118	0x5033ca30	EkernExport118	previous=FUN_5033ca30
+export	119	0x50328384	EkernExport119	previous=FUN_50328384
+export	120	0x5032839c	EkernExport120	previous=FUN_5032839c
+export	121	0x50328594	EkernExport121	previous=thunk_FUN_5031db44
+export	122	0x5031ec34	EkernExport122	previous=
+export	123	0x5031ec68	EkernExport123	previous=
+export	124	0x5031ec50	EkernExport124	previous=
+export	125	0x50328340	EkernExport125	previous=FUN_50328340
+export	126	0x5032df68	EkernExport126	previous=FUN_5032df68
+export	127	0x50337164	EkernExport127	previous=
+export	128	0x5032ad1c	EkernExport128	previous=FUN_5032ad1c
+export	129	0x5031e98c	EkernExport129	previous=
+export	130	0x5031e924	EkernExport130	previous=FUN_5031e924
+export	131	0x5031e930	EkernExport131	previous=FUN_5031e930
+export	132	0x50328598	EkernExport132	previous=
+export	133	0x5031eef0	EkernExport133	previous=
+export	134	0x503235a4	EkernExport134	previous=FUN_503235a4
+export	135	0x50323594	EkernExport135	previous=FUN_50323594
+export	136	0x503346e0	EkernExport136	previous=FUN_503346e0
+export	137	0x503284d0	EkernExport137	previous=thunk_FUN_50329628
+export	138	0x50329620	EkernExport138	previous=
+export	139	0x5033c358	EkernExport139	previous=FUN_5033c358
+export	140	0x50329624	EkernExport140	previous=
+export	141	0x5033e698	EkernExport141	previous=FUN_5033e698
+export	142	0x5033b6b4	EkernExport142	previous=FUN_5033b6b4
+export	143	0x5033b790	EkernExport143	previous=FUN_5033b790
+export	144	0x5033b7d0	EkernExport144	previous=FUN_5033b7d0
+export	145	0x5031f0a0	EkernExport145	previous=FUN_5031f0a0
+export	146	0x5031b870	EkernExport146	previous=FUN_5031b870
+export	147	0x503223d0	EkernExport147	previous=FUN_503223d0
+export	148	0x5033e5c8	EkernExport148	previous=FUN_5033e5c8
+export	149	0x5033e5b8	EkernExport149	previous=
+export	150	0x5033df60	EkernExport150	previous=FUN_5033df60
+export	151	0x5033df28	EkernExport151	previous=FUN_5033df28
+export	152	0x5031c8e4	EkernExport152	previous=FUN_5031c8e4
+export	153	0x50323548	EkernExport153Eka1ExecCC	previous=FUN_50323548
+export	154	0x5031be24	EkernExport154	previous=
+export	155	0x5031dc78	EkernExport155	previous=FUN_5031dc78
+export	156	0x5033de08	EkernExport156	previous=FUN_5033de08
+export	157	0x5031eb3c	EkernExport157	previous=FUN_5031eb3c
+export	158	0x5031f008	EkernExport158	previous=FUN_5031f008
+export	159	0x503284d4	EkernExport159	previous=FUN_503284d4
+export	160	0x5031e7a4	EkernExport160	previous=FUN_5031e7a4
+export	161	0x5031e7b0	EkernExport161	previous=FUN_5031e7b0
+export	162	0x5031e868	EkernExport162	previous=
+export	163	0x5031e798	EkernExport163	previous=FUN_5031e798
+export	164	0x5031e80c	EkernExport164	previous=FUN_5031e80c
+export	165	0x5033260c	EkernExport165	previous=
+export	166	0x50335f34	EkernExport166	previous=
+export	167	0x5031bcc8	EkernExport167	previous=FUN_5031bcc8
+export	168	0x50334084	EkernExport168	previous=FUN_50334084
+export	169	0x50327bf4	EkernExport169	previous=FUN_50327bf4
+export	170	0x50327c0c	EkernExport170	previous=FUN_50327c0c
+export	171	0x5033f340	EkernExport171	previous=FUN_5033f340
+export	172	0x50328558	EkernExport172	previous=thunk_FUN_5031bce0
+export	173	0x5031bce0	EkernExport173	previous=FUN_5031bce0
+export	174	0x5031beec	EkernExport174	previous=FUN_5031beec
+export	175	0x503283e8	EkernExport175	previous=FUN_503283e8
+export	176	0x5031bc38	EkernExport176	previous=FUN_5031bc38
+export	177	0x50328500	EkernExport177	previous=FUN_50328500
+export	178	0x5031f0f4	EkernExport178	previous=
+export	179	0x5031becc	EkernExport179	previous=FUN_5031becc
+export	180	0x5031eec8	EkernExport180	previous=
+export	181	0x5031eed0	EkernExport181	previous=
+export	182	0x5031eeb8	EkernExport182	previous=
+export	183	0x5031ef10	EkernExport183	previous=FUN_5031ef10
+export	184	0x5031ef18	EkernExport184	previous=
+export	185	0x5032df20	EkernExport185	previous=FUN_5032df20
+export	186	0x50328574	EkernExport186	previous=FUN_50328574
+export	187	0x5033f47c	EkernExport187	previous=
+export	188	0x50332c58	EkernExport188	previous=FUN_50332c58
+export	189	0x50332c84	EkernExport189	previous=FUN_50332c84
+export	190	0x50332ea4	EkernExport190	previous=FUN_50332ea4
+export	191	0x5032a180	EkernExport191	previous=FUN_5032a180
+export	192	0x503347b0	EkernExport192	previous=FUN_503347b0
+export	193	0x5033488c	EkernExport193	previous=FUN_5033488c
+export	194	0x50334738	EkernExport194	previous=FUN_50334738
+export	195	0x5033476c	EkernExport195	previous=FUN_5033476c
+export	196	0x50334814	EkernExport196	previous=FUN_50334814
+export	197	0x50334a2c	EkernExport197	previous=FUN_50334a2c
+export	198	0x503348c4	EkernExport198	previous=FUN_503348c4
+export	199	0x50334978	EkernExport199	previous=FUN_50334978
+export	200	0x50334850	EkernExport200	previous=FUN_50334850
+export	201	0x5033f378	EkernExport201	previous=FUN_5033f378
+export	202	0x5031dedc	EkernExport202	previous=
+export	203	0x50336a5c	EkernExport203	previous=
+export	204	0x50323cc4	EkernExport204	previous=FUN_50323cc4
+export	205	0x5033dd84	EkernExport205	previous=
+export	206	0x5033d130	EkernExport206	previous=FUN_5033d130
+export	207	0x50332678	EkernExport207	previous=
+export	208	0x50332614	EkernExport208	previous=FUN_50332614
+export	209	0x5033f44c	EkernExport209	previous=
+export	210	0x50335df0	EkernExport210	previous=FUN_50335df0
+export	211	0x50335bc8	EkernExport211	previous=FUN_50335bc8
+export	212	0x5033c230	EkernExport212	previous=FUN_5033c230
+export	213	0x503373b0	EkernExport213	previous=FUN_503373b0
+export	214	0x50335dbc	EkernExport214	previous=
+export	215	0x50335b78	EkernExport215	previous=FUN_50335b78
+export	216	0x5033c1c8	EkernExport216	previous=FUN_5033c1c8
+export	217	0x50337348	EkernExport217	previous=FUN_50337348
+export	218	0x50327820	EkernExport218	previous=FUN_50327820
+export	219	0x50327908	EkernExport219	previous=FUN_50327908
+export	220	0x50328478	EkernExport220	previous=FUN_50328478
+export	221	0x5031bbe8	EkernExport221	previous=FUN_5031bbe8
+export	222	0x50328560	EkernExport222	previous=FUN_50328560
+export	223	0x50328584	EkernExport223	previous=thunk_FUN_5031db80
+export	224	0x50328580	EkernExport224	previous=thunk_FUN_5031dbc0
+export	225	0x5032857c	EkernExport225	previous=thunk_FUN_5031db90
+export	226	0x50337254	EkernExport226	previous=FUN_50337254
+export	227	0x50329650	EkernExport227	previous=
+export	228	0x503285dc	EkernExport228	previous=
+export	229	0x5031bdac	EkernExport229	previous=FUN_5031bdac
+export	230	0x503284c4	EkernExport230	previous=FUN_503284c4
+export	231	0x5031beac	EkernExport231	previous=FUN_5031beac
+export	232	0x5032792c	EkernExport232	previous=FUN_5032792c
+export	233	0x503245e8	EkernExport233	previous=
+export	234	0x5031f778	EkernExport234	previous=FUN_5031f778
+export	235	0x5033ca48	EkernExport235	previous=
+export	236	0x5031f7b8	EkernExport236	previous=FUN_5031f7b8
+export	237	0x503280ec	EkernExport237	previous=FUN_503280ec
+export	238	0x5031e714	EkernExport238	previous=FUN_5031e714
+export	239	0x5031e6c8	EkernExport239	previous=FUN_5031e6c8
+export	240	0x5031e764	EkernExport240	previous=
+export	241	0x5031bf88	EkernExport241	previous=FUN_5031bf88
+export	242	0x5031bfa0	EkernExport242	previous=FUN_5031bfa0
+export	243	0x503359ec	EkernExport243	previous=FUN_503359ec
+export	244	0x50335ab4	EkernExport244	previous=
+export	245	0x50335934	EkernExport245	previous=FUN_50335934
+export	246	0x5033e65c	EkernExport246	previous=
+export	247	0x5033e5e4	EkernExport247	previous=FUN_5033e5e4
+export	248	0x50336a04	EkernExport248	previous=
+export	249	0x5033e620	EkernExport249	previous=FUN_5033e620
+export	250	0x50335da4	EkernExport250	previous=FUN_50335da4
+export	251	0x50335b48	EkernExport251	previous=FUN_50335b48
+export	252	0x5032bb24	EkernExport252	previous=FUN_5032bb24
+export	253	0x50328544	EkernExport253	previous=FUN_50328544
+export	254	0x5031bd58	EkernExport254	previous=FUN_5031bd58
+export	255	0x50327a90	EkernExport255	previous=FUN_50327a90
+export	256	0x5033d0c8	EkernExport256	previous=FUN_5033d0c8
+export	257	0x503337dc	EkernExport257	previous=FUN_503337dc
+export	258	0x5032dd74	EkernExport258	previous=
+export	259	0x5033f40c	EkernExport259	previous=FUN_5033f40c
+export	260	0x5031be14	EkernExport260	previous=FUN_5031be14
+export	261	0x5033e160	EkernExport261	previous=FUN_5033e160
+export	262	0x5032df60	EkernExport262	previous=FUN_5032df60
+export	263	0x50334480	EkernExport263	previous=FUN_50334480
+export	264	0x5033d05c	EkernExport264	previous=FUN_5033d05c
+export	265	0x50334734	EkernExport265	previous=thunk_FUN_5031e234
+export	266	0x50335f58	EkernExport266	previous=
+export	267	0x5033616c	EkernExport267	previous=FUN_5033616c
+export	268	0x50335f44	EkernExport268	previous=
+export	269	0x50336038	EkernExport269	previous=FUN_50336038
+export	270	0x5033f45c	EkernExport270	previous=
+export	271	0x50328530	EkernExport271	previous=FUN_50328530
+export	272	0x5031bd30	EkernExport272	previous=FUN_5031bd30
+export	273	0x50327c4c	EkernExport273	previous=FUN_50327c4c
+export	274	0x50327c64	EkernExport274	previous=FUN_50327c64
+export	275	0x5033f35c	EkernExport275	previous=FUN_5033f35c
+export	276	0x503282d0	EkernExport276	previous=FUN_503282d0
+export	277	0x50336810	EkernExport277	previous=FUN_50336810
+export	278	0x503365b8	EkernExport278	previous=FUN_503365b8
+export	279	0x50336518	EkernExport279	previous=
+export	280	0x50336244	EkernExport280	previous=FUN_50336244
+export	281	0x503366c0	EkernExport281	previous=FUN_503366c0
+export	282	0x50336528	EkernExport282	previous=FUN_50336528
+export	283	0x5033675c	EkernExport283	previous=FUN_5033675c
+export	284	0x50336590	EkernExport284	previous=FUN_50336590
+export	285	0x5031bd00	EkernExport285	previous=FUN_5031bd00
+export	286	0x5031f2c8	EkernExport286	previous=FUN_5031f2c8
+export	287	0x5033e564	EkernExport287	previous=FUN_5033e564
+export	288	0x5033e5a8	EkernExport288	previous=
+export	289	0x5033e5ac	EkernExport289	previous=
+export	290	0x5033b5c0	EkernExport290	previous=
+export	291	0x503371a4	EkernExport291	previous=FUN_503371a4
+export	292	0x503370b0	EkernExport292	previous=FUN_503370b0
+export	293	0x50336dd4	EkernExport293	previous=FUN_50336dd4
+export	294	0x5033f41c	EkernExport294	previous=
+export	295	0x5031be6c	EkernExport295	previous=FUN_5031be6c
+export	296	0x5031be44	EkernExport296	previous=FUN_5031be44
+export	297	0x5031e3c8	EkernExport297	previous=FUN_5031e3c8
+export	298	0x5031e3b0	EkernExport298	previous=FUN_5031e3b0
+export	299	0x5033b680	EkernExport299	previous=FUN_5033b680
+export	300	0x5033722c	EkernExport300	previous=FUN_5033722c
+export	301	0x50328418	EkernExport301	previous=FUN_50328418
+export	302	0x5031bc90	EkernExport302	previous=FUN_5031bc90
+export	303	0x50332604	EkernExport303	previous=
+export	304	0x50335f2c	EkernExport304	previous=
+export	305	0x5033ca5c	EkernExport305	previous=FUN_5033ca5c
+export	306	0x5031eee0	EkernExport306	previous=
+export	307	0x5031bbb4	EkernExport307	previous=
+export	308	0x503376a4	EkernExport308	previous=FUN_503376a4
+export	309	0x50337630	EkernExport309	previous=FUN_50337630
+export	310	0x50329654	EkernExport310	previous=
+export	311	0x5033ba64	EkernExport311	previous=FUN_5033ba64
+export	312	0x5033b82c	EkernExport312	previous=FUN_5033b82c
+export	313	0x5033b948	EkernExport313	previous=FUN_5033b948
+export	314	0x5032a158	EkernExport314	previous=
+export	315	0x5032ef68	EkernExport315	previous=
+export	316	0x5033cef4	EkernExport316	previous=FUN_5033cef4
+export	317	0x5032abcc	EkernExport317	previous=FUN_5032abcc
+export	318	0x50324350	EkernExport318	previous=
+export	319	0x5031e6fc	EkernExport319	previous=FUN_5031e6fc
+export	320	0x5031e6b0	EkernExport320	previous=FUN_5031e6b0
+export	321	0x50336a48	EkernExport321	previous=FUN_50336a48
+export	322	0x50323818	EkernExport322	previous=FUN_50323818
+export	323	0x503325fc	EkernExport323	previous=
+export	324	0x50335f24	EkernExport324	previous=
+export	325	0x5033b53c	EkernExport325	previous=FUN_5033b53c
+export	326	0x503370dc	EkernExport326	previous=FUN_503370dc
+export	327	0x50323d60	EkernExport327	previous=FUN_50323d60
+export	328	0x5033b6a8	EkernExport328	previous=
+export	329	0x503285a4	EkernExport329	previous=FUN_503285a4
+export	330	0x503285c0	EkernExport330	previous=FUN_503285c0
+export	331	0x5032dff0	EkernExport331	previous=FUN_5032dff0
+export	332	0x5031c2f4	EkernExport332	previous=FUN_5031c2f4
+export	333	0x503284e0	EkernExport333	previous=FUN_503284e0
+export	334	0x503284e8	EkernExport334	previous=FUN_503284e8
+export	335	0x5031be2c	EkernExport335	previous=
+export	336	0x5032508c	EkernExport336	previous=FUN_5032508c
+export	337	0x50337810	EkernExport337	previous=FUN_50337810
+export	338	0x503378e0	EkernExport338	previous=
+export	339	0x5033774c	EkernExport339	previous=FUN_5033774c
+export	340	0x50324500	EkernExport340	previous=
+export	341	0x50334e50	EkernExport341	previous=FUN_50334e50
+export	342	0x50334e7c	EkernExport342	previous=FUN_50334e7c
+export	343	0x50335578	EkernExport343	previous=FUN_50335578
+export	344	0x50328270	EkernExport344	previous=FUN_50328270
+export	345	0x503282a8	EkernExport345	previous=FUN_503282a8
+export	346	0x50328218	EkernExport346	previous=FUN_50328218
+export	347	0x50328244	EkernExport347	previous=FUN_50328244
+export	348	0x50328114	EkernExport348	previous=FUN_50328114
+export	349	0x50327c7c	EkernExport349	previous=FUN_50327c7c
+export	350	0x50327c90	EkernExport350	previous=FUN_50327c90
+export	351	0x5032f26c	EkernExport351	previous=FUN_5032f26c
+export	352	0x50328314	EkernExport352	previous=FUN_50328314
+export	353	0x503282e8	EkernExport353	previous=FUN_503282e8
+export	354	0x5033666c	EkernExport354	previous=FUN_5033666c
+export	355	0x5031bbcc	EkernExport355	previous=FUN_5031bbcc
+export	356	0x50327104	EkernExport356	previous=FUN_50327104
+export	357	0x5031bdd8	EkernExport357	previous=FUN_5031bdd8
+export	358	0x5031ecf0	EkernExport358	previous=
+export	359	0x5031eca0	EkernExport359	previous=FUN_5031eca0
+export	360	0x5031edd8	EkernExport360	previous=FUN_5031edd8
+export	361	0x5031ed84	EkernExport361	previous=FUN_5031ed84
+export	362	0x5031eda4	EkernExport362	previous=FUN_5031eda4
+export	363	0x5031edc4	EkernExport363	previous=FUN_5031edc4
+export	364	0x5031ed10	EkernExport364	previous=FUN_5031ed10
+export	365	0x5031ec80	EkernExport365	previous=FUN_5031ec80
+export	366	0x5031eef8	EkernExport366	previous=
+export	367	0x5031ed30	EkernExport367	previous=FUN_5031ed30
+export	368	0x5031ed50	EkernExport368	previous=FUN_5031ed50
+export	369	0x5031ed70	EkernExport369	previous=FUN_5031ed70
+export	370	0x5033ca38	EkernExport370	previous=FUN_5033ca38
+export	371	0x5031ec20	EkernExport371	previous=FUN_5031ec20
+export	372	0x5031eee8	EkernExport372	previous=
+export	373	0x5031f7a0	EkernExport373	previous=
+export	374	0x5033f3e8	EkernExport374	previous=
+export	375	0x50327bcc	EkernExport375	previous=FUN_50327bcc
+export	376	0x50327be0	EkernExport376	previous=FUN_50327be0
+export	377	0x5031f0c4	EkernExport377	previous=FUN_5031f0c4
+export	378	0x5031eec0	EkernExport378	previous=
+export	379	0x5031eeb0	EkernExport379	previous=
+export	380	0x5031ef08	EkernExport380	previous=
+export	381	0x5031ef20	EkernExport381	previous=
+export	382	0x5031ef2c	EkernExport382	previous=
+export	383	0x5031ef50	EkernExport383	previous=
+export	384	0x5031ef6c	EkernExport384	previous=
+export	385	0x5031bf74	EkernExport385	previous=FUN_5031bf74
+export	386	0x5031bf58	EkernExport386	previous=
+export	387	0x5031bf60	EkernExport387	previous=FUN_5031bf60
+export	388	0x5031bf44	EkernExport388	previous=FUN_5031bf44
+export	389	0x50337288	EkernExport389	previous=FUN_50337288
+export	390	0x50322404	EkernExport390	previous=FUN_50322404
+export	391	0x50327c24	EkernExport391	previous=FUN_50327c24
+export	392	0x50327c38	EkernExport392	previous=FUN_50327c38
+export	393	0x503282bc	EkernExport393	previous=FUN_503282bc
+export	394	0x50336a08	EkernExport394	previous=FUN_50336a08
+export	395	0x5033b5c8	EkernExport395	previous=FUN_5033b5c8
+export	396	0x503371ac	EkernExport396	previous=FUN_503371ac
+export	397	0x5033b68c	EkernExport397	previous=FUN_5033b68c
+export	398	0x50337238	EkernExport398	previous=FUN_50337238
+export	399	0x5031dd04	EkernExport399	previous=
+export	400	0x5031eed8	EkernExport400	previous=
+export	401	0x5031e708	EkernExport401	previous=FUN_5031e708
+export	402	0x5031e6bc	EkernExport402	previous=FUN_5031e6bc
+export	403	0x503365f8	EkernExport403	previous=FUN_503365f8
+export	404	0x5031dd14	EkernExport404	previous=FUN_5031dd14
+export	405	0x5033571c	EkernExport405	previous=
+export	406	0x50327ca4	EkernExport406	previous=FUN_50327ca4
+export	407	0x50327cb4	EkernExport407	previous=FUN_50327cb4
+export	408	0x50327cc8	EkernExport408	previous=FUN_50327cc8
+export	409	0x5032e530	EkernExport409	previous=
+export	410	0x5031ec0c	EkernExport410	previous=
+export	411	0x5031edf8	EkernExport411	previous=FUN_5031edf8
+export	412	0x5032de80	EkernExport412	previous=FUN_5032de80
+export	413	0x5033b664	EkernExport413	previous=FUN_5033b664
+export	414	0x50337210	EkernExport414	previous=FUN_50337210
+export	415	0x5031e758	EkernExport415	previous=
+export	416	0x5031eae8	EkernExport416	previous=FUN_5031eae8
+export	417	0x5031eafc	EkernExport417	previous=
+export	418	0x5031ea58	EkernExport418	previous=FUN_5031ea58
+export	419	0x5031eac4	EkernExport419	previous=FUN_5031eac4
+export	420	0x5031ea9c	EkernExport420	previous=FUN_5031ea9c
+export	421	0x5031eb14	EkernExport421	previous=FUN_5031eb14
+export	422	0x5033c2b4	EkernExport422	previous=FUN_5033c2b4
+export	423	0x5033444c	EkernExport423	previous=FUN_5033444c
+export	424	0x50327d78	EkernExport424	previous=FUN_50327d78
+export	425	0x50327a60	EkernExport425	previous=FUN_50327a60
+export	426	0x5031be8c	EkernExport426	previous=FUN_5031be8c
+export	427	0x5033d7c0	EkernExport427	previous=FUN_5033d7c0
+export	428	0x5032be2c	EkernExport428	previous=thunk_FUN_50328c10
+export	429	0x50333758	EkernExport429	previous=FUN_50333758
+export	430	0x5031bb9c	EkernExport430	previous=FUN_5031bb9c
+export	431	0x5032796c	EkernExport431	previous=FUN_5032796c
+export	432	0x5033b0c8	EkernExport432	previous=FUN_5033b0c8
+export	433	0x5032de50	EkernExport433	previous=FUN_5032de50
+export	434	0x5032de14	EkernExport434	previous=FUN_5032de14
+export	435	0x5033b658	EkernExport435	previous=FUN_5033b658
+export	436	0x50337204	EkernExport436	previous=FUN_50337204
+export	437	0x5031e748	EkernExport437	previous=
+export	438	0x5031bf24	EkernExport438	previous=FUN_5031bf24
+export	439	0x5032e1e0	EkernExport439	previous=FUN_5032e1e0
+export	440	0x5033b510	EkernExport440	previous=FUN_5033b510
+export	441	0x5033b114	EkernExport441	previous=FUN_5033b114
+export	442	0x5033b128	EkernExport442	previous=FUN_5033b128
+export	443	0x5033f42c	EkernExport443	previous=
+export	444	0x5032de04	EkernExport444	previous=
+export	445	0x503285a0	EkernExport445	previous=thunk_FUN_5031bd80
+export	446	0x5031bd80	EkernExport446	previous=FUN_5031bd80
+export	447	0x5031eadc	EkernExport447	previous=FUN_5031eadc
+export	448	0x5033de64	EkernExport448	previous=FUN_5033de64
+export	449	0x5031ea48	EkernExport449	previous=FUN_5031ea48
+export	450	0x5031eab4	EkernExport450	previous=
+export	451	0x5031eb2c	EkernExport451	previous=FUN_5031eb2c
+export	452	0x5033c31c	EkernExport452	previous=FUN_5033c31c
+export	453	0x503284ac	EkernExport453	previous=FUN_503284ac
+export	454	0x503284b8	EkernExport454	previous=FUN_503284b8
+export	455	0x50334458	EkernExport455	previous=FUN_50334458
+export	456	0x5032ab18	EkernExport456	previous=FUN_5032ab18
+export	457	0x50324b50	EkernExport457	previous=FUN_50324b50
+export	458	0x5032af88	EkernExport458	previous=
+export	459	0x5032bd8c	EkernExport459	previous=FUN_5032bd8c
+export	460	0x5032aaf8	EkernExport460	previous=thunk_FUN_50326c3c
+export	461	0x50324b9c	EkernExport461	previous=FUN_50324b9c
+export	462	0x5031c920	EkernExport462	previous=FUN_5031c920
+export	463	0x50336a78	EkernExport463	previous=
+export	464	0x50323c9c	EkernExport464	previous=FUN_50323c9c
+export	465	0x5031bb98	EkernExport465	previous=FUN_5031bb98
+export	466	0x5031dd24	EkernExport466	previous=FUN_5031dd24
+export	467	0x5031f118	EkernExport467	previous=FUN_5031f118
+export	468	0x5031f188	EkernExport468	previous=FUN_5031f188
+export	469	0x5032e7ac	EkernExport469	previous=FUN_5032e7ac
+export	470	0x5031dfcc	EkernExport470	previous=FUN_5031dfcc
+export	471	0x5033cf74	EkernExport471	previous=FUN_5033cf74
+export	472	0x5033cf90	EkernExport472	previous=FUN_5033cf90
+export	473	0x5033cfd4	EkernExport473	previous=FUN_5033cfd4
+export	474	0x50328778	EkernExport474	previous=FUN_50328778
+export	475	0x5033c07c	EkernExport475	previous=FUN_5033c07c
+export	476	0x5032a16c	EkernExport476	previous=
+export	477	0x5032eff8	EkernExport477	previous=FUN_5032eff8
+export	478	0x5033beb0	EkernExport478	previous=FUN_5033beb0
+export	479	0x5033bba0	EkernExport479	previous=FUN_5033bba0
+export	480	0x5033bd24	EkernExport480	previous=FUN_5033bd24
+export	481	0x503283b8	EkernExport481	previous=FUN_503283b8
+export	482	0x5031bc60	EkernExport482	previous=FUN_5031bc60
+export	483	0x5032851c	EkernExport483	previous=FUN_5032851c
+export	484	0x5031bcb8	EkernExport484	previous=FUN_5031bcb8
+export	485	0x503284fc	EkernExport485	previous=thunk_FUN_5031bc88
+export	486	0x5031bc88	EkernExport486	previous=FUN_5031bc88
+export	487	0x5032a00c	EkernExport487	previous=FUN_5032a00c
+export	488	0x503325ec	EkernExport488	previous=
+export	489	0x5032f0a4	EkernExport489	previous=
+export	490	0x50335f14	EkernExport490	previous=
+export	491	0x5032af38	EkernExport491	previous=
+export	492	0x5032bcd8	EkernExport492	previous=FUN_5032bcd8
+export	493	0x50336694	EkernExport493	previous=
+export	494	0x5033d560	EkernExport494	previous=FUN_5033d560
+export	495	0x503340dc	EkernExport495	previous=FUN_503340dc
+export	496	0x50329fe4	EkernExport496	previous=FUN_50329fe4
+export	497	0x503325c4	EkernExport497	previous=FUN_503325c4
+export	498	0x5032f070	EkernExport498	previous=FUN_5032f070
+export	499	0x50335eec	EkernExport499	previous=FUN_50335eec
+export	500	0x5033d7b0	EkernExport500	previous=FUN_5033d7b0
+export	501	0x5033402c	EkernExport501	previous=FUN_5033402c
+export	502	0x50334044	EkernExport502	previous=FUN_50334044
+export	503	0x5032be00	EkernExport503	previous=FUN_5032be00
+export	504	0x5033f294	EkernExport504	previous=FUN_5033f294
+export	505	0x5032aab0	EkernExport505	previous=FUN_5032aab0
+export	506	0x5033dc3c	EkernExport506	previous=FUN_5033dc3c
+exec	0x00	0x5032fa3c	Eka1Exec00	v6=; status=handler
+exec	0x01	0x5032fa50	Eka1Exec01ChunkBase	v6=chunk_base; status=handler
+exec	0x02	0x5032fa64	Eka1Exec02ChunkSize	v6=chunk_size; status=handler
+exec	0x03	0x5032fa78	Eka1Exec03ChunkMaxSize	v6=chunk_max_size; status=handler
+exec	0x04	0x5032fae8	Eka1Exec04	v6=; status=handler
+exec	0x05	0x5032fb1c	Eka1Exec05	v6=; status=handler
+exec	0x06	0x5032fb7c	Eka1Exec06	v6=; status=handler
+exec	0x07	0x5032fb90	Eka1Exec07	v6=; status=handler
+exec	0x08	0x5032fbbc	Eka1Exec08	v6=; status=handler
+exec	0x09	0x5032fbe8	Eka1Exec09	v6=; status=handler
+exec	0x0A	0x5032fc24	Eka1Exec0A	v6=; status=handler
+exec	0x0B	0x5032fc38	Eka1Exec0B	v6=; status=handler
+exec	0x0C	0x5032fc4c	Eka1Exec0C	v6=; status=handler
+exec	0x0D	0x5032fc90	Eka1Exec0D	v6=; status=handler
+exec	0x0E	0x5032fcb4	Eka1Exec0E	v6=; status=handler
+exec	0x0F	0x5032fdc4	Eka1Exec0F	v6=; status=handler
+exec	0x10	0x5032fdd8	Eka1Exec10	v6=; status=handler
+exec	0x11	0x5032fe04	Eka1Exec11	v6=; status=handler
+exec	0x12	0x5032fe24	Eka1Exec12	v6=; status=handler
+exec	0x13	0x5032fe44	Eka1Exec13	v6=; status=handler
+exec	0x14	0x5032fe78	Eka1Exec14	v6=; status=handler
+exec	0x15	0x5032feb0	Eka1Exec15	v6=; status=handler
+exec	0x16	0x5032feec	Eka1Exec16	v6=; status=handler
+exec	0x17	0x5032ff10	Eka1Exec17	v6=; status=handler
+exec	0x18	0x5032ff24	Eka1Exec18MutexCountEka1	v6=mutex_count_eka1; status=handler
+exec	0x19	0x5032ff38	Eka1Exec19MutexWaitEka1	v6=mutex_wait_eka1; status=handler
+exec	0x1A	0x5032ff58	Eka1Exec1AMutexSignalEka1	v6=mutex_signal_eka1; status=handler
+exec	0x1B	0x5032ffc0	Eka1Exec1BProcessId	v6=process_id; status=handler
+exec	0x1C	0x5032ffd4	Eka1Exec1C	v6=; status=handler
+exec	0x1D	0x5032ffe8	Eka1Exec1D	v6=; status=handler
+exec	0x1E	0x50330008	Eka1Exec1E	v6=; status=handler
+exec	0x1F	0x5033002c	Eka1Exec1F	v6=; status=handler
+exec	0x20	0x5033006c	Eka1Exec20	v6=; status=handler
+exec	0x21	0x50330080	Eka1Exec21	v6=; status=handler
+exec	0x22	0x50330094	Eka1Exec22	v6=; status=handler
+exec	0x23	0x503300bc	Eka1Exec23	v6=; status=handler
+exec	0x24	0x503300d4	Eka1Exec24	v6=; status=handler
+exec	0x25	0x503300f8	Eka1Exec25	v6=; status=handler
+exec	0x26	0x5033010c	Eka1Exec26	v6=; status=handler
+exec	0x27	0x50330170	Eka1Exec27	v6=; status=handler
+exec	0x28	0x50330194	Eka1Exec28	v6=; status=handler
+exec	0x29	0x503301a8	Eka1Exec29SemaphoreCountEka1	v6=semaphore_count_eka1; status=handler
+exec	0x2A	0x503301bc	Eka1Exec2ASemaphoreWaitEka1	v6=semaphore_wait_eka1; status=handler
+exec	0x2B	0x503301dc	Eka1Exec2B	v6=; status=handler
+exec	0x2C	0x503301fc	Eka1Exec2C	v6=; status=handler
+exec	0x2D	0x50330228	Eka1Exec2D	v6=; status=handler
+exec	0x2E	0x5033023c	Eka1Exec2E	v6=; status=handler
+exec	0x2F	0x50330264	Eka1Exec2F	v6=; status=handler
+exec	0x30	0x5033027c	Eka1Exec30	v6=; status=handler
+exec	0x31	0x50330280	Eka1Exec31	v6=; status=handler
+exec	0x32	0x503302e0	Eka1Exec32ThreadId	v6=thread_id; status=handler
+exec	0x33	0x503302f4	Eka1Exec33	v6=; status=handler
+exec	0x34	0x50330308	Eka1Exec34	v6=; status=handler
+exec	0x35	0x50330328	Eka1Exec35	v6=; status=handler
+exec	0x36	0x50330348	Eka1Exec36ThreadPriority	v6=thread_priority; status=handler
+exec	0x37	0x50330360	Eka1Exec37	v6=; status=handler
+exec	0x38	0x50330384	Eka1Exec38	v6=; status=handler
+exec	0x39	0x503303a0	Eka1Exec39	v6=; status=handler
+exec	0x3A	0x503303c8	Eka1Exec3A	v6=; status=handler
+exec	0x3B	0x503303dc	Eka1Exec3B	v6=; status=handler
+exec	0x3C	0x5033045c	Eka1Exec3CThreadRequestCount	v6=thread_request_count; status=handler
+exec	0x3D	0x50330474	Eka1Exec3DThreadExitType	v6=thread_exit_type; status=handler
+exec	0x3E	0x50330488	Eka1Exec3E	v6=; status=handler
+exec	0x3F	0x5033049c	Eka1Exec3F	v6=; status=handler
+exec	0x40	0x503304c4	Eka1Exec40	v6=; status=handler
+exec	0x41	0x50330540	Eka1Exec41	v6=; status=handler
+exec	0x42	0x503305bc	Eka1Exec42	v6=; status=handler
+exec	0x43	0x5033065c	Eka1Exec43	v6=; status=handler
+exec	0x44	0x50330700	Eka1Exec44	v6=; status=handler
+exec	0x45	0x503307a0	Eka1Exec45	v6=; status=handler
+exec	0x46	0x50330844	Eka1Exec46	v6=; status=handler
+exec	0x47	0x50330880	Eka1Exec47	v6=; status=handler
+exec	0x48	0x50330898	Eka1Exec48	v6=; status=handler
+exec	0x49	0x503308c4	Eka1Exec49	v6=; status=handler
+exec	0x4A	0x503308f0	Eka1Exec4A	v6=; status=handler
+exec	0x4B	0x50330968	Eka1Exec4B	v6=; status=handler
+exec	0x4C	0x503309b4	Eka1Exec4C	v6=; status=handler
+exec	0x4D	0x503309f8	Eka1Exec4DWaitForAnyRequest	v6=wait_for_any_request; status=handler
+exec	0x4E	0x50330a14	Eka1Exec4E	v6=; status=handler
+exec	0x4F	0x50330a38	Eka1Exec4FUcharFold	v6=uchar_fold; status=handler
+exec	0x50	0x50330a6c	Eka1Exec50	v6=; status=handler
+exec	0x51	0x50330aa0	Eka1Exec51UcharLowercase	v6=uchar_lowercase; status=handler
+exec	0x52	0x50330ad0	Eka1Exec52UcharUppercase	v6=uchar_uppercase; status=handler
+exec	0x53	0x50330b00	Eka1Exec53UcharGetCategory	v6=uchar_get_category; status=handler
+exec	0x54	0x50330b30	Eka1Exec54	v6=; status=handler
+exec	0x55	0x50330e84	Eka1Exec55	v6=; status=handler
+exec	0x56	0x50331240	Eka1Exec56	v6=; status=handler
+exec	0x57	0x50331374	Eka1Exec57	v6=; status=handler
+exec	0x58	0x503314cc	Eka1Exec58	v6=; status=handler
+exec	0x59	0x5033157c	Eka1Exec59	v6=; status=handler
+exec	0x5A	0x50331638	Eka1Exec5A	v6=; status=handler
+exec	0x5B	0x5033165c	Eka1Exec5B	v6=; status=handler
+exec	0x5C	0x50331680	Eka1Exec5C	v6=; status=handler
+exec	0x5D	0x503317b0	Eka1Exec5D	v6=; status=handler
+exec	0x5E	0x503317e8	Eka1Exec5E	v6=; status=handler
+exec	0x5F	0x50331808	Eka1Exec5F	v6=; status=handler
+exec	0x60	0x50331828	Eka1Exec60	v6=; status=handler
+exec	0x61	0x50331838	Eka1Exec61	v6=; status=handler
+exec	0x62	0x50331854	Eka1Exec62	v6=; status=handler
+exec	0x63	0x50331870	Eka1Exec63	v6=; status=handler
+exec	0x64	0x5033188c	Eka1Exec64	v6=; status=handler
+exec	0x65	0x503318a8	Eka1Exec65	v6=; status=handler
+exec	0x66	0x503318c4	Eka1Exec66	v6=; status=handler
+exec	0x67	0x503318e0	Eka1Exec67	v6=; status=handler
+exec	0x68	0x50331930	Eka1Exec68	v6=; status=handler
+exec	0x69	0x50331950	Eka1Exec69	v6=; status=handler
+exec	0x6A	0x503319a4	Eka1Exec6A	v6=; status=handler
+exec	0x6B	0x50331a00	Eka1Exec6B	v6=; status=handler
+exec	0x6C	0x50324abc	Eka1Exec6CHeap	v6=heap; status=handler
+exec	0x6D	0x50331a04	Eka1Exec6D	v6=; status=handler
+exec	0x6E	0x50331a08	Eka1Exec6E	v6=; status=handler
+exec	0x6F	0x50331a38	Eka1Exec6F	v6=; status=handler
+exec	0x70	0x50331a88	Eka1Exec70TickCount	v6=tick_count; status=handler
+exec	0x71	0x50331a8c	Eka1Exec71	v6=; status=handler
+exec	0x72	0x50324acc	Eka1Exec72PushTrapFrame	v6=push_trap_frame; status=handler
+exec	0x73	0x50324aec	Eka1Exec73PopTrapFrame	v6=pop_trap_frame; status=handler
+exec	0x74	0x50324b08	Eka1Exec74ActiveScheduler	v6=active_scheduler; status=handler
+exec	0x75	0x50324b18	Eka1Exec75SetActiveScheduler	v6=set_active_scheduler; status=handler
+exec	0x76	0x50331a90	Eka1Exec76	v6=; status=handler
+exec	0x77	0x50331a94	Eka1Exec77	v6=; status=handler
+exec	0x78	0x50331a98	Eka1Exec78	v6=; status=handler
+exec	0x79	0x50331a9c	Eka1Exec79	v6=; status=handler
+exec	0x7A	0x50331aa0	Eka1Exec7A	v6=; status=handler
+exec	0x7B	0x50331aa4	Eka1Exec7B	v6=; status=handler
+exec	0x7C	0x50331aa8	Eka1Exec7C	v6=; status=handler
+exec	0x7D	0x50331aac	Eka1Exec7D	v6=; status=handler
+exec	0x7E	0x50331ae0	Eka1Exec7E	v6=; status=handler
+exec	0x7F	0x50331b2c	Eka1Exec7F	v6=; status=handler
+exec	0x80	0x50331b70	Eka1Exec80DllTlsEka1	v6=dll_tls_eka1; status=handler
+exec	0x81	0x50324b28	Eka1Exec81TrapHandler	v6=trap_handler; status=handler
+exec	0x82	0x50324b38	Eka1Exec82SetTrapHandler	v6=set_trap_handler; status=handler
+exec	0x83	0x50331bc0	Eka1Exec83	v6=; status=handler
+exec	0x84	0x50331bc4	Eka1Exec84	v6=; status=handler
+exec	0x85	0x50331bc8	Eka1Exec85	v6=; status=handler
+exec	0x86	0x50331bcc	Eka1Exec86	v6=; status=handler
+exec	0x87	0x50331bd0	Eka1Exec87	v6=; status=handler
+exec	0x88	0x50331bd4	Eka1Exec88	v6=; status=handler
+exec	0x89	0x50331bd8	Eka1Exec89	v6=; status=handler
+exec	0x8A	0x0		v6=; status=null-handler
+exec	0x8B	0x50331bdc	Eka1Exec8B	v6=; status=handler
+exec	0x8C	0x50331bec	Eka1Exec8C	v6=; status=handler
+exec	0x8D	0x50331bfc	Eka1Exec8DLockedInc32	v6=locked_inc_32; status=handler
+exec	0x8E	0x50331c14	Eka1Exec8ELockedDec32	v6=locked_dec_32; status=handler
+exec	0x8F	0x50331c3c	Eka1Exec8F	v6=; status=handler
+exec	0x90	0x50331c78	Eka1Exec90	v6=; status=handler
+exec	0x91	0x50331c2c	Eka1Exec91	v6=; status=handler
+exec	0x92	0x50331cb4	Eka1Exec92	v6=; status=handler
+exec	0x93	0x50331cec	Eka1Exec93	v6=; status=handler
+exec	0x94	0x0		v6=; status=null-handler
+exec	0x95	0x0		v6=; status=null-handler
+exec	0x96	0x0		v6=; status=null-handler
+exec	0x97	0x50331cf4	Eka1Exec97	v6=; status=handler
+exec	0x98	0x50331cf8	Eka1Exec98	v6=; status=handler
+exec	0x99	0x50331cfc	Eka1Exec99	v6=; status=handler
+exec	0x9A	0x50331d00	Eka1Exec9A	v6=; status=handler
+exec	0x9B	0x50331d04	Eka1Exec9B	v6=; status=handler
+exec	0x9C	0x50331d08	Eka1Exec9C	v6=; status=handler
+exec	0x9D	0x50331d0c	Eka1Exec9D	v6=; status=handler
+exec	0x9E	0x50331d10	Eka1Exec9E	v6=; status=handler
+exec	0x9F	0x50331d34	Eka1Exec9F	v6=; status=handler
+exec	0xA0	0x50331d6c	Eka1ExecA0	v6=; status=handler
+exec	0xA1	0x50331d98	Eka1ExecA1	v6=; status=handler
+exec	0xA2	0x50331dc8	Eka1ExecA2	v6=; status=handler
+exec	0xA3	0x50331e18	Eka1ExecA3	v6=; status=handler
+exec	0xA4	0x50331e74	Eka1ExecA4	v6=; status=handler
+exec	0xA5	0x50331ec4	Eka1ExecA5	v6=; status=handler
+exec	0xA6	0x50331efc	Eka1ExecA6	v6=; status=handler
+exec	0xA7	0x50331fc0	Eka1ExecA7	v6=; status=handler
+exec	0xA8	0x5032fabc	Eka1ExecA8	v6=; status=handler
+exec	0xA9	0x5032fda0	Eka1ExecA9	v6=; status=handler
+exec	0xAA	0x5032ff78	Eka1ExecAA	v6=; status=handler
+exec	0xAB	0x50331fc4	Eka1ExecAB	v6=; status=handler
+exec	0xAC	0x50331fd4	Eka1ExecAC	v6=; status=handler
+exec	0xAD	0x50331fd8	Eka1ExecAD	v6=; status=handler
+exec	0xAE	0x503318ec	Eka1ExecAE	v6=; status=handler
+exec	0xAF	0x5032ff9c	Eka1ExecAF	v6=; status=handler
+exec	0xB0	0x5032fa8c	Eka1ExecB0ChunkBottom	v6=chunk_bottom; status=handler
+exec	0xB1	0x5032faa0	Eka1ExecB1ChunkTop	v6=chunk_top; status=handler
+exec	0xB2	0x5032e748	Eka1ExecB2	v6=; status=handler
+exec	0xB3	0x5032e74c	Eka1ExecB3	v6=; status=handler
+exec	0xB4	0x5032fb50	Eka1ExecB4	v6=; status=handler
+exec	0xB5	0x50331dec	Eka1ExecB5	v6=; status=handler
+exec	0xB6	0x50331bbc	Eka1ExecB6	v6=; status=handler
+exec	0xB7	0x5032fce8	Eka1ExecB7	v6=; status=handler
+exec	0xB8	0x5032b69c	Eka1ExecB8	v6=; status=handler
+exec	0xB9	0x5032e750	Eka1ExecB9	v6=; status=handler
+exec	0xBA	0x5032fd9c	Eka1ExecBA	v6=; status=handler
+exec	0xBB	0x50331b88	Eka1ExecBB	v6=; status=handler
+exec	0xBC	0x5032b6ac	Eka1ExecBCUserSvrRomHeaderAddress	v6=user_svr_rom_header_address; status=handler
+exec	0xBD	0x50331cf0	Eka1ExecBD	v6=; status=handler
+exec	0xBE	0x50331fdc	Eka1ExecBEMathRand	v6=math_rand; status=handler
+exec	0xBF	0x503302b0	Eka1ExecBF	v6=; status=handler
+exec	0xC0	0x50330050	Eka1ExecC0	v6=; status=handler
+exec	0xC1	0x5033091c	Eka1ExecC1	v6=; status=handler
+exec	0xC2	0x50330948	Eka1ExecC2	v6=; status=handler
+exec	0xC3	0x50331fe0	Eka1ExecC3	v6=; status=handler
+exec	0xC4	0x50331fe4	Eka1ExecC4	v6=; status=handler
+exec	0xC5	0x503318fc	Eka1ExecC5	v6=; status=handler
+exec	0xC6	0x50331908	Eka1ExecC6	v6=; status=handler
+exec	0xC7	0x50331914	Eka1ExecC7	v6=; status=handler
+exec	0xC8	0x50331920	Eka1ExecC8	v6=; status=handler
+exec	0xC9	0x50330958	Eka1ExecC9	v6=; status=handler
+exec	0xCA	0x50331e48	Eka1ExecCA	v6=; status=handler
+exec	0xCB	0x50331fe8	Eka1ExecCB	v6=; status=handler
+exec	0xCC	0x50323548	EkernExport153Eka1ExecCC	v6=; status=handler
+exec	0xCD	0x50332034	Eka1ExecCD	v6=; status=handler
+exec	0xCE	0x5033203c	Eka1ExecCE	v6=; status=handler
+exec	0xCF	0x50332044	Eka1ExecCF	v6=; status=handler
+exec	0xD0	0x5033204c	Eka1ExecD0	v6=; status=handler
+exec	0xD1	0x50332054	Eka1ExecD1	v6=; status=handler
+exec	0xD2	0x5033205c	Eka1ExecD2	v6=; status=handler
+exec	0xD3	0x50332064	Eka1ExecD3	v6=; status=handler
+exec	0xD4	0x5033206c	Eka1ExecD4	v6=; status=handler
+exec	0xD5	0x50332074	Eka1ExecD5	v6=; status=handler
+exec	0xD6	0x5033207c	Eka1ExecD6	v6=; status=handler
+exec	0xD7	0x50332084	Eka1ExecD7	v6=; status=handler
+exec	0xD8	0x5033208c	Eka1ExecD8	v6=; status=handler
+exec	0xD9	0x50332094	Eka1ExecD9	v6=; status=handler
+exec	0xDA	0x5033209c	Eka1ExecDA	v6=; status=handler
+exec	0xDB	0x503320a4	Eka1ExecDB	v6=; status=handler
+exec	0xDC	0x503320ac	Eka1ExecDC	v6=; status=handler
+exec	0xDD	0x503320b4	Eka1ExecDD	v6=; status=handler
+exec	0xDE	0x503320bc	Eka1ExecDE	v6=; status=handler
+exec	0xDF	0x503320c4	Eka1ExecDF	v6=; status=handler
+exec	0xE0	0x503320cc	Eka1ExecE0	v6=; status=handler
+exec	0xE1	0x503320d4	Eka1ExecE1	v6=; status=handler
+exec	0xE2	0x503320dc	Eka1ExecE2	v6=; status=handler
+exec	0xE3	0x503320e4	Eka1ExecE3	v6=; status=handler
+exec	0xE4	0x503320ec	Eka1ExecE4	v6=; status=handler
+exec	0xE5	0x503320f4	Eka1ExecE5	v6=; status=handler
+exec	0xE6	0x503320fc	Eka1ExecE6	v6=; status=handler
+exec	0xE7	0x50332104	Eka1ExecE7	v6=; status=handler
+exec	0xE8	0x5033210c	Eka1ExecE8	v6=; status=handler
+exec	0xE9	0x50332114	Eka1ExecE9	v6=; status=handler
+exec	0xEA	0x5033211c	Eka1ExecEA	v6=; status=handler
+exec	0xEB	0x50332024	Eka1ExecEB	v6=; status=handler
+exec	0xEC	0x5033202c	Eka1ExecEC	v6=; status=handler
+thunk	355	0x50327100	ThunkEkernExport355	target=0x5031bbcc; pattern=branch-or-other
+thunk	83	0x5032e430	ThunkEkernExport083	target=0x5031c2e0; pattern=branch-or-other
+thunk	121	0x5032e438	ThunkEkernExport121	target=0x50328594; pattern=branch-or-other
+thunk	329	0x5032e444	ThunkEkernExport329	target=0x503285a4; pattern=branch-or-other
+thunk	330	0x5032e480	ThunkEkernExport330	target=0x503285c0; pattern=branch-or-other
+thunk	438	0x5032e6b8	ThunkEkernExport438	target=0x5031bf24; pattern=branch-or-other
+thunk	298	0x5032e830	ThunkEkernExport298	target=0x5031e3b0; pattern=branch-or-other
+thunk	1	0x503449d8	ThunkEkernExport001	target=0x5033d028; pattern=export-table-literal
+thunk	504	0x503449e4	ThunkEkernExport504	target=0x5033f294; pattern=export-table-literal
+thunk	319	0x503449fc	ThunkEkernExport319	target=0x5031e6fc; pattern=export-table-literal
+thunk	320	0x50344a08	ThunkEkernExport320	target=0x5031e6b0; pattern=export-table-literal
+thunk	401	0x50344a14	ThunkEkernExport401	target=0x5031e708; pattern=export-table-literal
+thunk	402	0x50344a20	ThunkEkernExport402	target=0x5031e6bc; pattern=export-table-literal
+thunk	238	0x50344a2c	ThunkEkernExport238	target=0x5031e714; pattern=export-table-literal
+thunk	239	0x50344a38	ThunkEkernExport239	target=0x5031e6c8; pattern=export-table-literal
+thunk	496	0x50344a44	ThunkEkernExport496	target=0x50329fe4; pattern=export-table-literal
+thunk	103	0x50344a50	ThunkEkernExport103	target=0x5032a058; pattern=export-table-literal
+thunk	191	0x50344a5c	ThunkEkernExport191	target=0x5032a180; pattern=export-table-literal
+thunk	83	0x50344a68	ThunkEkernExport083	target=0x5031c2e0; pattern=export-table-literal
+thunk	332	0x50344a74	ThunkEkernExport332	target=0x5031c2f4; pattern=export-table-literal
+thunk	470	0x50344a8c	ThunkEkernExport470	target=0x5031dfcc; pattern=export-table-literal
+thunk	497	0x50347ef0	ThunkEkernExport497	target=0x503325c4; pattern=export-table-literal
+thunk	39	0x50347f08	ThunkEkernExport039	target=0x5033d200; pattern=export-table-literal
+thunk	403	0x50347f14	ThunkEkernExport403	target=0x503365f8; pattern=export-table-literal
+thunk	60	0x50347f2c	ThunkEkernExport060	target=0x5032f0e4; pattern=export-table-literal
+thunk	498	0x50347f38	ThunkEkernExport498	target=0x5032f070; pattern=export-table-literal
+thunk	504	0x50347f44	ThunkEkernExport504	target=0x5033f294; pattern=export-table-literal
+thunk	351	0x50347f50	ThunkEkernExport351	target=0x5032f26c; pattern=export-table-literal
+thunk	284	0x50347f5c	ThunkEkernExport284	target=0x50336590; pattern=export-table-literal
+thunk	321	0x50347f68	ThunkEkernExport321	target=0x50336a48; pattern=export-table-literal
+thunk	36	0x50347f74	ThunkEkernExport036	target=0x5033f2bc; pattern=export-table-literal
+thunk	64	0x50347fb0	ThunkEkernExport064	target=0x5032f0c4; pattern=export-table-literal
+thunk	63	0x50347fbc	ThunkEkernExport063	target=0x5032f0dc; pattern=export-table-literal
+thunk	311	0x50347fc8	ThunkEkernExport311	target=0x5033ba64; pattern=export-table-literal
+thunk	7	0x50347fd4	ThunkEkernExport007	target=0x5033f304; pattern=export-table-literal
+thunk	468	0x50347fe0	ThunkEkernExport468	target=0x5031f188; pattern=export-table-literal
+thunk	261	0x50347fec	ThunkEkernExport261	target=0x5033e160; pattern=export-table-literal
+thunk	467	0x50347ff8	ThunkEkernExport467	target=0x5031f118; pattern=export-table-literal
+thunk	499	0x50348ab0	ThunkEkernExport499	target=0x50335eec; pattern=export-table-literal
+thunk	495	0x50348abc	ThunkEkernExport495	target=0x503340dc; pattern=export-table-literal
+thunk	439	0x50348ac8	ThunkEkernExport439	target=0x5032e1e0; pattern=export-table-literal
+thunk	423	0x50348ad4	ThunkEkernExport423	target=0x5033444c; pattern=export-table-literal
+thunk	455	0x50348ae0	ThunkEkernExport455	target=0x50334458; pattern=export-table-literal
+thunk	9	0x50348aec	ThunkEkernExport009	target=0x5032e1f0; pattern=export-table-literal
+thunk	464	0x50348af8	ThunkEkernExport464	target=0x50323c9c; pattern=export-table-literal
+thunk	204	0x50348b04	ThunkEkernExport204	target=0x50323cc4; pattern=export-table-literal
+thunk	168	0x50348b10	ThunkEkernExport168	target=0x50334084; pattern=export-table-literal
+thunk	71	0x50348b28	ThunkEkernExport071	target=0x503340a0; pattern=export-table-literal
+thunk	62	0x50348b34	ThunkEkernExport062	target=0x503343f4; pattern=export-table-literal
+thunk	311	0x50348b40	ThunkEkernExport311	target=0x5033ba64; pattern=export-table-literal
+thunk	504	0x5034b120	ThunkEkernExport504	target=0x5033f294; pattern=export-table-literal
+thunk	469	0x5034b12c	ThunkEkernExport469	target=0x5032e7ac; pattern=export-table-literal
+thunk	158	0x5034b138	ThunkEkernExport158	target=0x5031f008; pattern=export-table-literal
+thunk	434	0x5034b144	ThunkEkernExport434	target=0x5032de14; pattern=export-table-literal
+thunk	466	0x5034b150	ThunkEkernExport466	target=0x5031dd24; pattern=export-table-literal
+thunk	264	0x5034b15c	ThunkEkernExport264	target=0x5033d05c; pattern=export-table-literal
+thunk	256	0x5034b168	ThunkEkernExport256	target=0x5033d0c8; pattern=export-table-literal
+thunk	404	0x5034b174	ThunkEkernExport404	target=0x5031dd14; pattern=export-table-literal
+thunk	39	0x5034b180	ThunkEkernExport039	target=0x5033d200; pattern=export-table-literal
+thunk	82	0x5034b198	ThunkEkernExport082	target=0x5031c2cc; pattern=export-table-literal
+thunk	332	0x5034b1a4	ThunkEkernExport332	target=0x5031c2f4; pattern=export-table-literal
+thunk	7	0x5034b1b0	ThunkEkernExport007	target=0x5033f304; pattern=export-table-literal
+thunk	319	0x5034b1bc	ThunkEkernExport319	target=0x5031e6fc; pattern=export-table-literal
+thunk	83	0x5034b1c8	ThunkEkernExport083	target=0x5031c2e0; pattern=export-table-literal
+thunk	262	0x5034b1d4	ThunkEkernExport262	target=0x5032df60; pattern=export-table-literal
+thunk	286	0x5034b1e0	ThunkEkernExport286	target=0x5031f2c8; pattern=export-table-literal
+thunk	83	0x5037e3d4	ThunkEkernExport083	target=0x5031c2e0; pattern=export-table-literal
+thunk	401	0x5037e3e0	ThunkEkernExport401	target=0x5031e708; pattern=export-table-literal
+thunk	332	0x5037e3ec	ThunkEkernExport332	target=0x5031c2f4; pattern=export-table-literal
+thunk	82	0x5037e3f8	ThunkEkernExport082	target=0x5031c2cc; pattern=export-table-literal
+thunk	319	0x5037e404	ThunkEkernExport319	target=0x5031e6fc; pattern=export-table-literal
+thunk	492	0x5037e410	ThunkEkernExport492	target=0x5032bcd8; pattern=export-table-literal
+thunk	112	0x5037e41c	ThunkEkernExport112	target=0x5032bcf0; pattern=export-table-literal
+thunk	84	0x5037e428	ThunkEkernExport084	target=0x5032bd00; pattern=export-table-literal
+thunk	30	0x5037e434	ThunkEkernExport030	target=0x5032bd58; pattern=export-table-literal
+thunk	238	0x5037e440	ThunkEkernExport238	target=0x5031e714; pattern=export-table-literal
+thunk	470	0x5037e44c	ThunkEkernExport470	target=0x5031dfcc; pattern=export-table-literal
+thunk	262	0x5037e458	ThunkEkernExport262	target=0x5032df60; pattern=export-table-literal
+thunk	497	0x5037f780	ThunkEkernExport497	target=0x503325c4; pattern=export-table-literal
+thunk	261	0x5037f7a4	ThunkEkernExport261	target=0x5033e160; pattern=export-table-literal
+thunk	498	0x5037f7b0	ThunkEkernExport498	target=0x5032f070; pattern=export-table-literal
+thunk	504	0x5037f7bc	ThunkEkernExport504	target=0x5033f294; pattern=export-table-literal
+thunk	351	0x5037f7c8	ThunkEkernExport351	target=0x5032f26c; pattern=export-table-literal
+thunk	469	0x5037f7d4	ThunkEkernExport469	target=0x5032e7ac; pattern=export-table-literal
+thunk	262	0x5037f7e0	ThunkEkernExport262	target=0x5032df60; pattern=export-table-literal
+thunk	64	0x5037f7f8	ThunkEkernExport064	target=0x5032f0c4; pattern=export-table-literal
+thunk	470	0x50382c78	ThunkEkernExport470	target=0x5031dfcc; pattern=export-table-literal
+thunk	504	0x50382c84	ThunkEkernExport504	target=0x5033f294; pattern=export-table-literal
+thunk	262	0x50382c90	ThunkEkernExport262	target=0x5032df60; pattern=export-table-literal
+thunk	83	0x50382c9c	ThunkEkernExport083	target=0x5031c2e0; pattern=export-table-literal
+thunk	332	0x50382ca8	ThunkEkernExport332	target=0x5031c2f4; pattern=export-table-literal
+thunk	7	0x50382cb4	ThunkEkernExport007	target=0x5033f304; pattern=export-table-literal
+thunk	428	0x50382cd8	ThunkEkernExport428	target=0x5032be2c; pattern=export-table-literal
+thunk	35	0x50382ce4	ThunkEkernExport035	target=0x5032be30; pattern=export-table-literal
+thunk	36	0x50382cf0	ThunkEkernExport036	target=0x5033f2bc; pattern=export-table-literal
+thunk	418	0x50382cfc	ThunkEkernExport418	target=0x5031ea58; pattern=export-table-literal
+thunk	416	0x50382d08	ThunkEkernExport416	target=0x5031eae8; pattern=export-table-literal
+thunk	421	0x50382d14	ThunkEkernExport421	target=0x5031eb14; pattern=export-table-literal
+thunk	61	0x50382d44	ThunkEkernExport061	target=0x50334384; pattern=export-table-literal
+thunk	62	0x50382d50	ThunkEkernExport062	target=0x503343f4; pattern=export-table-literal
+thunk	103	0x50382d5c	ThunkEkernExport103	target=0x5032a058; pattern=export-table-literal
+thunk	469	0x50382d68	ThunkEkernExport469	target=0x5032e7ac; pattern=export-table-literal
+thunk	496	0x50382d74	ThunkEkernExport496	target=0x50329fe4; pattern=export-table-literal
+thunk	191	0x50382d80	ThunkEkernExport191	target=0x5032a180; pattern=export-table-literal
+thunk	5	0x50382da4	ThunkEkernExport005	target=0x50336a34; pattern=export-table-literal
+thunk	152	0x50382db0	ThunkEkernExport152	target=0x5031c8e4; pattern=export-table-literal
+thunk	420	0x50382dbc	ThunkEkernExport420	target=0x5031ea9c; pattern=export-table-literal
+thunk	80	0x50382dc8	ThunkEkernExport080	target=0x5031e9f0; pattern=export-table-literal
+thunk	419	0x50382dd4	ThunkEkernExport419	target=0x5031eac4; pattern=export-table-literal
+thunk	423	0x50382de0	ThunkEkernExport423	target=0x5033444c; pattern=export-table-literal
+thunk	462	0x50382dec	ThunkEkernExport462	target=0x5031c920; pattern=export-table-literal
+thunk	284	0x50382df8	ThunkEkernExport284	target=0x50336590; pattern=export-table-literal
+thunk	321	0x50382e04	ThunkEkernExport321	target=0x50336a48; pattern=export-table-literal
+thunk	455	0x50382e10	ThunkEkernExport455	target=0x50334458; pattern=export-table-literal
+thunk	467	0x50382e1c	ThunkEkernExport467	target=0x5031f118; pattern=export-table-literal
+thunk	168	0x50382e28	ThunkEkernExport168	target=0x50334084; pattern=export-table-literal
+thunk	311	0x50382e34	ThunkEkernExport311	target=0x5033ba64; pattern=export-table-literal
+thunk	499	0x50382e40	ThunkEkernExport499	target=0x50335eec; pattern=export-table-literal
+thunk	497	0x503ec034	ThunkEkernExport497	target=0x503325c4; pattern=export-table-literal
+thunk	39	0x503ec04c	ThunkEkernExport039	target=0x5033d200; pattern=export-table-literal
+thunk	498	0x503ec064	ThunkEkernExport498	target=0x5032f070; pattern=export-table-literal
+thunk	1	0x503ec070	ThunkEkernExport001	target=0x5033d028; pattern=export-table-literal
+thunk	351	0x503ec07c	ThunkEkernExport351	target=0x5032f26c; pattern=export-table-literal
+thunk	469	0x503ec088	ThunkEkernExport469	target=0x5032e7ac; pattern=export-table-literal
+thunk	64	0x503ec094	ThunkEkernExport064	target=0x5032f0c4; pattern=export-table-literal
+thunk	264	0x503ec0a0	ThunkEkernExport264	target=0x5033d05c; pattern=export-table-literal
+thunk	467	0x503ec0ac	ThunkEkernExport467	target=0x5031f118; pattern=export-table-literal
+thunk	403	0x503ef020	ThunkEkernExport403	target=0x503365f8; pattern=export-table-literal
+thunk	321	0x503ef02c	ThunkEkernExport321	target=0x50336a48; pattern=export-table-literal
+thunk	320	0x503ef038	ThunkEkernExport320	target=0x5031e6b0; pattern=export-table-literal
+thunk	402	0x503ef044	ThunkEkernExport402	target=0x5031e6bc; pattern=export-table-literal
+thunk	84	0x503ef050	ThunkEkernExport084	target=0x5032bd00; pattern=export-table-literal
+thunk	35	0x503ef05c	ThunkEkernExport035	target=0x5032be30; pattern=export-table-literal
+thunk	36	0x503ef068	ThunkEkernExport036	target=0x5033f2bc; pattern=export-table-literal
+thunk	39	0x503ef074	ThunkEkernExport039	target=0x5033d200; pattern=export-table-literal
+thunk	37	0x503ef080	ThunkEkernExport037	target=0x5032aafc; pattern=export-table-literal
+thunk	238	0x503ef08c	ThunkEkernExport238	target=0x5031e714; pattern=export-table-literal
+thunk	505	0x503ef098	ThunkEkernExport505	target=0x5032aab0; pattern=export-table-literal
+thunk	31	0x503ef0a4	ThunkEkernExport031	target=0x5032aaf0; pattern=export-table-literal
+thunk	146	0x503ef0b0	ThunkEkernExport146	target=0x5031b870; pattern=export-table-literal
+thunk	460	0x503ef0bc	ThunkEkernExport460	target=0x5032aaf8; pattern=export-table-literal
+thunk	492	0x503ef0c8	ThunkEkernExport492	target=0x5032bcd8; pattern=export-table-literal
+thunk	30	0x503ef0d4	ThunkEkernExport030	target=0x5032bd58; pattern=export-table-literal
+thunk	459	0x503ef0e0	ThunkEkernExport459	target=0x5032bd8c; pattern=export-table-literal
+thunk	504	0x503ef0ec	ThunkEkernExport504	target=0x5033f294; pattern=export-table-literal
+thunk	7	0x503ef0f8	ThunkEkernExport007	target=0x5033f304; pattern=export-table-literal
+thunk	499	0x503ef104	ThunkEkernExport499	target=0x50335eec; pattern=export-table-literal
+thunk	470	0x503ef11c	ThunkEkernExport470	target=0x5031dfcc; pattern=export-table-literal
+thunk	319	0x503ef128	ThunkEkernExport319	target=0x5031e6fc; pattern=export-table-literal
+thunk	428	0x503ef170	ThunkEkernExport428	target=0x5032be2c; pattern=export-table-literal
+thunk	83	0x503ef17c	ThunkEkernExport083	target=0x5031c2e0; pattern=export-table-literal
+thunk	332	0x503ef188	ThunkEkernExport332	target=0x5031c2f4; pattern=export-table-literal
+thunk	401	0x503ef194	ThunkEkernExport401	target=0x5031e708; pattern=export-table-literal
+thunk	239	0x503ef1a0	ThunkEkernExport239	target=0x5031e6c8; pattern=export-table-literal
+thunk	112	0x503ef1ac	ThunkEkernExport112	target=0x5032bcf0; pattern=export-table-literal
+thunk	256	0x503ef1b8	ThunkEkernExport256	target=0x5033d0c8; pattern=export-table-literal
+thunk	264	0x503ef1c4	ThunkEkernExport264	target=0x5033d05c; pattern=export-table-literal
+thunk	93	0x503ef1d0	ThunkEkernExport093	target=0x5031edec; pattern=export-table-literal
+thunk	479	0x503f200c	ThunkEkernExport479	target=0x5033bba0; pattern=export-table-literal
+thunk	498	0x503f2018	ThunkEkernExport498	target=0x5032f070; pattern=export-table-literal
+thunk	504	0x503f2024	ThunkEkernExport504	target=0x5033f294; pattern=export-table-literal
+thunk	503	0x503f2030	ThunkEkernExport503	target=0x5032be00; pattern=export-table-literal
+thunk	1	0x503f203c	ThunkEkernExport001	target=0x5033d028; pattern=export-table-literal
+thunk	351	0x503f2048	ThunkEkernExport351	target=0x5032f26c; pattern=export-table-literal
+thunk	401	0x503f2054	ThunkEkernExport401	target=0x5031e708; pattern=export-table-literal
+thunk	35	0x503f2060	ThunkEkernExport035	target=0x5032be30; pattern=export-table-literal
+thunk	39	0x503f206c	ThunkEkernExport039	target=0x5033d200; pattern=export-table-literal
+thunk	36	0x503f2078	ThunkEkernExport036	target=0x5033f2bc; pattern=export-table-literal
+thunk	60	0x503f2084	ThunkEkernExport060	target=0x5032f0e4; pattern=export-table-literal
+thunk	403	0x503f2090	ThunkEkernExport403	target=0x503365f8; pattern=export-table-literal
+thunk	321	0x503f209c	ThunkEkernExport321	target=0x50336a48; pattern=export-table-literal
+thunk	468	0x503f20b4	ThunkEkernExport468	target=0x5031f188; pattern=export-table-literal
+thunk	5	0x503f20c0	ThunkEkernExport005	target=0x50336a34; pattern=export-table-literal
+thunk	282	0x503f20cc	ThunkEkernExport282	target=0x50336528; pattern=export-table-literal
+thunk	469	0x503f20d8	ThunkEkernExport469	target=0x5032e7ac; pattern=export-table-literal
+thunk	7	0x503f20e4	ThunkEkernExport007	target=0x5033f304; pattern=export-table-literal
+thunk	319	0x503f20f0	ThunkEkernExport319	target=0x5031e6fc; pattern=export-table-literal
+thunk	287	0x503f20fc	ThunkEkernExport287	target=0x5033e564; pattern=export-table-literal
+thunk	428	0x503f2108	ThunkEkernExport428	target=0x5032be2c; pattern=export-table-literal
+thunk	256	0x503f2114	ThunkEkernExport256	target=0x5033d0c8; pattern=export-table-literal
+thunk	72	0x503f2120	ThunkEkernExport072	target=0x5032df40; pattern=export-table-literal
+thunk	63	0x503f212c	ThunkEkernExport063	target=0x5032f0dc; pattern=export-table-literal
+thunk	262	0x503f2138	ThunkEkernExport262	target=0x5032df60; pattern=export-table-literal
+thunk	497	0x503f215c	ThunkEkernExport497	target=0x503325c4; pattern=export-table-literal
+thunk	469	0x503f2ea0	ThunkEkernExport469	target=0x5032e7ac; pattern=export-table-literal
+thunk	238	0x503f2eac	ThunkEkernExport238	target=0x5031e714; pattern=export-table-literal
+thunk	239	0x503f2eb8	ThunkEkernExport239	target=0x5031e6c8; pattern=export-table-literal
+thunk	402	0x503f2ec4	ThunkEkernExport402	target=0x5031e6bc; pattern=export-table-literal
+thunk	470	0x503f2ed0	ThunkEkernExport470	target=0x5031dfcc; pattern=export-table-literal
+thunk	320	0x503f2edc	ThunkEkernExport320	target=0x5031e6b0; pattern=export-table-literal
+thunk	83	0x503f2ee8	ThunkEkernExport083	target=0x5031c2e0; pattern=export-table-literal
+thunk	418	0x503f2ef4	ThunkEkernExport418	target=0x5031ea58; pattern=export-table-literal
+thunk	416	0x503f2f00	ThunkEkernExport416	target=0x5031eae8; pattern=export-table-literal
+thunk	421	0x503f2f0c	ThunkEkernExport421	target=0x5031eb14; pattern=export-table-literal
+thunk	451	0x503f2f18	ThunkEkernExport451	target=0x5031eb2c; pattern=export-table-literal
+thunk	332	0x503f2f24	ThunkEkernExport332	target=0x5031c2f4; pattern=export-table-literal
+thunk	319	0x503f3de0	ThunkEkernExport319	target=0x5031e6fc; pattern=export-table-literal
+thunk	401	0x503f3dec	ThunkEkernExport401	target=0x5031e708; pattern=export-table-literal
+thunk	470	0x503f3df8	ThunkEkernExport470	target=0x5031dfcc; pattern=export-table-literal
+thunk	280	0x503f3e04	ThunkEkernExport280	target=0x50336244; pattern=export-table-literal
+thunk	469	0x503f3e10	ThunkEkernExport469	target=0x5032e7ac; pattern=export-table-literal
+thunk	30	0x503f3e1c	ThunkEkernExport030	target=0x5032bd58; pattern=export-table-literal
+thunk	112	0x503f3e28	ThunkEkernExport112	target=0x5032bcf0; pattern=export-table-literal
+thunk	238	0x503f3e34	ThunkEkernExport238	target=0x5031e714; pattern=export-table-literal
+thunk	39	0x503f3e40	ThunkEkernExport039	target=0x5033d200; pattern=export-table-literal
+thunk	36	0x503f3e4c	ThunkEkernExport036	target=0x5033f2bc; pattern=export-table-literal
+thunk	84	0x503f3e70	ThunkEkernExport084	target=0x5032bd00; pattern=export-table-literal
+thunk	459	0x503f3e7c	ThunkEkernExport459	target=0x5032bd8c; pattern=export-table-literal
+thunk	492	0x503f3e94	ThunkEkernExport492	target=0x5032bcd8; pattern=export-table-literal
+thunk	497	0x503f4430	ThunkEkernExport497	target=0x503325c4; pattern=export-table-literal
+thunk	403	0x503f443c	ThunkEkernExport403	target=0x503365f8; pattern=export-table-literal
+thunk	498	0x503f4448	ThunkEkernExport498	target=0x5032f070; pattern=export-table-literal
+thunk	351	0x503f4454	ThunkEkernExport351	target=0x5032f26c; pattern=export-table-literal
+thunk	321	0x503f4460	ThunkEkernExport321	target=0x50336a48; pattern=export-table-literal
+thunk	467	0x503f44a8	ThunkEkernExport467	target=0x5031f118; pattern=export-table-literal
+thunk	261	0x503f44b4	ThunkEkernExport261	target=0x5033e160; pattern=export-table-literal
+thunk	456	0x503f5fdc	ThunkEkernExport456	target=0x5032ab18; pattern=branch-or-other
+thunk	317	0x503f5fe0	ThunkEkernExport317	target=0x5032abcc; pattern=branch-or-other
+thunk	262	0x503fd660	ThunkEkernExport262	target=0x5032df60; pattern=export-table-literal
+thunk	503	0x503fd66c	ThunkEkernExport503	target=0x5032be00; pattern=export-table-literal
+thunk	35	0x503fd678	ThunkEkernExport035	target=0x5032be30; pattern=export-table-literal
+thunk	84	0x503fd684	ThunkEkernExport084	target=0x5032bd00; pattern=export-table-literal
+thunk	37	0x503fd690	ThunkEkernExport037	target=0x5032aafc; pattern=export-table-literal
+thunk	403	0x503fd69c	ThunkEkernExport403	target=0x503365f8; pattern=export-table-literal
+thunk	135	0x503fd6a8	ThunkEkernExport135	target=0x50323594; pattern=export-table-literal
+thunk	134	0x503fd6b4	ThunkEkernExport134	target=0x503235a4; pattern=export-table-literal
+thunk	67	0x503fd6c0	ThunkEkernExport067	target=0x5032ad74; pattern=export-table-literal
+thunk	234	0x503fd6cc	ThunkEkernExport234	target=0x5031f778; pattern=export-table-literal
+thunk	83	0x503fd6d8	ThunkEkernExport083	target=0x5031c2e0; pattern=export-table-literal
+thunk	332	0x503fd6e4	ThunkEkernExport332	target=0x5031c2f4; pattern=export-table-literal
+thunk	428	0x503fd6f0	ThunkEkernExport428	target=0x5032be2c; pattern=export-table-literal
+thunk	112	0x503fd6fc	ThunkEkernExport112	target=0x5032bcf0; pattern=export-table-literal
+thunk	492	0x503fd708	ThunkEkernExport492	target=0x5032bcd8; pattern=export-table-literal
+thunk	29	0x503fd714	ThunkEkernExport029	target=0x5032bd24; pattern=export-table-literal
+thunk	505	0x503fd720	ThunkEkernExport505	target=0x5032aab0; pattern=export-table-literal
+thunk	31	0x503fd72c	ThunkEkernExport031	target=0x5032aaf0; pattern=export-table-literal
+thunk	456	0x503fd738	ThunkEkernExport456	target=0x5032ab18; pattern=export-table-literal
+thunk	317	0x503fd744	ThunkEkernExport317	target=0x5032abcc; pattern=export-table-literal
+thunk	236	0x503fd750	ThunkEkernExport236	target=0x5031f7b8; pattern=export-table-literal
+thunk	1	0x503fd768	ThunkEkernExport001	target=0x5033d028; pattern=export-table-literal
+thunk	7	0x503fd774	ThunkEkernExport007	target=0x5033f304; pattern=export-table-literal
+thunk	327	0x503fd780	ThunkEkernExport327	target=0x50323d60; pattern=export-table-literal
+thunk	312	0x503fd7a4	ThunkEkernExport312	target=0x5033b82c; pattern=export-table-literal
+thunk	259	0x503fd7b0	ThunkEkernExport259	target=0x5033f40c; pattern=export-table-literal
+thunk	495	0x503fd7bc	ThunkEkernExport495	target=0x503340dc; pattern=export-table-literal
+thunk	265	0x503fd7c8	ThunkEkernExport265	target=0x50334734; pattern=export-table-literal
+thunk	77	0x503fd7d4	ThunkEkernExport077	target=0x50334368; pattern=export-table-literal
+thunk	264	0x503fd828	ThunkEkernExport264	target=0x5033d05c; pattern=export-table-literal
+thunk	499	0x50400034	ThunkEkernExport499	target=0x50335eec; pattern=export-table-literal
+thunk	501	0x50400040	ThunkEkernExport501	target=0x5033402c; pattern=export-table-literal
+thunk	504	0x5040004c	ThunkEkernExport504	target=0x5033f294; pattern=export-table-literal
+thunk	7	0x50400058	ThunkEkernExport007	target=0x5033f304; pattern=export-table-literal
+thunk	311	0x50400070	ThunkEkernExport311	target=0x5033ba64; pattern=export-table-literal
+thunk	327	0x5040007c	ThunkEkernExport327	target=0x50323d60; pattern=export-table-literal
+thunk	423	0x50400088	ThunkEkernExport423	target=0x5033444c; pattern=export-table-literal
+thunk	225	0x50400094	ThunkEkernExport225	target=0x5032857c; pattern=export-table-literal
+thunk	121	0x504000a0	ThunkEkernExport121	target=0x50328594; pattern=export-table-literal
+thunk	455	0x504000ac	ThunkEkernExport455	target=0x50334458; pattern=export-table-literal
+thunk	61	0x504000b8	ThunkEkernExport061	target=0x50334384; pattern=export-table-literal
+thunk	312	0x504000c4	ThunkEkernExport312	target=0x5033b82c; pattern=export-table-literal
+thunk	36	0x504000d0	ThunkEkernExport036	target=0x5033f2bc; pattern=export-table-literal
+thunk	497	0x50400c10	ThunkEkernExport497	target=0x503325c4; pattern=export-table-literal
+thunk	498	0x50400c1c	ThunkEkernExport498	target=0x5032f070; pattern=export-table-literal
+thunk	500	0x50400c28	ThunkEkernExport500	target=0x5033d7b0; pattern=export-table-literal
+thunk	504	0x50400c34	ThunkEkernExport504	target=0x5033f294; pattern=export-table-literal
+thunk	1	0x50400c40	ThunkEkernExport001	target=0x5033d028; pattern=export-table-literal
+thunk	351	0x50400c4c	ThunkEkernExport351	target=0x5032f26c; pattern=export-table-literal
+thunk	34	0x50400c58	ThunkEkernExport034	target=0x5033d8cc; pattern=export-table-literal
+thunk	64	0x50400c7c	ThunkEkernExport064	target=0x5032f0c4; pattern=export-table-literal
+thunk	259	0x50400c88	ThunkEkernExport259	target=0x5033f40c; pattern=export-table-literal
+thunk	427	0x50400c94	ThunkEkernExport427	target=0x5033d7c0; pattern=export-table-literal
+thunk	39	0x50400ca0	ThunkEkernExport039	target=0x5033d200; pattern=export-table-literal
+thunk	256	0x50400cac	ThunkEkernExport256	target=0x5033d0c8; pattern=export-table-literal
+thunk	497	0x50401704	ThunkEkernExport497	target=0x503325c4; pattern=export-table-literal
+thunk	498	0x50401710	ThunkEkernExport498	target=0x5032f070; pattern=export-table-literal
+thunk	504	0x5040171c	ThunkEkernExport504	target=0x5033f294; pattern=export-table-literal
+thunk	351	0x50401728	ThunkEkernExport351	target=0x5032f26c; pattern=export-table-literal
+thunk	259	0x50401740	ThunkEkernExport259	target=0x5033f40c; pattern=export-table-literal
+thunk	64	0x5040174c	ThunkEkernExport064	target=0x5032f0c4; pattern=export-table-literal
+thunk	312	0x50401758	ThunkEkernExport312	target=0x5033b82c; pattern=export-table-literal
+thunk	479	0x50401764	ThunkEkernExport479	target=0x5033bba0; pattern=export-table-literal
+thunk	7	0x50401770	ThunkEkernExport007	target=0x5033f304; pattern=export-table-literal
+thunk	327	0x5040177c	ThunkEkernExport327	target=0x50323d60; pattern=export-table-literal
+thunk	504	0x504061c8	ThunkEkernExport504	target=0x5033f294; pattern=export-table-literal
+thunk	470	0x504061d4	ThunkEkernExport470	target=0x5031dfcc; pattern=export-table-literal
+thunk	35	0x504061e0	ThunkEkernExport035	target=0x5032be30; pattern=export-table-literal
+thunk	37	0x504061ec	ThunkEkernExport037	target=0x5032aafc; pattern=export-table-literal
+thunk	82	0x504061f8	ThunkEkernExport082	target=0x5031c2cc; pattern=export-table-literal
+thunk	332	0x50406204	ThunkEkernExport332	target=0x5031c2f4; pattern=export-table-literal
+thunk	503	0x50406210	ThunkEkernExport503	target=0x5032be00; pattern=export-table-literal
+thunk	428	0x5040621c	ThunkEkernExport428	target=0x5032be2c; pattern=export-table-literal
+thunk	505	0x50406228	ThunkEkernExport505	target=0x5032aab0; pattern=export-table-literal
+thunk	336	0x50406234	ThunkEkernExport336	target=0x5032508c; pattern=export-table-literal
+thunk	460	0x50406240	ThunkEkernExport460	target=0x5032aaf8; pattern=export-table-literal
+thunk	31	0x5040624c	ThunkEkernExport031	target=0x5032aaf0; pattern=export-table-literal
+thunk	403	0x50406258	ThunkEkernExport403	target=0x503365f8; pattern=export-table-literal
+thunk	7	0x50406270	ThunkEkernExport007	target=0x5033f304; pattern=export-table-literal
+thunk	467	0x5040627c	ThunkEkernExport467	target=0x5031f118; pattern=export-table-literal
+thunk	468	0x50406288	ThunkEkernExport468	target=0x5031f188; pattern=export-table-literal
+thunk	36	0x50406294	ThunkEkernExport036	target=0x5033f2bc; pattern=export-table-literal
+thunk	497	0x504062a0	ThunkEkernExport497	target=0x503325c4; pattern=export-table-literal
+thunk	469	0x504062b8	ThunkEkernExport469	target=0x5032e7ac; pattern=export-table-literal
+thunk	498	0x504062d0	ThunkEkernExport498	target=0x5032f070; pattern=export-table-literal
+thunk	351	0x504062dc	ThunkEkernExport351	target=0x5032f26c; pattern=export-table-literal
+thunk	56	0x50406300	ThunkEkernExport056	target=0x5032f12c; pattern=export-table-literal
+thunk	104	0x5040630c	ThunkEkernExport104	target=0x5032f260; pattern=export-table-literal
+thunk	70	0x50406318	ThunkEkernExport070	target=0x5032df50; pattern=export-table-literal
+thunk	291	0x50406324	ThunkEkernExport291	target=0x503371a4; pattern=export-table-literal
+thunk	262	0x50406330	ThunkEkernExport262	target=0x5032df60; pattern=export-table-literal
+thunk	238	0x5040633c	ThunkEkernExport238	target=0x5031e714; pattern=export-table-literal
+thunk	401	0x50406348	ThunkEkernExport401	target=0x5031e708; pattern=export-table-literal
+thunk	321	0x5040636c	ThunkEkernExport321	target=0x50336a48; pattern=export-table-literal
+thunk	5	0x50406378	ThunkEkernExport005	target=0x50336a34; pattern=export-table-literal
+thunk	469	0x5041a354	ThunkEkernExport469	target=0x5032e7ac; pattern=export-table-literal
+thunk	492	0x5041c130	ThunkEkernExport492	target=0x5032bcd8; pattern=export-table-literal
+thunk	504	0x5041c13c	ThunkEkernExport504	target=0x5033f294; pattern=export-table-literal
+thunk	503	0x5041c148	ThunkEkernExport503	target=0x5032be00; pattern=export-table-literal
+thunk	1	0x5041c154	ThunkEkernExport001	target=0x5033d028; pattern=export-table-literal
+thunk	469	0x5041c160	ThunkEkernExport469	target=0x5032e7ac; pattern=export-table-literal
+thunk	428	0x5041c16c	ThunkEkernExport428	target=0x5032be2c; pattern=export-table-literal
+thunk	319	0x5041c178	ThunkEkernExport319	target=0x5031e6fc; pattern=export-table-literal
+thunk	4	0x5041c190	ThunkEkernExport004	target=0x5032f7cc; pattern=export-table-literal
+thunk	171	0x5041c19c	ThunkEkernExport171	target=0x5033f340; pattern=export-table-literal
+thunk	83	0x5041c1a8	ThunkEkernExport083	target=0x5031c2e0; pattern=export-table-literal
+thunk	332	0x5041c1b4	ThunkEkernExport332	target=0x5031c2f4; pattern=export-table-literal
+thunk	470	0x5041c1cc	ThunkEkernExport470	target=0x5031dfcc; pattern=export-table-literal
+thunk	30	0x5041c1d8	ThunkEkernExport030	target=0x5032bd58; pattern=export-table-literal
+thunk	401	0x5041c1e4	ThunkEkernExport401	target=0x5031e708; pattern=export-table-literal
+thunk	112	0x5041c1f0	ThunkEkernExport112	target=0x5032bcf0; pattern=export-table-literal
+thunk	238	0x5041c1fc	ThunkEkernExport238	target=0x5031e714; pattern=export-table-literal
+thunk	402	0x5041c208	ThunkEkernExport402	target=0x5031e6bc; pattern=export-table-literal
+thunk	239	0x5041c214	ThunkEkernExport239	target=0x5031e6c8; pattern=export-table-literal
+thunk	84	0x5041c220	ThunkEkernExport084	target=0x5032bd00; pattern=export-table-literal
+thunk	498	0x51164208	ThunkEkernExport498	target=0x5032f070; pattern=export-table-literal
+thunk	351	0x51164214	ThunkEkernExport351	target=0x5032f26c; pattern=export-table-literal
+thunk	262	0x5116422c	ThunkEkernExport262	target=0x5032df60; pattern=export-table-literal
+thunk	497	0x51164244	ThunkEkernExport497	target=0x503325c4; pattern=export-table-literal

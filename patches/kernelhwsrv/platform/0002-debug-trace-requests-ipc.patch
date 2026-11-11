@@ -10,7 +10,7 @@
  #endif
 --- a/kernel/eka/kernel/sipc.cpp
 +++ b/kernel/eka/kernel/sipc.cpp
-@@ -1977,6 +1977,22 @@
+@@ -1977,6 +1977,36 @@
  	if ((aInfo.iFlags & KIpcDirWrite) == 0)
  		{
  		r = pT->DoDesRead(aMsg->Descriptor(aParam), aInfo.iLocalPtr, aInfo.iLocalLen, aOffset, mode);
@@ -25,9 +25,23 @@
 +				{
 +				kumemget(buf, aInfo.iLocalPtr, n);
 +				TBuf8<64> txt;
++				TInt bin = 0;
 +				for (TInt i=0; i<n && txt.Length()<64; i += 1+wide)
++					{
++					bin += !(buf[i]>=32 && buf[i]<127);
 +					txt.Append(buf[i]>=32 && buf[i]<127 ? buf[i] : '.');
++					}
 +				Kern::Printf("IPCRD %O <- %O: \"%S\"", TheCurrentThread, pT, &txt);
++				if (!wide && bin * 2 > txt.Length())		// mostly binary (command buffers): the bytes too
++					{
++					TBuf8<200> hex;
++					for (TInt i=0; i<n && i<64; i++)
++						{
++						hex.Append("0123456789abcdef"[buf[i] >> 4]);
++						hex.Append("0123456789abcdef"[buf[i] & 15]);
++						}
++					Kern::Printf("IPCRD   hex %S", &hex);
++					}
 +				}
 +			});
  		}

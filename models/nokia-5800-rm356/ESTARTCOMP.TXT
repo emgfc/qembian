@@ -1,0 +1,13 @@
+# ESTARTCOMP.TXT for the qembian N79 (RM-348) hybrid ROM (same drive map as the 5730 firmware).
+# NOTE: EStart only splits lines on CR LF.
+#
+# The 5730's own file: D: IRAM (0), C: NAND (6), Z: composite over ROFS on 9/10/11, E: SD card (2), F: eMMC (3).
+# Ours: C: NVMemory (1), E: NVMemory 2 (2; a blank image stands for the card), Z: ROFS1/2/3 served by
+# MEDROFS.PDD on 9/10/11 (flash header version 2). No F:.
+
+D: 0  ELOCAL FAT  0       FS_FORMAT_COLD,FS_SYNC_DRIVE           # IRAM
+C: 1  ELOCAL FAT  0       FS_FORMAT_CORRUPT,FS_SCANDRIVE         # Syborg NVMemory (phone C: on NAND)
+Z: 9  EROFS ROFS  0       FS_COMPOSITE                           # COMPOSITE (ROFSn+ROMFS)
+Z: 10 EROFS ROFS  0       FS_COMPOSITE
+Z: 11 EROFS ROFS  0       FS_COMPOSITE
+E: 2  ELOCAL FAT  0       FS_FORMAT_CORRUPT,FS_SCANDRIVE         # MEMORY CARD (Syborg NVMemory 2)

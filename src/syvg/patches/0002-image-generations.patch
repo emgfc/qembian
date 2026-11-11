@@ -1,0 +1,136 @@
+qembian: image generations for the host textures (src/khr/hostgl.cpp): every pixel writer bumps
+the root image's counter (children share its memory); a destroyed image frees its host texture.
+
+--- a/riImage.h	2026-11-07 14:17:53.967274954 +0100
++++ b/riImage.h	2026-11-07 14:17:53.987897963 +0100
+@@ -206,6 +206,8 @@
+ //qembian hooks (src/khr/hostgl.cpp); the bool ones return true when the host did the work
+ void	khrHostSurfaceNew(Surface* s);
+ void	khrHostSurfaceFree(Surface* s);
++class Image;
++void	khrHostImageFree(Image* i);
+ class Image
+ {
+ public:
+@@ -221,6 +223,11 @@
+ 	int					getHeight() const					{ return m_height; }
+ 	int					getStride() const					{ return m_stride; }
+ 	Image*				getParent() const					{ return m_parent; }
++	//qembian: pixels changed -> the host texture (src/khr/hostgl.cpp) is uploaded again
++	void				touched()							{ Image* r = this; while(r->m_parent) r = r->m_parent; r->m_gen++; }
++	unsigned int		generation() const					{ const Image* r = this; while(r->m_parent) r = r->m_parent; return r->m_gen; }
++	unsigned int		m_gen;
++	unsigned int		m_hostGen;	//generation on the host (0: not uploaded)
+ 	VGbitfield			getAllowedQuality() const			{ return m_allowedQuality; }
+ 	void				addInUse()							{ m_inUse++; }
+ 	void				removeInUse()						{ RI_ASSERT(m_inUse > 0); m_inUse--; }
+--- a/riImage.cpp	2026-11-07 14:17:53.967356641 +0100
++++ b/riImage.cpp	2026-11-07 14:17:53.968648001 +0100
+@@ -438,6 +438,8 @@
+ *//*-------------------------------------------------------------------*/
+ 
+ Image::Image(const Color::Descriptor& desc, int width, int height, VGbitfield allowedQuality) :
++	m_gen(1),
++	m_hostGen(0),
+ 	m_desc(desc),
+ 	m_width(width),
+ 	m_height(height),
+@@ -471,6 +473,8 @@
+ *//*-------------------------------------------------------------------*/
+ 
+ Image::Image(const Color::Descriptor& desc, int width, int height, int stride, RIuint8* data) :
++	m_gen(1),
++	m_hostGen(0),
+ 	m_desc(desc),
+ 	m_width(width),
+ 	m_height(height),
+@@ -499,6 +503,8 @@
+ *//*-------------------------------------------------------------------*/
+ 
+ Image::Image(Image* parent, int x, int y, int width, int height) :
++	m_gen(1),
++	m_hostGen(0),
+ 	m_desc(Color::formatToDescriptor(VG_sRGBA_8888)),	//dummy initialization, will be overwritten below (can't read from parent->m_desc before knowing the pointer is valid)
+ 	m_width(width),
+ 	m_height(height),
+@@ -541,6 +547,8 @@
+ 
+ Image::~Image()
+ {
++	if(m_hostGen)
++		khrHostImageFree(this);	//qembian
+ 	RI_ASSERT(m_referenceCount == 0);
+ 
+ 	if(m_parent)
+@@ -603,6 +611,7 @@
+ 
+ void Image::clear(const Color& clearColor, int x, int y, int w, int h)
+ {
++	touched();	//qembian
+ 	RI_ASSERT(m_data);
+ 	RI_ASSERT(m_referenceCount > 0);
+ 
+@@ -709,6 +718,7 @@
+ 
+ void Image::blit(const Image& src, int sx, int sy, int dx, int dy, int w, int h, bool dither)
+ {
++	touched();	//qembian
+ 	//img=>img: vgCopyImage
+ 	//img=>user: vgGetImageSubData
+ 	//user=>img: vgImageSubData
+@@ -782,6 +792,7 @@
+ 
+ void Image::blit(const Surface* src, int sx, int sy, int dx, int dy, int w, int h)
+ {
++	touched();	//qembian
+ 	//fb=>img: vgGetPixels
+ 	//fb=>user: vgReadPixels
+ 	RI_ASSERT(!src->isInUse(this));
+@@ -1358,6 +1369,7 @@
+ 
+ void Image::colorMatrix(const Image& src, const RIfloat* matrix, bool filterFormatLinear, bool filterFormatPremultiplied, VGbitfield channelMask)
+ {
++	touched();	//qembian
+ 	RI_ASSERT(src.m_data);	//source exists
+ 	RI_ASSERT(m_data);	//destination exists
+ 	RI_ASSERT(matrix);
+@@ -1476,6 +1488,7 @@
+ 
+ void Image::convolve(const Image& src, int kernelWidth, int kernelHeight, int shiftX, int shiftY, const RIint16* kernel, RIfloat scale, RIfloat bias, VGTilingMode tilingMode, const Color& edgeFillColor, bool filterFormatLinear, bool filterFormatPremultiplied, VGbitfield channelMask)
+ {
++	touched();	//qembian
+ 	RI_ASSERT(src.m_data);	//source exists
+ 	RI_ASSERT(m_data);	//destination exists
+ 	RI_ASSERT(kernel && kernelWidth > 0 && kernelHeight > 0);
+@@ -1549,6 +1562,7 @@
+ 
+ void Image::separableConvolve(const Image& src, int kernelWidth, int kernelHeight, int shiftX, int shiftY, const RIint16* kernelX, const RIint16* kernelY, RIfloat scale, RIfloat bias, VGTilingMode tilingMode, const Color& edgeFillColor, bool filterFormatLinear, bool filterFormatPremultiplied, VGbitfield channelMask)
+ {
++	touched();	//qembian
+ 	RI_ASSERT(src.m_data);	//source exists
+ 	RI_ASSERT(m_data);	//destination exists
+ 	RI_ASSERT(kernelX && kernelY && kernelWidth > 0 && kernelHeight > 0);
+@@ -1647,6 +1661,7 @@
+ 
+ void Image::gaussianBlur(const Image& src, RIfloat stdDeviationX, RIfloat stdDeviationY, VGTilingMode tilingMode, const Color& edgeFillColor, bool filterFormatLinear, bool filterFormatPremultiplied, VGbitfield channelMask)
+ {
++	touched();	//qembian
+ 	RI_ASSERT(src.m_data);	//source exists
+ 	RI_ASSERT(m_data);	//destination exists
+ 	RI_ASSERT(stdDeviationX > 0.0f && stdDeviationY > 0.0f);
+@@ -1770,6 +1785,7 @@
+ 
+ void Image::lookup(const Image& src, const RIuint8 * redLUT, const RIuint8 * greenLUT, const RIuint8 * blueLUT, const RIuint8 * alphaLUT, bool outputLinear, bool outputPremultiplied, bool filterFormatLinear, bool filterFormatPremultiplied, VGbitfield channelMask)
+ {
++	touched();	//qembian
+ 	RI_ASSERT(src.m_data);	//source exists
+ 	RI_ASSERT(m_data);	//destination exists
+ 	RI_ASSERT(redLUT && greenLUT && blueLUT && alphaLUT);
+@@ -1811,6 +1827,7 @@
+ 
+ void Image::lookupSingle(const Image& src, const RIuint32 * lookupTable, VGImageChannel sourceChannel, bool outputLinear, bool outputPremultiplied, bool filterFormatLinear, bool filterFormatPremultiplied, VGbitfield channelMask)
+ {
++	touched();	//qembian
+ 	RI_ASSERT(src.m_data);	//source exists
+ 	RI_ASSERT(m_data);	//destination exists
+ 	RI_ASSERT(lookupTable);

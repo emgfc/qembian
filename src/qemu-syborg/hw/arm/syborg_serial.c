@@ -225,11 +225,22 @@ static const Property syborg_serial_properties[] = {
     DEFINE_PROP_UINT32("fifo-size", SyborgSerialState, fifo_size, 16),
 };
 
+/* a machine reset: no DMA (its addresses are the old boot's), nothing received, no interrupt */
+static void syborg_serial_reset(DeviceState *dev)
+{
+    SyborgSerialState *s = SYBORG_SERIAL(dev);
+    s->int_enable = 0;
+    s->dma_tx_addr = s->dma_rx_addr = s->dma_rx_count = 0;
+    s->fifo_count = s->fifo_head = 0;
+    syborg_serial_update(s);
+}
+
 static void syborg_serial_class_init(ObjectClass *oc, const void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(oc);
 
     dc->realize = syborg_serial_realize;
+    device_class_set_legacy_reset(dc, syborg_serial_reset);
     dc->vmsd = &vmstate_syborg_serial;
     device_class_set_props(dc, syborg_serial_properties);
 }

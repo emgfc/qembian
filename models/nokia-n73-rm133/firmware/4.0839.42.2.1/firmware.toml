@@ -1,0 +1,28 @@
+# Firmware 4.0839.42.2.1 of nokia-n73-rm133 (device model v2: merged over models/nokia-n73-rm133/model.toml). What belongs to this
+# firmware build: its files, identity and addresses. The model is the phone.
+
+[firmware]
+version = "4.0839.42.2.1"
+obtain = """
+Flash files of RM-133 4.0839.42.2.1: N73_4.0839.42.2.1_western_C00_PRD_cc.fpsx (core) and
+N73_rofx_4.0839.42.2.1_PRD.V05 (languages). Put them in roms/RM-133/4.0839.42.2.1/
+(git-ignored).
+"""
+[[firmware.files]]
+role = "core"                              # the layout inside differs from 3.0717's: read by tools/fw/layout.py
+glob = "N73_*_C00_PRD_cc.fpsx"
+
+[[firmware.files]]
+role = "rofx"
+glob = "N73_rofx_*.V??"
+
+[firmware.identity]
+sw = { version = "V 4.0839.42.2.1", date = "27-09-2008", type_code = "RM-133" }   # sw.txt [V]
+langsw = { version = "V 4.0839.42.2.1-05", type_code = "RM-133" }                 # langsw.txt [V]
+[firmware.identity.sha256]                 # the extracted images (build/roms/<id>/<fw>/)
+"core-flat.img" = "ac1ca2641501b81d45952feece2593741c8808adec8c2fc2001ecb737e94a61d"
+"rofs1.img" = "2caeb6d7a8b7f58dcd8602bc061ea914542bbdd1523f72460ca97cf0c8a000f9"
+"rofs2.img" = "0640e08681141c9fcf7a560ad4356e8fb6acde567bb025430dd9bdd95167f88b"
+
+[firmware.rom]
+user_window_start = 0xF8094270             # IscApi.dll

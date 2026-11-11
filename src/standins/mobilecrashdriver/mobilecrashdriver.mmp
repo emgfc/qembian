@@ -1,0 +1,12 @@
+// MOBILECRASHDRIVER.LDD stand-in (see mobilecrashdriver.cpp)
+#include "../../variant.mmh"
+#include <kernel/kern_ext.mmh>
+target			VariantTarget(mobilecrashdriver,ldd)
+linkas			mobilecrashdriver.ldd
+targettype		ldd
+sourcepath		.
+source			mobilecrashdriver.cpp
+noexportlibrary
+vendorid		0x70000001
+capability		all
+userinclude		../_shared	// src/standins/_shared: nokiastub.h, iscpeer.inl, isireplies.h, stubcert.h
