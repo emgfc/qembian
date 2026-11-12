@@ -80,7 +80,7 @@ name = "701"
 platform = "belle-fp2"
 soc = "bcm2763"
 model = "nokia-701-rm774"
-status = "profile-draft"                     # boots to the window server (personalities/sym102)
+status = "supported"                         # boots to idle; SIM, mobile data, settings SMS, sound (2026-11-12)
 
 [[types]]
 code = "RM-807"
@@ -88,7 +88,7 @@ name = "808 PureView"
 platform = "belle-fp2"
 soc = "bcm2763"
 model = "nokia-808-rm807"
-status = "profile-draft"
+status = "supported"                         # boots to idle; SIM, mobile data, settings SMS, sound (2026-11-12)
 
 [[types]]
 code = "RM-469"

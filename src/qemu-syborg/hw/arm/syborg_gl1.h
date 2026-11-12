@@ -170,7 +170,10 @@ static int gl1_type_size(GLenum t)
 /* bytes [off, off + len) of the buffer bound to `target` (zeros past its end or if it cannot be read) */
 static uint8_t *gl1_read_bound(GLenum target, size_t off, size_t len)
 {
-    uint8_t *r = g_malloc0(len ? len : 1);
+    uint8_t *r = gl_try_alloc0(len);
+    if (!r) {
+        return NULL;
+    }
     GLint size = 0;
     glGetBufferParameteriv(target, GL_BUFFER_SIZE, &size);
     if (off < (size_t)size && len) {
@@ -230,6 +233,9 @@ static int gl1_source(Gl2HostCtx *c, Gl1Draw *d, int slot, int lo, int hi, Gl1Sr
     int stride = r->stride ? r->stride : elem;
     size_t len = (size_t)(hi - lo) * stride + elem;
     o->own = gl1_read_buffer(r->buf, r->off + (size_t)lo * stride, len);
+    if (!o->own) {
+        return 0;
+    }
     o->base = o->own - (size_t)lo * stride;
     o->size = r->size; o->type = r->type; o->stride = stride;
     return 1;

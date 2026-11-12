@@ -14,7 +14,8 @@
  * 7 KICK (write: the guest-virtual address of a SyglKick in the writer's address space; the buffers
  * it names are virtual addresses in that same space, read and written in place by the device: no
  * copy into contiguous memory and, from a user-mapped register page, no kernel call. The device
- * translates through the vCPU's current page tables while the write runs).
+ * translates through the vCPU's current page tables, with user permissions, while the write runs).
+ * 8 PID, 9 FLAGS, 10 BIND: the kernel's (below).
  *
  * Every command is a run of 32-bit little-endian words: { op, words (including these two), args }.
  * SPDX-License-Identifier: GPL-2.0-or-later
@@ -31,6 +32,17 @@
 #define SYGL_REG_OUT     5
 #define SYGL_REG_OUTLEN  6
 #define SYGL_REG_KICK    7
+/* Authority (docs/gpu-boundary-roadmap.md phase 1). User mode may read ID, CAPS and KICK and write KICK only;
+   every other register is the kernel's (d_display). A user-mode kick runs for the process bound to its user
+   address space (BIND); a kernel-mediated run (EXEC, or KICK written in supervisor mode) for PID/FLAGS,
+   which the kernel sets before it and the device clears after it. Guest memory is always reached with the
+   user's permissions. */
+#define SYGL_REG_PID     8      /* the client process of the next kernel-mediated run */
+#define SYGL_REG_FLAGS   9      /* its rights (SYGL_RIGHT_*), for that run or for BIND */
+#define SYGL_REG_BIND    10     /* write pid: bind the current user address space to it, with FLAGS;
+                                   read: 1 bound, 0 refused (the space is shared: moving memory model) */
+#define SYGL_RIGHT_KERNEL     1u    /* any owner (OWNER_FREE at channel close) */
+#define SYGL_RIGHT_COMPOSITOR 2u    /* SYGL_COMPOSE, SYGL_SCANOUT_FREE (the window server) */
 
 /* SYGL_REG_KICK descriptor (guest-virtual, 4-byte aligned) */
 typedef struct SyglKick {
@@ -49,8 +61,10 @@ enum {
     SYGL_DRAW,          /* surf, SyglState, n vertices, then n SyglVtx (triangle list) */
     SYGL_READ,          /* surf, byte offset in OUT, y0, rows: rows*w words 0x00RRGGBB, top row first */
     SYGL_OWNER,         /* owner: the guest process the following ids and keys belong to (every
-                           buffer starts with it; ids and keys are addresses, unique per process) */
-    SYGL_OWNER_FREE,    /* owner: free all of its surfaces and textures (eglTerminate) */
+                           buffer starts with it; ids and keys are addresses, unique per process); must
+                           be the kick's own process (the kernel's runs: any) */
+    SYGL_OWNER_FREE,    /* owner: free all of its surfaces and textures (eglTerminate: its own; the
+                           kernel at the last channel close: any, and the process's binding) */
     /* OpenVG (src/khr, docs/devices/nokia-n8-rm596/vg-host.md): VG surface coordinates are GL's
        (origin bottom left, y up); colours are premultiplied 0xAARRGGBB */
     SYGL_VG_CLEAR = 10, /* surf, argb, n, then n rects {x, y, w, h} (n = 0: the whole surface) */
@@ -97,6 +111,12 @@ enum {
        calling thread's kick (SYGL_REG_KICK); pointers are its virtual addresses; the result word at OUT */
     SYGL_VG2 = 30,      /* fn (src/syvg/vg2_fn.h), guest thread id, the call's words */
     SYGL_EGL,           /* fn (src/syvg/egl2_fn.h), guest thread id, the call's words */
+    /* EGL_NOK_image_endpoint (src/syvg/syvg_egl.cpp): a GCE surface's frames as images */
+    SYGL_SURF_UPDATED = 40, /* sid0..sid3, buffer, x, y, w, h: a producer submitted new content (the window
+                           server's composition backend, gcebe: compositor right) */
+    SYGL_TEX_FROM_SCAN, /* key, sid0..sid3: texture `key` (made) = the surface's host image (its last present) */
+    SYGL_TEX_COPY,      /* dst key, src key, src owner: texture `dst` = a copy of texture `src` (src owner 0: the
+                           calling owner's; else only from a host batch) */
 };
 
 /* SYGL_COMPOSE layer: a GCE surface; its pixels come from its scan-out image (SYGL_VG_PRESENT) or,
@@ -107,11 +127,13 @@ typedef struct SyglLayer {
     int sx0, sy0, sx1, sy1;         /* source rectangle in the surface */
     unsigned int alpha;             /* layer opacity 0..255 */
     unsigned int fmt;               /* 0 XRGB 8888, 1 ARGB 8888, 2 ARGB 8888 PRE, 3 RGB 565; bits 8..9:
-                                       the source turned anticlockwise by 90 degrees that many times */
+                                       the source turned anticlockwise by 90 degrees that many times;
+                                       SYGL_LAYER_OPAQUE: the layer ignores the surface's alpha */
     unsigned int va, stride, w, h;  /* the current buffer in guest memory */
     unsigned int dirty;
 } SyglLayer;
 #define SYGL_LAYER_WORDS (sizeof(SyglLayer) / 4)
+#define SYGL_LAYER_OPAQUE 0x400u   /* in SyglLayer.fmt: no source alpha (gce layer flags bit 0 clear) */
 /* SYGL_VG_FILL image mode/tiling word: the texture `key` itself even if a render target surface
    key|1 exists (otherwise image draws sample the live render target) */
 #define SYGL_VG_TEXTURE_ONLY 0x100u

@@ -6,8 +6,8 @@
 *.log
 __pycache__/
 /roms/
-src/standins/_shared/isireplies.h
 /firmware/
+src/standins/_shared/isireplies.h
 # N-Gage (EKA1): firmware, extractions, generated analysis, Ghidra project, third-party sources
 # (eka1/README.md says how to regenerate each)
 /eka1/ngage_rom/
@@ -18,3 +18,7 @@ src/standins/_shared/isireplies.h
 !/eka1/analysis/kernel-api-map.tsv
 /eka1/tmp/
 /eka1/references/
+tools/probes/*/libs/
+# Android native build outputs (android/native/build.sh)
+build/android/
+downloads/android/

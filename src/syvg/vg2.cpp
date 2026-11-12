@@ -15,6 +15,7 @@
 #include "syvg.h"
 #include "vghost.h"
 #include "vg2_fn.h"
+#include "../qemu-syborg/hw/arm/syborg_gl_proto.h"
 #include <unordered_map>
 #include <algorithm>
 #include <vector>
@@ -95,12 +96,40 @@ static void dropHandle(uint32_t id)
 	m.toHost.erase(it);
 }
 
+/* vgCreateEGLImageTargetKHR (EGL_NOK_image_endpoint, syvg_egl.cpp): a VGImage of w x h whose pixels are a copy
+   of the host texture `srcKey` (an EGLImage) of the calling owner; 0 if no OpenVG context is current. Runs in the
+   caller's EGL call: the RI's current context is the caller thread's. */
+extern "C" uint32_t syvg_vg_image_from_texture(uint32_t owner, int w, int h, uint32_t srcKey)
+{
+	uint32_t so = gOwner;
+	gOwner = owner;
+	VGImage vi = vgCreateImage(VG_sARGB_8888_PRE, w, h, VG_IMAGE_QUALITY_NONANTIALIASED | VG_IMAGE_QUALITY_FASTER |
+	                           VG_IMAGE_QUALITY_BETTER);
+	uint32_t id = 0;
+	if (vi != VG_INVALID_HANDLE) {
+		OpenVGRI::Image *img = (OpenVGRI::Image *)vi;
+		unsigned int *p = khrHostEmit(SYGL_TEX_COPY, 3);
+		if (p) {
+			p[0] = vgKey(img); p[1] = srcKey; p[2] = 0;
+			khrHostFlush(0);
+			img->m_hostGen = img->generation();     /* the host texture holds the pixels ... */
+			img->root()->m_hostAhead = true;        /* ... and the CPU copy is stale (read back on demand) */
+			id = guestHandle(vi);
+		} else {
+			vgDestroyImage(vi);
+		}
+	}
+	gOwner = so;
+	return id;
+}
+
 extern "C" uintptr_t syvg_vg_host_handle(uint32_t id)
 {
 	return (uintptr_t)hostHandle(id);
 }
 
 extern "C" void syvg_egl_owner_free(uint32_t owner);
+extern "C" const char *syvg_vg_target(uint32_t owner, uint32_t thread, char *buf, size_t n);
 namespace OpenVGRI { void syvgReleaseEGL(); }   /* src/syvg/patches/0013 */
 
 /* the guest process is gone (its last DisplayDriver channel closed): its EGL instance (displays, surfaces,
@@ -149,7 +178,7 @@ extern "C" void syvg_reset(void)
    of the span before the pointer (an image with a negative stride: its later rows lie below the pointer) */
 class GuestBuf {
 public:
-	GuestBuf(uint32_t va, size_t bytes, bool in, size_t back = 0) : iVa(va), iBack(back), iOk(true)
+	GuestBuf(uint32_t va, size_t bytes, bool in, size_t back = 0) : iVa(va), iBack(back), iOk(true), iData(NULL), iLen(0)
 	{
 		if (!va)
 			return;
@@ -157,19 +186,30 @@ public:
 			iOk = false;
 			return;
 		}
-		iData.resize(bytes ? bytes : 1);
+		/* review M4: no throwing allocation (built with -fno-exceptions, a failed resize aborts QEMU) */
+		iLen = bytes ? bytes : 1;
+		iData = (uint8_t *)malloc(iLen);
+		if (!iData) {
+			iOk = false;
+			iLen = 0;
+			return;
+		}
 		(void)in;               /* outputs are read too: the write-back must keep the bytes between image rows */
-		if (bytes && syvg_guest_read(va - back, iData.data(), bytes))
+		if (bytes && syvg_guest_read(va - back, iData, bytes))
 			iOk = false;
 	}
+	~GuestBuf() { free(iData); }
+	GuestBuf(const GuestBuf &) = delete;
+	GuestBuf &operator=(const GuestBuf &) = delete;
 	bool ok() const { return iOk; }
-	void *host() { return iVa ? iData.data() + iBack : NULL; }
-	bool writeBack() { return !iVa || iData.empty() || !syvg_guest_write(iVa - iBack, iData.data(), iData.size()); }
+	void *host() { return iVa && iData ? iData + iBack : NULL; }
+	bool writeBack() { return !iVa || !iData || !syvg_guest_write(iVa - iBack, iData, iLen); }
 private:
 	uint32_t iVa;
 	size_t iBack;
 	bool iOk;
-	std::vector<uint8_t> iData;
+	uint8_t *iData;
+	size_t iLen;
 };
 
 /* an image span: h rows of w pixels in `format`, `stride` bytes apart. VG allows a negative stride: row 0
@@ -264,8 +304,24 @@ extern "C" int syvg_vg_call(uint32_t owner, const uint32_t *a, size_t n, uint32_
 			memcpy(out + 1, str, len);
 		r = 0;
 	} else {
+		static int trace = -1;          /* SYBORG_VG_TRACE=1: draws and clears with their target surface */
+		if (trace < 0)
+			trace = getenv("SYBORG_VG_TRACE") && *getenv("SYBORG_VG_TRACE") == '1';
+		if (trace && (fn == VG2_FN_vgClear || fn == VG2_FN_vgDrawImage || fn == VG2_FN_vgDrawPath ||
+		              (fn == VG2_FN_vgSetfv && n >= 3 && a[2] == VG_CLEAR_COLOR))) {
+			char b[96];
+			fprintf(stderr, "syvg: VG owner %u thread %u fn %d args %x %x %x %x %x %x %x -> %s\n", owner, a[1], fn,
+			        n > 2 ? a[2] : 0, n > 3 ? a[3] : 0, n > 4 ? a[4] : 0, n > 5 ? a[5] : 0, n > 6 ? a[6] : 0,
+			        n > 7 ? a[7] : 0, n > 8 ? a[8] : 0, syvg_vg_target(owner, a[1], b, sizeof(b)));
+		}
 		r = dispatch(fn, a + 2, n - 2);
 	}
-	khrHostFlush(0);            /* the RI's drawing of this call, now */
+	/* the RI's drawing of this call goes with the batch's next command that is not OpenVG, or at its end
+	   (syvg_vg_flush, phase 3): one host flush for a run of calls instead of one per call */
 	return r;
+}
+
+extern "C" void syvg_vg_flush(void)
+{
+	khrHostFlush(0);
 }

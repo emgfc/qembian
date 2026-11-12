@@ -1,3 +1,4 @@
+#include <stdlib.h>
 /* syvg port of src/khr/hostraster.cpp (v1, guest): the RI fill on the GPU, run in QEMU. */
 /*
  * Rasterizer for the Khronos OpenVG RI front end (replaces sfopenvg/riRasterizer.cpp).
@@ -23,7 +24,14 @@ namespace OpenVGRI
 #define KHR_FILLLOG 4
 #endif
 static int gLogFill[8];
-#define FILLLOG(k, ...) do { if (gLogFill[k]++ < KHR_FILLLOG) RDebug::Printf(__VA_ARGS__); } while (0)
+static bool FillTrace()                 /* SYBORG_VG_TRACE=1: every fill, not only the first few */
+{
+	static int on = -1;
+	if (on < 0)
+		on = getenv("SYBORG_VG_TRACE") && *getenv("SYBORG_VG_TRACE") == '1';
+	return on;
+}
+#define FILLLOG(k, ...) do { if (gLogFill[k]++ < KHR_FILLLOG || FillTrace()) RDebug::Printf(__VA_ARGS__); } while (0)
 
 Rasterizer::Rasterizer() :
 	m_edges(), m_scissorEdges(), m_scissor(false), m_samples(), m_numSamples(1), m_numFSAASamples(1),

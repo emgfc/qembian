@@ -40,21 +40,21 @@ static void gl_capture_record(SyborgGlState *s, const uint32_t *cmd, size_t word
     if (cmd[0] == SYGL_GL2 && words >= 4 &&
         (cmd[3] == GL2_FN_glDrawElements || cmd[3] == GL2_FN_glDrawArrays)) {
         Gl2HostCtx *c = gl2_find(s, cmd[2]);
-        if (c) { gl_last_owner = s->owner; gl_last_surf = c->surf; }
+        if (c) { gl_last_owner = gl_ex->owner; gl_last_surf = c->surf; }
     }
     if (gl_journal && !gl_journal_bad) {
         gl_journal_bytes += 8 + words * 4;
-        if (gl_journal_bytes > GL_CAPTURE_LIMIT || !gl_capture_write(gl_journal, s->owner, cmd, words)) {
+        if (gl_journal_bytes > GL_CAPTURE_LIMIT || !gl_capture_write(gl_journal, gl_ex->owner, cmd, words)) {
             gl_journal_bad = true;
             warn_report("syborg-gl: capture journal failed or exceeded 2 GiB; restart to capture");
         }
     }
     if (!gl_capture) return;
-    bool ok = !gl_journal_bad && gl_capture_write(gl_capture, s->owner, cmd, words);
+    bool ok = !gl_journal_bad && gl_capture_write(gl_capture, gl_ex->owner, cmd, words);
     if (ok && cmd[0] == SYGL_VG_PRESENT && words >= 7 &&
-        s->owner == gl_capture_owner && cmd[2] == gl_capture_surf) {
+        gl_ex->owner == gl_capture_owner && cmd[2] == gl_capture_surf) {
         uint32_t marker[] = { 0xfffffff1, 3, ++gl_capture_frames };
-        ok = gl_capture_write(gl_capture, s->owner, marker, 3);
+        ok = gl_capture_write(gl_capture, gl_ex->owner, marker, 3);
     }
     if (!ok || gl_capture_frames == 31) {
         /* First presentation finishes the partial frame at the trigger; then 30 complete frames. */

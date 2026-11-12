@@ -1,0 +1,32 @@
+Pixel copies into host surfaces (vgSetPixels, vgWritePixels, vgCopyPixels): done on the host GPU by
+khrHostBlit (src/syvg/vghost.cpp) instead of in the RI's CPU copy of the surface, which a host surface never shows
+(the browser's scroll moved the page with vgCopyPixels: only the newly painted strip appeared).
+
+--- a/riImage.cpp	2026-11-12 09:23:06.994921997 +0100
++++ b/riImage.cpp	2026-11-12 09:23:07.033343262 +0100
+@@ -2037,6 +2037,7 @@
+ *//*-------------------------------------------------------------------*/
+ 
+ bool khrHostClear(Surface* s, const Color& c, int x, int y, int w, int h, const Array<Rectangle>* scissors);	//qembian
++bool khrHostBlit(Surface* dst, const Image* src, const Surface* srcSurf, int sx, int sy, int dx, int dy, int w, int h, const Array<Rectangle>& scissors);	//qembian
+ 
+ void Surface::clear(const Color& clearColor, int x, int y, int w, int h, const Array<Rectangle>& scissors)
+ {
+@@ -2144,6 +2145,8 @@
+ 	computeBlitRegion(sx, sy, dx, dy, w, h, src.getWidth(), src.getHeight(), getWidth(), getHeight());
+ 	if(w <= 0 || h <= 0)
+ 		return;	//zero area
++	if(m_host && khrHostBlit(this, &src, NULL, sx, sy, dx, dy, w, h, scissors))
++		return;	//qembian: the pixels live on the host GPU, not in this CPU copy
+ 
+ 	Array<ScissorEdge> scissorEdges;
+ 	for(int i=0;i<scissors.size();i++)
+@@ -2236,6 +2239,8 @@
+ 	computeBlitRegion(sx, sy, dx, dy, w, h, src->getWidth(), src->getHeight(), getWidth(), getHeight());
+ 	if(w <= 0 || h <= 0)
+ 		return;	//zero area
++	if(m_host && src->m_host && khrHostBlit(this, NULL, src, sx, sy, dx, dy, w, h, scissors))
++		return;	//qembian: the pixels live on the host GPU, not in this CPU copy
+ 
+ 	Array<ScissorEdge> scissorEdges;
+ 	for(int i=0;i<scissors.size();i++)

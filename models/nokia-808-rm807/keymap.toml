@@ -20,7 +20,29 @@ host = ["f8"]
 set1 = 0x42
 group = "front"
 row = 1
-col = 0   # switch.dll record 3 @0x801d17ac: gpio 0x01 -> 0xB4 [V]
+col = 1   # switch.dll record 3 @0x801d17ac: gpio 0x01 -> 0xB4 [V]
+
+[[keys]]
+key = "call"
+style = "call"
+label = "Call"
+scancode = "EStdKeyYes"
+host = ["f2"]
+set1 = 0x3c
+group = "front"
+row = 1
+col = 0   # the green key left of Menu on the 808's front strip [I: its switch.dll record not read yet]
+
+[[keys]]
+key = "end"
+style = "end"
+label = "End"
+scancode = "EStdKeyNo"
+host = ["f3"]
+set1 = 0x3d
+group = "front"
+row = 1
+col = 2   # the red key right of Menu [I: as call]
 
 [[keys]]
 key = "power"

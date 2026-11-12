@@ -102,7 +102,7 @@ def default_device():
 # firmware, settings, [overrides]) and the session's state. $SYBORG_INSTANCE (its directory) makes every
 # tool load the instance's device with its overrides; sydb sets it for --instance / an instance session.
 # [overrides] may only touch tables that reach QEMU at start, never what is composed into the ROM.
-RUNTIME_OVERRIDES = {'board': None, 'gl': ('host',), 'modem': None, 'standins': ('name', 'config')}
+RUNTIME_OVERRIDES = {'board': None, 'gl': ('host',), 'modem': None, 'sim': None, 'standins': ('name', 'config')}
 
 
 def instance_file(idir=None):
@@ -699,8 +699,12 @@ def build(prof, variant=None, kernel=False, standins=True, out=None, trace=None,
     if variant and var is None:
         raise DeviceError('%s has no ROM variant %r' % (prof['_id'], variant))
     img = out or os.path.join(ps['dir'], var.get('image', 'hybrid-%s.img' % variant) if var else 'hybrid.img')
-    # code patches (variants omit patches by hack tag, "[H-...]" in the line)
-    omit = var.get('omit_patches', []) if var else []
+    # code patches omitted by hack tag ("[H-...]" in the line): the default ROM's [rom] omit_patches, plus a variant's
+    # own; a variant brings one back with restore_patches
+    omit = set(get(prof, 'rom.omit_patches', []))
+    if var:
+        omit = (omit | set(var.get('omit_patches', []))) - set(var.get('restore_patches', []))
+    omit = sorted(omit)
     pfiles = []
     sys.path.insert(0, os.path.join(ROOT, 'tools', 'fw'))
     import patches as patchmod		# tools/fw/patches.py: MODULE+OFFSET lines -> this firmware's addresses
@@ -778,7 +782,8 @@ def qemu_keymap(prof):
 
 # ---------------------------------------------------------------- QEMU
 
-GL_HOST_KEYS = {'msaa': (0, 2, 4, 8, 16), 'filter': ('auto', 'nearest', 'linear'), 'compose': ('host', 'guest')}
+GL_HOST_KEYS = {'msaa': (0, 2, 4, 8, 16), 'filter': ('auto', 'nearest', 'linear'), 'compose': ('host', 'guest'),
+                'thread': ('on', 'off')}    # thread: GL on a worker thread (per boot; docs/gpu-boundary-roadmap.md phase 5)
 
 
 def GL_HOST_DEFAULTS_OF(prof):
@@ -802,6 +807,14 @@ def qemu_args(prof, rom=None):
         a += ['-global', 'syborg-platform.flash-mb=%d' % get(prof, 'board.flash.size_mb')]
     if disp.get('touch'):				# touch phones: host mouse -> syborg-pointer (absolute) -> exyin stand-in
         a += ['-global', 'syborg-pointer.input=on']
+        if disp.get('touch_rate_hz'):			# the panel's report rate (host moves merged between samples)
+            a += ['-global', 'syborg-pointer.sample-hz=%d' % disp['touch_rate_hz']]
+    sim = prof.get('sim', {})
+    if sim.get('present') and sim.get('data', 'user'):	# packet data of the virtual SIM on a host network (syborg-modem)
+        a += ['-nic', '%s,model=syborg-modem' % sim.get('data', 'user')]
+    eth = get(prof, 'board.network.ethernet', None)
+    if eth:						# syborg-net on a host network backend (user = slirp)
+        a += ['-nic', '%s,model=syborg-net' % eth]
     cfg = board_config(prof)
     if cfg:
         a += ['-global', 'syborg-platform.config=%s' % cfg]
@@ -827,6 +840,8 @@ def qemu_args(prof, rom=None):
             open(idf, 'w').write(text)
         a += ['-global', 'syborg-gl.identity=%s' % idf]
     # the EGL configs the host EGL serves ([gl] egl_configs: the real phone's, tools/egl-configs.py)
+    if get(prof, 'gl.gpu_memory_mb'):	# the graphics memory EGL_NOK_resource_profiling reports (the memory monitor GOOM)
+        a += ['-global', 'syborg-gl.gpu-memory-mb=%d' % get(prof, 'gl.gpu_memory_mb')]
     if get(prof, 'gl.egl_configs'):
         a += ['-global', 'syborg-gl.egl-configs=%s' % os.path.abspath(device_file(prof, get(prof, 'gl.egl_configs')))]
     # board tunables of ours, not phone facts: a profile sets them only when measured on the phone
@@ -961,13 +976,39 @@ def board_config(prof):
         kv.append('modem.imei=%s' % m['imei'])
     if 'power_off_delay_s' in m:
         kv.append('modem.power_off_ms=%d' % int(m['power_off_delay_s'] * 1000))
-    inds = m.get('indications', [])				# unsolicited modem messages (iscpeer ProfileInds)
+    sim = prof.get('sim', {})					# the virtual SIM card in the fake modem (syborg_modem.c "virtual SIM")
+    present = bool(sim.get('present'))
+    if present:
+        kv.append('sim.present=1')
+        for key in ('imsi', 'mcc', 'mnc', 'spn'):
+            if key in sim:
+                kv.append('sim.%s=%s' % (key, sim[key]))
+        for key in ('ip', 'dns'):				# the PDP address / DNS the network hands out (dotted IPv4)
+            if key in sim:
+                ip = str(sim[key])
+                if len(ip.split('.')) != 4 or not all(x.isdigit() and int(x) < 256 for x in ip.split('.')):
+                    raise DeviceError('[sim] %s = %r: not a dotted IPv4 address' % (key, ip))
+                kv.append('sim.%s=%s' % (key, ip))
+        for key in ('rat', 'lac', 'ci', 'attached'):
+            if key in sim:
+                kv.append('sim.%s=%d' % (key, int(sim[key])))
+        if 'mtu' in sim:					# packet data MTU (576..1402: the phone's receive buffer)
+            mtu = int(sim['mtu'])
+            if not 576 <= mtu <= 1402:
+                raise DeviceError('[sim] mtu = %d: must be 576..1402' % mtu)
+            kv.append('sim.mtu=%d' % mtu)
+    # unsolicited modem messages (iscpeer ProfileInds); `sim = true|false`: only with / without a SIM
+    inds = [i for i in m.get('indications', []) if 'sim' not in i or bool(i['sim']) == present]
     if inds:
         kv.append('modem.ind=%s' % ','.join('%02x%02x%s%s%s' % (i['res'], i['msg'], i.get('data', '').replace(' ', '').lower(),
                                                                 '@%d' % i['channel'] if 'channel' in i else '',
                                                                 '>' + i['after'].replace(' ', '').lower() if 'after' in i else '')
                                              for i in inds))
     simst = m.get('sim_service_status', {})		# SIM_STATUS_RESP status per service (iscpeer; default 06)
+    if m.get('sim_home_plmn'):				# answer SIM 2D {04} (home PLMN) in the S60 3rd TSY's layout
+        kv.append('modem.hplmn=1')
+    if m.get('sms_protocol'):				# SMS protocol variant of the phone's TSY (syborg_modem.c)
+        kv.append('modem.sms=%s' % m['sms_protocol'])
     if simst:
         kv.append('modem.simst=%s' % ','.join('%02x:%02x' % (int(k, 0), v) for k, v in sorted(simst.items())))
     for st in prof.get('standins', []):			# the protocol variant each stand-in runs (stand-in reads
@@ -976,8 +1017,18 @@ def board_config(prof):
     if get(prof, 'board.flash.size_mb', 128) != 128:
         kv.append('medrofs.flash_mb=%d' % get(prof, 'board.flash.size_mb'))
     audio = get(prof, 'board.audio', {})			# the DSP model: RAPIDO ring geometry (aamdaifdriver + the ISC peer's
+    if 'keytone' in audio:				# the modem's key tone (syborg_modem.c modem_audio_params): HZ/MS/GAIN
+        kv.append('audio.keytone=%s' % audio['keytone'])
     if audio.get('dsp') == 'rapido':			# virtual DSP clock), docs/devices/nokia-n8-rm596/rapido-audio.md
         kv.append('audio.ring_units=%d' % audio.get('ring_units', 16))
+        # PCM format per stream type (= syborg-snd slot), declared per phone: RATE/CHANNELS/BITS/PLANAR (24 = 24 bits in
+        # 32-bit words; PLANAR = chunks of N left then N right samples). Without a declaration the rings stay unbound
+        # (silent, as before): a format measured on one phone is not assumed for another
+        if 'streams' in audio:
+            kv.append('audio.streams=%s' % audio['streams'])
+        # F3 0x35 sent with this share of the ring still queued (the engine writes one 19200-byte block per
+        # reply into a 30720-byte ring: 25 % keeps it fed without overwriting unplayed samples)
+        kv.append('audio.lead_pct=%d' % audio.get('lead_pct', 25))
     disp = get(prof, 'board.display', {})			# d_display stand-in geometry (N95 values by default)
     for key, name in (('caps_words', 'd_display.caps'), ('native_orientation', 'd_display.native'),
                       ('line_pitch', 'd_display.pitch'), ('panel_rows', 'd_display.rows')):

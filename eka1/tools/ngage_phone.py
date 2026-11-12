@@ -117,6 +117,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--scale', type=int, default=2)
     ap.add_argument('--phone', default='ngage', help='which phone (its flash file)')
+    ap.add_argument('--mmc', default='', help='memory card image (E:), made with eka1/tools/ngage_card.py')
     ap.add_argument('--fresh', action='store_true', help='factory-fresh: forget the saved flash')
     ap.add_argument('--keep', action='store_true', help='leave the session running when the window closes')
     a = ap.parse_args()
@@ -135,7 +136,8 @@ def main():
         flash.unlink()
     if not running:
         # crash catches only: a fault freezes the machine and the status line names the dump
-        subprocess.run([sys.executable, ns.__file__, '-s', a.session, 'start', '--flash', str(flash)],
+        subprocess.run([sys.executable, ns.__file__, '-s', a.session, 'start', '--flash', str(flash)]
+                       + (['--mmc', os.path.abspath(a.mmc)] if a.mmc else []),
                        check=True, stdout=subprocess.DEVNULL)
         started = True
     app = QtWidgets.QApplication(sys.argv)

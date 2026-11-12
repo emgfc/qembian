@@ -43,6 +43,7 @@ line_pitch = 1440                          # 360 x 4 bytes [I]
 panel_rows = 640
 caps_words = 27                            # [5800] not checked for the N8's client yet
 touch = true                               # capacitive multitouch (synaptics.dll + exyin.dll); single touch for now
+touch_rate_hz = 100                         # [I] capacitive panel report rate: moves between samples are merged (syborg-pointer sample-hz)
 
 [gl.host]                                  # syborg-gl settings for this phone (docs/devices.md "[gl.host]")
 msaa = 8                                   # OpenVG anti-aliasing samples: 0, 2, 4, 8, 16 (runtime: sydb gl set msaa=4)
@@ -52,6 +53,9 @@ compose = "host"                           # host: composition/presentation on t
 [board.audio]
 dsp = "rapido"                             # RAPIDO DSP model: aamdaifdriver + the ISC peer's F3 replies
 ring_units = 16                            # DSP ring per stream (docs/devices/nokia-n8-rm596/rapido-audio.md)
+# stream type -> syborg-slot PCM format RATE/CHANNELS/BITS/PLANAR (24 = 24 bits in 32-bit words, PLANAR = chunks of N left
+# then N right samples): type 0 as the N8 (same AudioProcessingEngine; start-up tone plays as real audio) [I]; types 1, 2 [I]
+streams = "48000/2/24/240,48000/1/24,16000/1/24"
 
 
 [board.flash]
@@ -264,6 +268,7 @@ code_patches = ["code-patches.txt"]        # H-fmradio-none
 files = [{ rom = "Sys/Data/ESTARTCOMP.TXT", local = "ESTARTCOMP.TXT" }]
 
 [gl]
+gpu_memory_mb = 128                         # EGL_NOK_resource_profiling total [I: the phone's figure not probed; 32 made alf fall back to software rendering with our surfaces]
 impl = "none"
 egl_configs = "../nokia-n8-rm596/egl-configs.txt"   # [I] the N8's (no 701/808 to probe)
 [gl.identity]                              # H-gles-identity (not probed on this phone: no device)
@@ -274,7 +279,7 @@ extensions = "GL_OES_compressed_ETC1_RGB8_texture GL_OES_compressed_paletted_tex
 egl_vendor = "Broadcom"
 egl_version = "1.4"
 egl_client_apis = "OpenGL_ES OpenVG"      # [V] eglprobe on the owner's N8
-egl_extensions = ""                        # the phone lists 14 (EGL_KHR_image ... EGL_NOK_window_type_eglwindowbase, eglprobe); none of them is implemented on the host yet (H-egl-extensions)
+egl_extensions = "EGL_NOK_resource_profiling EGL_NOK_resource_profiling2 EGL_NOK_image_endpoint EGL_NOK_image_endpoint2"   # of the phone's 14 (eglprobe), the ones the host implements (H-egl-extensions); the memory monitor GOOM needs them
 gles2_version = "OpenGL ES 2.0"            # [V] Khronos OpenGL ES conformant products (701 / 808 PureView)
 glsl_version = "OpenGL ES GLSL ES 1.00"    # [V] the same
 gles2_extensions = "GL_OES_rgb8_rgba8 GL_OES_depth24 GL_OES_packed_depth_stencil GL_OES_element_index_uint GL_OES_texture_npot GL_OES_standard_derivatives"   # [I] not published
@@ -292,14 +297,6 @@ updated = "2026-11-10"
 open = ["no FM radio (H-fmradio-none: no Bluetooth HCI)", "off-screen composition (transition effects) not done by gcebe", "PN_UICC 8C 06 unanswered", "khr: an OpenVG out-of-memory crashes on NULL (RI new[] does not throw)"]
 
 
-# H-startuptone-none: the start-up tone points at a file that does not exist, so the start-up
-# animation does not wait for a tone that silent RAPIDO audio never finishes (as on the 5800)
-[[rom.rofs_patches]]
-image = 2
-path = "private/10202be9/101F8763.txt"
-old = 'Z:\\system\\sounds\\Wakeup tone.aac'
-new = 'Z:\\system\\sounds\\Wakeup none.aac'
-hack = "H-startuptone-none"
 
 # H-bt-ondemand: C32 starts the ESock Bluetooth worker only when a client asks for it; at boot it
 # panicked KERN-EXEC 0 on a Bluetooth transport channel it never opened and took C32Start down

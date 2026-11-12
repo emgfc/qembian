@@ -131,15 +131,20 @@ static void SetPartial(TBool aOn, TUint aStart, TUint aEnd, TBool aFullColour)
 //   ctl 0x7f12 a1 = SyglKick*        run the buffers it names in place (the device reads and writes
 //                                    the caller's memory through its page tables): no copies
 //   ctl 0x7f13 -> 1 word             the device's register page mapped user-writable (or 0): the
-//                                    caller writes SyglKick addresses to KICK itself, no kernel call
+//                                    caller writes SyglKick addresses to KICK itself, no kernel call;
+//                                    its address space is bound to it (0 when it cannot be: shared)
 // Host objects (surfaces, textures) belong to a process (the owner id ctl 0x7f10 returns); when a
 // process's last DisplayDriver channel closes (exit, kill, panic) the stand-in sends
 // SYGL_OWNER_FREE for it, so the device's tables do not fill up with the dead.
-// Trust: the device follows any address a kick names through the page tables without checking
-// page permissions, so any process with the register page could read or write kernel memory
-// through the read-back area. Fine for an emulator running the owner's firmware.
+// Authority (docs/gpu-boundary-roadmap.md phase 1): the device reaches guest memory with the user's
+// permissions only, and lets user mode write KICK alone. The kernel says whose a run is: PID/FLAGS before
+// each run it makes (under GlLock), and BIND at ctl 0x7f13, which ties the caller's user address space to
+// its process for its own kicks. The window server (SID 0x10003B20) gets the compositor right.
 const TUint KHwBaseGl = KHwBasePeripherals + 0x0f * KHwLinSeparation;
-enum { KGlId = 0, KGlCaps = 1, KGlBuf = 2, KGlLen = 3, KGlExec = 4, KGlOut = 5, KGlOutLen = 6, KGlKick = 7 };
+enum { KGlId = 0, KGlCaps = 1, KGlBuf = 2, KGlLen = 3, KGlExec = 4, KGlOut = 5, KGlOutLen = 6, KGlKick = 7,
+	   KGlPid = 8, KGlFlags = 9, KGlBind = 10 };
+const TUint32 KGlRightKernel = 1, KGlRightCompositor = 2;
+const TUint32 KWservSid = 0x10003B20;
 const TUint32 KGlDeviceId = 0xc51d0011;
 const TInt KGlBufSize = 1 << 20;		// commands; and as much again for read-backs (bands: hw.c)
 static DPlatChunkHw* GlChunk;
@@ -180,6 +185,8 @@ static void GlRunKernel(const TUint32* aWords, TInt aCount)
 	NKern::ThreadEnterCS();
 	Kern::MutexWait(*GlLock);
 	memcpy((TUint8*)GlChunk->LinearAddress(), aWords, aCount * 4);
+	WriteReg(KHwBaseGl, KGlPid, 0);
+	WriteReg(KHwBaseGl, KGlFlags, KGlRightKernel);
 	WriteReg(KHwBaseGl, KGlBuf, GlPhys);
 	WriteReg(KHwBaseGl, KGlLen, aCount * 4);
 	WriteReg(KHwBaseGl, KGlOut, GlPhys + KGlBufSize);
@@ -190,7 +197,7 @@ static void GlRunKernel(const TUint32* aWords, TInt aCount)
 	}
 
 // open DisplayDriver channels per process: the host objects go with the last one
-const TInt KGlOwners = 64;
+const TInt KGlOwners = 256;			// processes with a DisplayDriver channel; beyond that: no host GL
 static struct { TUint32 iPid; TInt iCount; } GlOwners[KGlOwners];
 static NFastMutex GlOwnersLock;
 
@@ -209,12 +216,28 @@ static void GlOwnerOpened(TUint32 aPid)
 		if (!GlOwners[i].iCount && freeSlot < 0)
 			freeSlot = i;
 		}
-	if (freeSlot >= 0)				// table full: that process's objects stay until eglTerminate
+	if (freeSlot >= 0)				// table full: the process gets no host GL (GlOwnerTracked)
 		{
 		GlOwners[freeSlot].iPid = aPid;
 		GlOwners[freeSlot].iCount = 1;
 		}
 	NKern::FMSignal(&GlOwnersLock);
+	}
+
+// host GL only for a process whose objects will be freed at its exit
+static TBool GlOwnerTracked(TUint32 aPid)
+	{
+	TBool found = EFalse;
+	NKern::FMWait(&GlOwnersLock);
+	for (TInt i = 0; i < KGlOwners && !found; ++i)
+		found = GlOwners[i].iCount && GlOwners[i].iPid == aPid;
+	NKern::FMSignal(&GlOwnersLock);
+	return found;
+	}
+
+static TUint32 GlRights(DThread* aClient)
+	{
+	return Kern::ProcessSecureId(aClient->iOwningProcess) == KWservSid ? KGlRightCompositor : 0;
 	}
 
 static void GlOwnerClosed(TUint32 aPid)
@@ -249,6 +272,8 @@ static TInt GlSubmit(DThread* aClient, const TUint32* aW)
 	TInt r = Kern::ThreadRawRead(aClient, (TAny*)aW[0], in, len);
 	if (r == KErrNone)
 		{
+		WriteReg(KHwBaseGl, KGlPid, aClient->iOwningProcess->iId);
+		WriteReg(KHwBaseGl, KGlFlags, GlRights(aClient));
 		WriteReg(KHwBaseGl, KGlBuf, GlPhys);
 		WriteReg(KHwBaseGl, KGlLen, len);
 		WriteReg(KHwBaseGl, KGlOut, GlPhys + KGlBufSize);
@@ -269,11 +294,14 @@ static TInt DisplayCtl(DThread* aClient, TInt aFn, TAny* a1, TAny*, const TUint3
 	{
 	if (!PartialCtls && aFn >= 3 && aFn <= 5)
 		return KStubNotHandled;		// not this driver's partial mode: the table / generic answer
+	if (aFn >= 0x7f11 && aFn <= 0x7f13 && !GlOwnerTracked(aClient->iOwningProcess->iId))
+		return KErrNotSupported;
 	switch (aFn)
 		{
 	case 0x7f10:	// {ready, owner}: owner = the caller's process id (hw.c's surface ids and texture
 		{			// keys are addresses, unique in one process, and any of its threads may use them)
-		TUint32 q[2] = { (TUint32)GlReady(), aClient->iOwningProcess->iId };
+		TUint32 pid = aClient->iOwningProcess->iId;
+		TUint32 q[2] = { (TUint32)(GlReady() && GlOwnerTracked(pid)), pid };
 		return Kern::ThreadRawWrite(aClient, a1, q, sizeof(q));
 		}
 	case 0x7f11:
@@ -282,8 +310,14 @@ static TInt DisplayCtl(DThread* aClient, TInt aFn, TAny* a1, TAny*, const TUint3
 		{
 		if (!GlReady())
 			return KErrNotSupported;
+		NKern::ThreadEnterCS();
+		Kern::MutexWait(*GlLock);			// PID/FLAGS and the kick together
+		WriteReg(KHwBaseGl, KGlPid, aClient->iOwningProcess->iId);
+		WriteReg(KHwBaseGl, KGlFlags, GlRights(aClient));
 		WriteReg(KHwBaseGl, KGlKick, (TUint32)a1);
 		TUint32 res = ReadReg(KHwBaseGl, KGlKick);
+		Kern::MutexSignal(*GlLock);
+		NKern::ThreadLeaveCS();
 		return res == 0 ? KErrNone : res == 0xffffffffu ? KErrBadDescriptor : KErrGeneral;
 		}
 	case 0x7f13:
@@ -302,9 +336,20 @@ static TInt DisplayCtl(DThread* aClient, TInt aFn, TAny* a1, TAny*, const TUint3
 				Kern::Printf("SYBSTUB: DisplayDriver host GL registers for user mode: %d (phys %08x lin %08x)", r,
 							 phys, r == KErrNone ? GlUserRegs->LinearAddress() : 0);
 				}
+			TUint32 bound = 0;
+			if (GlUserRegsState > 0)		// this process's own kicks: its address space is its identity
+				{
+				TUint32 rights = GlRights(aClient);
+				WriteReg(KHwBaseGl, KGlFlags, rights);
+				WriteReg(KHwBaseGl, KGlBind, aClient->iOwningProcess->iId);
+				bound = ReadReg(KHwBaseGl, KGlBind);
+				Kern::Printf("SYBSTUB: DisplayDriver host GL bind pid %d sid %08x rights %d: %d",
+							 aClient->iOwningProcess->iId, (TUint)Kern::ProcessSecureId(aClient->iOwningProcess),
+							 rights, bound);
+				}
 			Kern::MutexSignal(*GlLock);
 			NKern::ThreadLeaveCS();
-			if (GlUserRegsState > 0)
+			if (bound)
 				lin = GlUserRegs->LinearAddress();
 			}
 		return Kern::ThreadRawWrite(aClient, a1, &lin, sizeof(lin));

@@ -26,7 +26,9 @@ Which phone: --instance NAME (a device instance, tools/instance.py: build/instan
   sydb wg | fg WGID | unlock | lock | keepawake on|off|unlocked
   sydb prop get CAT KEY | prop set CAT KEY VALUE              (hex category/key)
   sydb key KEY... [--delay S] | type TEXT | screenshot [OUT.png] [--scale F] [--changed]
-  sydb gl [get] | gl set NAME=V... [--save]   host GPU settings (msaa, filter, compose), stats
+  sydb gl [get] | gl set NAME=V... [--save]   host GPU settings (msaa, filter, compose; thread at next start), stats
+  sydb sms TPDU_HEX... | sms-provision [--apn APN]   incoming SMS on the virtual SIM ([sim] present); sms-provision
+                                     = the operator's settings message (OMA CP): creates the Internet access point
   sydb accel [portrait|landscape|flat|X,Y,Z]  the gravity vector (milli-g) the accelerometer reports; no arg: read
   sydb log [--grep RE] [--since T] [--max N] [--head] | events [--since SEQ] [--wait S] [--kind K]
   sydb update-agent                  push a rebuilt devagent.exe/dafs.exe and restart the agent live
@@ -865,11 +867,16 @@ def main():
             save = '--save' in rest
             sets = [a for a in rest[1:] if a != '--save']
             if not sets:
-                raise SystemExit('sydb gl set NAME=VALUE... [--save]   (msaa=0|2|4|8|16 filter=auto|nearest|linear compose=host|guest)')
+                raise SystemExit('sydb gl set NAME=VALUE... [--save]   (msaa=0|2|4|8|16 filter=auto|nearest|linear compose=host|guest; thread=on|off --save: next start)')
             changed = {}
             for a in sets:
                 k, _, v = a.partition('=')
                 val = int(v) if k == 'msaa' and v.isdigit() else v
+                if k == 'thread':          # GL worker thread: fixed for a boot, takes effect at the next start
+                    if val not in ('on', 'off') or not save:
+                        raise SystemExit('sydb gl set thread=on|off --save   (applies at the next start)')
+                    changed[k] = val
+                    continue
                 r = c.call({'op': 'qmp', 'cmd': 'qom-set', 'args': {'path': '/machine/gl', 'property': k, 'value': val}})
                 if 'error' in r:
                     raise SystemExit('sydb gl set %s: %s' % (a, r['error']))
@@ -892,6 +899,23 @@ def main():
             need(c.call({'op': 'qmp', 'cmd': 'qom-set', 'args': {'path': '/machine/sensor', 'property': 'accel', 'value': v}}))
         r = need(c.call({'op': 'qmp', 'cmd': 'qom-get', 'args': {'path': '/machine/sensor', 'property': 'accel'}}))
         print(r.get('return'))
+    elif cmd in ('sms', 'sms-provision'):  # incoming SMS from the virtual SIM's network (syborg-modem "sms")
+        if cmd == 'sms':
+            if not rest:
+                raise SystemExit('sydb sms TPDU_HEX...   (SMS-DELIVER TPDUs; sydb sms-provision: operator settings)')
+            tpdus = rest
+        else:                             # the operator's "settings over the air" message: Internet access point
+            sys.path.insert(0, os.path.join(os.path.dirname(HERE), ''))
+            import sms_provision
+            ap = argparse.ArgumentParser(prog='sydb sms-provision')
+            ap.add_argument('--apn', default='internet')
+            ap.add_argument('--name', default='Internet')
+            x = ap.parse_args(rest)
+            tpdus = [t.hex() for t in sms_provision.sms_deliver_tpdus(
+                sms_provision.wsp_push(sms_provision.provisioning_doc(x.apn, x.name)), '12345')]
+        for t in tpdus:
+            need(c.call({'op': 'qmp', 'cmd': 'qom-set', 'args': {'path': '/machine/modem', 'property': 'sms', 'value': t}}))
+        print('sent %d SMS' % len(tpdus))
     elif cmd == 'tap':                    # touch phones: press at screen pixel (x, y), hold, release
         ap = argparse.ArgumentParser(prog='sydb tap')
         ap.add_argument('x', type=int); ap.add_argument('y', type=int)

@@ -1,0 +1,59 @@
+--- a/accel/tcg/tb-hash.h
++++ b/accel/tcg/tb-hash.h
+@@ -31,11 +31,36 @@
+ /* Only the bottom TB_JMP_PAGE_BITS of the jump cache hash bits vary for
+    addresses on the same page.  The top bits are the same.  This allows
+    TLB invalidation to quickly clear a subset of the hash table.  */
++#ifndef TB_JMP_PAGE_BITS            /* qembian 0008: -DTB_JMP_PAGE_BITS=N for sweeps */
+ #define TB_JMP_PAGE_BITS (TB_JMP_CACHE_BITS / 2)
++#endif
+ #define TB_JMP_PAGE_SIZE (1 << TB_JMP_PAGE_BITS)
+ #define TB_JMP_ADDR_MASK (TB_JMP_PAGE_SIZE - 1)
+ #define TB_JMP_PAGE_MASK (TB_JMP_CACHE_SIZE - TB_JMP_PAGE_SIZE)
+ 
++#ifndef SYB_JMP_HASH
++#define SYB_JMP_HASH 0                  /* qembian 0008: 1 = the page number mixed, 0 = upstream (default until measured) */
++#endif
++
++#if SYB_JMP_HASH
++/*
++ * qembian 0008: the bucket group of a page from its whole page number (a multiplicative hash: upstream used
++ * pc bits 12-23 only, so pages 16 MB apart -- ROM and DLLs -- shared a group), the slot within the group from
++ * the page offset (without bit 0, always clear in ARM and Thumb code). The invariant stays: all addresses of
++ * one page lie in one group of TB_JMP_PAGE_SIZE slots (page invalidation clears that group).
++ */
++static inline unsigned int tb_jmp_cache_hash_page(vaddr pc)
++{
++    uint32_t vpn = pc >> TARGET_PAGE_BITS;
++    return ((vpn * 0x9E3779B1u) >> (32 - (TB_JMP_CACHE_BITS - TB_JMP_PAGE_BITS))) << TB_JMP_PAGE_BITS;
++}
++
++static inline unsigned int tb_jmp_cache_hash_func(vaddr pc)
++{
++    uint32_t off = (pc & (TARGET_PAGE_SIZE - 1)) >> 1;
++    return tb_jmp_cache_hash_page(pc) | ((off ^ (off >> TB_JMP_PAGE_BITS)) & TB_JMP_ADDR_MASK);
++}
++#else
+ static inline unsigned int tb_jmp_cache_hash_page(vaddr pc)
+ {
+     vaddr tmp;
+@@ -50,6 +75,7 @@
+     return (((tmp >> (TARGET_PAGE_BITS - TB_JMP_PAGE_BITS)) & TB_JMP_PAGE_MASK)
+            | (tmp & TB_JMP_ADDR_MASK));
+ }
++#endif /* SYB_JMP_HASH */
+ 
+ #else
+ 
+--- a/accel/tcg/tb-jmp-cache.h
++++ b/accel/tcg/tb-jmp-cache.h
+@@ -12,7 +12,9 @@
+ #include "qemu/rcu.h"
+ #include "exec/cpu-common.h"
+ 
++#ifndef TB_JMP_CACHE_BITS          /* qembian 0008: -DTB_JMP_CACHE_BITS=N for size sweeps */
+ #define TB_JMP_CACHE_BITS 14     /* qembian: 12 upstream; Symbian kernel + DLL working sets */
++#endif
+ #define TB_JMP_CACHE_SIZE (1 << TB_JMP_CACHE_BITS)
+ 
+ /*

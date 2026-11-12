@@ -1,0 +1,112 @@
+--- a/accel/tcg/cpu-exec.c
++++ b/accel/tcg/cpu-exec.c
+@@ -195,21 +195,27 @@
+     return false;
+ }
+ 
+-static TranslationBlock *tb_htable_lookup(CPUState *cpu, TCGTBCPUState s)
++/*
++ * The key by pointer, and never inlined (qembian 0006): passed by value, GCC built the callee's copy of
++ * the 24-byte key before the jump-cache probe in tb_lookup's callers, one 16-byte load over the 8/4/4-byte
++ * stores just made: a store-to-load forwarding failure on every lookup (~40 % of the vCPU on Zen 5).
++ */
++static TranslationBlock * __attribute__((noinline))
++tb_htable_lookup(CPUState *cpu, const TCGTBCPUState *s)
+ {
+     tb_page_addr_t phys_pc;
+     struct tb_desc desc;
+     uint32_t h;
+ 
+-    desc.s = s;
++    desc.s = *s;
+     desc.env = cpu_env(cpu);
+-    phys_pc = get_page_addr_code(desc.env, s.pc);
++    phys_pc = get_page_addr_code(desc.env, s->pc);
+     if (phys_pc == -1) {
+         return NULL;
+     }
+     desc.page_addr0 = phys_pc;
+-    h = tb_hash_func(phys_pc, (s.cflags & CF_PCREL ? 0 : s.pc),
+-                     s.flags, s.cs_base, s.cflags);
++    h = tb_hash_func(phys_pc, (s->cflags & CF_PCREL ? 0 : s->pc),
++                     s->flags, s->cs_base, s->cflags);
+     return qht_lookup_custom(&tb_ctx.htable, &desc, h, tb_lookup_cmp);
+ }
+ 
+@@ -227,24 +233,24 @@
+  *
+  * Returns: an existing translation block or NULL.
+  */
+-static inline TranslationBlock *tb_lookup(CPUState *cpu, TCGTBCPUState s)
++static inline TranslationBlock *tb_lookup(CPUState *cpu, const TCGTBCPUState *s)
+ {
+     TranslationBlock *tb;
+     CPUJumpCache *jc;
+     uint32_t hash;
+ 
+     /* we should never be trying to look up an INVALID tb */
+-    tcg_debug_assert(!(s.cflags & CF_INVALID));
++    tcg_debug_assert(!(s->cflags & CF_INVALID));
+ 
+-    hash = tb_jmp_cache_hash_func(s.pc);
++    hash = tb_jmp_cache_hash_func(s->pc);
+     jc = cpu->tb_jmp_cache;
+ 
+     tb = qatomic_read(&jc->array[hash].tb);
+     if (likely(tb &&
+-               jc->array[hash].pc == s.pc &&
+-               tb->cs_base == s.cs_base &&
+-               tb->flags == s.flags &&
+-               tb_cflags(tb) == s.cflags)) {
++               jc->array[hash].pc == s->pc &&
++               tb->cs_base == s->cs_base &&
++               tb->flags == s->flags &&
++               tb_cflags(tb) == s->cflags)) {
+         goto hit;
+     }
+ 
+@@ -253,7 +259,7 @@
+         return NULL;
+     }
+ 
+-    jc->array[hash].pc = s.pc;
++    jc->array[hash].pc = s->pc;
+     qatomic_set(&jc->array[hash].tb, tb);
+ 
+ hit:
+@@ -261,7 +267,7 @@
+      * As long as tb is not NULL, the contents are consistent.  Therefore,
+      * the virtual PC has to match for non-CF_PCREL translations.
+      */
+-    assert((tb_cflags(tb) & CF_PCREL) || tb->pc == s.pc);
++    assert((tb_cflags(tb) & CF_PCREL) || tb->pc == s->pc);
+     return tb;
+ }
+ 
+@@ -395,7 +401,7 @@
+         cpu_loop_exit(cpu);
+     }
+ 
+-    tb = tb_lookup(cpu, s);
++    tb = tb_lookup(cpu, &s);
+     if (tb == NULL) {
+         return tcg_code_gen_epilogue;
+     }
+@@ -576,7 +582,7 @@
+          * Any breakpoint for this insn will have been recognized earlier.
+          */
+ 
+-        tb = tb_lookup(cpu, s);
++        tb = tb_lookup(cpu, &s);
+         if (tb == NULL) {
+             mmap_lock();
+             tb = tb_gen_code(cpu, s);
+@@ -966,7 +972,7 @@
+                 break;
+             }
+ 
+-            tb = tb_lookup(cpu, s);
++            tb = tb_lookup(cpu, &s);
+             if (tb == NULL) {
+                 CPUJumpCache *jc;
+                 uint32_t h;

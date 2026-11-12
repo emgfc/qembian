@@ -22,11 +22,14 @@
 #define TYPE_SYBORG_GL       "syborg-gl"
 #define TYPE_SYBORG_MODEM    "syborg-modem"
 #define TYPE_SYBORG_SENSOR   "syborg-sensor"
+#define TYPE_SYBORG_NET      "syborg-net"
 
 /* the host-composed screen (syborg-gl): the picture the display shows once the guest composes on the host
    (the guest's display memory is then DSA's, as on the phone); false: none, show guest memory. px is
    valid until the next composition (vCPU thread) or reset; w x h 32-bit pixels, rows w * 4 apart. */
-bool syborg_gl_frame(uint32_t *w, uint32_t *h, const uint8_t **px);
+bool syborg_gl_frame(uint32_t *w, uint32_t *h, const uint8_t **px);  /* true: locked until ... */
+void syborg_gl_frame_done(void);                                     /* ... this (phase 5) */
+void syborg_gl_set_window(void *w);  /* Android: the app's ANativeWindow (NULL: gone), present=window */
 
 /* Device ID register values (register 0 of each device). */
 #define SYBORG_ID_INTC     0xc51d0000
@@ -39,8 +42,15 @@ bool syborg_gl_frame(uint32_t *w, uint32_t *h, const uint8_t **px);
 #define SYBORG_ID_FB       0xc51d0006   /* the 0.9.1 plugin answers ...06, not ...07 */
 #define SYBORG_ID_NVMEM    0xdeadbeef
 #define SYBORG_ID_PLATFORM 0xc51d1000
-#define SYBORG_ID_AUDIO    0xc51d0010   /* ours: output for the N95 fake DSP */
+#define SYBORG_ID_AUDIO    0xc51d0012   /* ours: syborg-snd, 16 stream slots (syborg_audio.c; v1 was ...10, ...11 is GL) */
+/* syborg-snd host-side API (RAPIDO pacing from the fake modem) */
+bool syborg_snd_ring_written(int slot, uint32_t pos, uint64_t *target);
+uint32_t syborg_snd_pending(int slot, uint64_t target);
+uint32_t syborg_snd_ring_size(int slot);
+void syborg_snd_beep(uint32_t hz, uint32_t ms, uint32_t gain);
+
 #define SYBORG_ID_MODEM    0xc51d0020   /* ours: the fake BB5 modem (syborg_modem.c) */
 #define SYBORG_ID_SENSOR   0xc51d0030   /* ours: the accelerometer (syborg_sensor.c) */
+#define SYBORG_ID_NET      0xc51d0040   /* ours: the mailbox Ethernet NIC (syborg_net.c) */
 
 #endif

@@ -33,7 +33,14 @@ Related documents:
 - **Display.** The board shows the window server's screen chunk (H-ngage-fb); lcd.ldd's own
   transfers (probably DMA) aren't modelled.
 
-Not working or not modelled yet: see "Next" below. Game cards need the MMC controller.
+- **Memory card (2026-11-12).** The MMC controller and the DMA engine it uses are modelled
+  (`ngage_mmc.c`): a card image (`eka1/tools/ngage_card.py OUT.img GAME_DIR`, MBR + FAT16) is
+  identified, mounted and read (multi-block reads, the phone scans the game's files). Run:
+  `python3 eka1/tools/ngage_phone.py --mmc build/ngage/games/snakes-card.img` (or
+  `ngage_sess.py start --mmc IMG`). Writes are modelled but untested.
+
+Not working or not modelled yet: see "Next" below. Games can't be started yet: on the idle screen
+no key does anything (Menu, both softkeys), with or without a card (Next 1).
 
 ## Running it
 
@@ -199,11 +206,13 @@ $OD -D -b binary -m arm [-M force-thumb] --adjust-vma=0x50000000 \
 
 ## Next
 
-1. **Menu.** The Menu key didn't open the menu in the last test. Check that it reaches
-   ekeyb (scan code 0xB4), then what the menu app waits for: phonetsy sent SIM `09 23 {25}`,
-   still unanswered.
-2. **Game cards (MMC).** A minimal MMC controller (interrupt sources 21-24, medmmc.pdd)
-   backed by a card image as E:, then a dump of a real game card. Some N-Gage cards are
+1. **Games.** Fixed 2026-11-12: the dead keys a minute after boot were the board's timer 1 (the
+   kernel's one-shot queue) freezing on a stop/start without a new count; the keypad scan waits on
+   it. Now the Menu opens, Snakes (from the card) is listed and starts, then aborts in its own thread
+   (`6R45_1`, fault address 0xFFE503E4) and the kernel hits its fatal-fault routine. Next: what the
+   game touches there (its own LIGHTDRV.DLL / GAMECOMMS.DLL from the card, or a device page we don't
+   model: catch-all log). Do not answer SIM `09 23 {25}`: "not available" stopped start-up.
+2. **Game cards (MMC).** Done for plain FAT cards (above). A dump of a real game card next. Some N-Gage cards are
    copy-protected.
 3. **Time at boot.** The RTC hand-over passes the RTC's own unset time, so every boot asks
    for the time. Pass the host time in request 1 (Q49).

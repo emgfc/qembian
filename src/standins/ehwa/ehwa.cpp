@@ -19,11 +19,12 @@
 //   0x8000014/0x8000005/0x8000015  node send / listener / receive: the fake DSP task acks every
 //              message (send completes 0, listener KErrCompletion, receive returns {cmd,0,0})
 //   0x8000006  cancel the listener: completes it with KErrCancel [inferred from the run]
-// Playback (raw PCM node, docs/devices/nokia-n95-8gb-rm320/nokia-dsp-playback.md): WAV, the startup tone and key tones arrive
-// as PCM blocks on 0x800000e; they are copied into a physically contiguous ring and played by the
-// syborg-audio device (src/qemu-syborg/hw/arm/syborg_audio.c). A 10 ms pump DFC paces the client
-// (a block's status completes once the device has room), and after the end-of-stream block has
-// played the node gets DSP message {8,0,0} = play complete. Raw-node commands (cmd 7 config,
+// Playback (docs/devices/nokia-n95-8gb-rm320/nokia-dsp-playback.md): WAV, the startup tone and key tones (raw
+// PCM nodes) and MP3/AAC (codec nodes) arrive as blocks on 0x800000e; each node has its own ring and its
+// own syborg-snd slot (src/qemu-syborg/hw/arm/syborg_audio.c), the host mixes the slots. The slot's
+// watermark interrupt paces the client (a block's status completes once it is in the ring and at most
+// half the ring is queued), and the slot's EOS interrupt gives that node DSP message {8,0,0} / {4,0,0}
+// = play complete. Raw-node commands (cmd 7 config,
 // 3 start, 4 pause, 1 stop, 2 record) get no reply; only the send status completes.
 //   others     return 0, write nothing (logged)
 #include "nokiastub.h"
@@ -45,6 +46,7 @@ static TBool Bridge1710()
 	}
 #include <memmodel/epoc/platform.h>
 #include "syborg.h"
+#include "sybsnd.h"
 
 struct SDcdEntry { TUint8 iUuid[16]; TInt iType; TInt iPathLen; TUint16 iPath[256]; };	// path in 16-bit chars
 struct SDcdRegisterBlock { TInt iCount; const TAny* iPath; TUint8 iUuid[64][16]; TInt iType[64]; };	// 0x508
@@ -58,7 +60,7 @@ const TInt KNodeToken = 0x4e4f0045;	// opaque Bal node tokens: KNodeToken + (ind
 										// stub framework never tries to read memory at a token
 const TInt KLoadChunkSize = 0x40000;
 // per node (each Bal node create gets its own token; several EAP modules exist at once)
-const TInt KMaxNodes = 16;
+const TInt KMaxNodes = 15;			// one syborg-snd slot each (slot 15 is the device's capture slot)
 struct SNode
 	{
 	TRequestStatus* iListen;	// 0x8000005 listener, NULL when not armed
@@ -69,6 +71,14 @@ struct SNode
 	TInt iEapStream;			// ctl 4 config word c[2]: the EAP stream the node belongs to
 	TBool iRaw;					// raw PCM node (commands without the 0x20000000 shared form)
 	TInt iKind;					// ENodeOther / ENodeRaw / ENodeMp3 / ENodeAac / ENodeEaac
+	// playback: the node's own syborg-snd slot and ring (allocated at its first block)
+	DPlatChunkHw* iRing;
+	TPhysAddr iRingPhys;
+	TUint8* iRingLin;
+	TUint32 iWpos;				// bytes written to the slot (monotonic)
+	TBool iRunning;				// slot started for the current stream
+	TBool iEosWait;				// EOS given to the device: send the "stopped" message when it is reached
+	TBool iCancel, iStopMsg;	// cancel pending blocks / then answer the stop command
 	};
 // codec nodes by DSP node UUID (docs/devices/nokia-n95-8gb-rm320/nokia-dsp-playback.md sections 1 and 6)
 enum { ENodeOther, ENodeRaw, ENodeMp3, ENodeAac, ENodeEaac };
@@ -85,7 +95,8 @@ static TInt NodeKind(TUint32 aUuid0)
 	return ENodeOther;
 	}
 // device format, stop command and "stopped" DSP message per codec node
-static TInt KindFormat(TInt aKind) { return aKind == ENodeMp3 ? 2 : (aKind == ENodeAac || aKind == ENodeEaac) ? 3 : 0; }
+// codec nodes get their bitstream in the DSP's 16-bit big-endian words (MP3 frame sync arrives as fb ff) [V MP3]
+static TInt KindFormat(TInt aKind) { return aKind == ENodeMp3 ? SybSnd::FMp3 | SybSnd::FSwap16 : (aKind == ENodeAac || aKind == ENodeEaac) ? SybSnd::FAac | SybSnd::FSwap16 : SybSnd::FS16; }
 static TUint32 KindStopCmd(TInt aKind) { return (aKind == ENodeMp3 || aKind == ENodeAac) ? 6 : 1; }
 static TUint32 KindStoppedMsg(TInt aKind) { return (aKind == ENodeMp3 || aKind == ENodeAac) ? 4 : 8; }
 static SNode Nodes[KMaxNodes];
@@ -100,12 +111,13 @@ static SNode* Node(TAny* aToken)
 
 
 // ---- playback engine ------------------------------------------------------------------------
-// syborg-audio registers (word index), see syborg_audio.c
-enum { KAuCtrl = 1, KAuFormat = 2, KAuRate = 3, KAuChannels = 4, KAuBufAddr = 5, KAuBufLen = 6,
-	   KAuSubmit = 7, KAuStatus = 8, KAuVolume = 14, KAuQueueFree = 15, KAuDone = 16 };
-const TInt KSlots = 8, KSlotSize = 0x4000;		// 128 KB ring of PCM slots
-const TInt KAheadSlots = 3;						// complete a client block once <= this many are queued
-const TInt KMaxReq = 8;
+// Every Bal node that receives blocks (raw PCM: key tones, WAV, jingle; MP3/AAC/eAAC+ nodes) plays through
+// its own syborg-snd slot (src/standins/_shared/sybsnd.h): a 64 KB ring per node, the host mixes the
+// slots. A block's status completes once its bytes are in the ring and at most half the ring is still
+// queued (the slot's watermark interrupt), the end-of-stream block arms the slot's EOS, and the slot's
+// EOS interrupt sends that node its own "play complete" message. Several nodes play and end in any order.
+const TInt KRingSize = 0x10000;
+const TInt KMaxReq = 8;					// pending blocks per node
 struct SPcmReq
 	{
 	DThread* iClient;
@@ -113,24 +125,51 @@ struct SPcmReq
 	TLinAddr iPtr;			// payload (after the 4-byte header) in the client
 	TInt iLen, iCopied;
 	TBool iEos;
-	SNode* iNode;
+	TInt iErr;				// completion code (KErrNone unless the client's buffer could not be read)
 	};
-static SPcmReq Req[KMaxReq];
-static TInt ReqHead, ReqCount;
-static TBool CancelAll;
-static DPlatChunkHw* Ring;
-static TPhysAddr RingPhys;
-static TUint8* RingLin;
-static TInt SlotNext, Inflight;
-static TUint32 LastDone;
-static TBool Playing;
-static SNode* EosNode;			// waiting for the device's end of stream, then {8,0,0}
-static SNode* StopNode;			// stopped by the client (cmd 1): answer {8,0,0} after the cancel
+struct SNodeQueue { SPcmReq iReq[KMaxReq]; TInt iHead, iCount; };
+static SNodeQueue Queues[KMaxNodes];
+
+// Queue transactions: the client threads produce (control calls), the pump DFC consumes; reserve+publish and pop are
+// each one step with the kernel locked. A queued request holds a reference on its client thread, dropped when the
+// request is completed, so a client dying with blocks queued leaves no dangling pointer.
+static TBool QueuePush(SNodeQueue& q, const SPcmReq& aReq)
+	{
+	NKern::Lock();
+	TBool ok = q.iCount < KMaxReq;
+	if (ok)
+		{
+		q.iReq[(q.iHead + q.iCount) % KMaxReq] = aReq;
+		++q.iCount;
+		}
+	NKern::Unlock();
+	return ok;
+	}
+
+static void QueuePop(SNodeQueue& q)
+	{
+	NKern::Lock();
+	q.iHead = (q.iHead + 1) % KMaxReq;
+	--q.iCount;
+	NKern::Unlock();
+	}
+
+static void ReqComplete(SPcmReq& r, TInt aErr)
+	{
+	if (r.iStatus)
+		Kern::RequestComplete(r.iClient, r.iStatus, aErr);
+	NKern::ThreadEnterCS();
+	r.iClient->Close(NULL);
+	NKern::ThreadLeaveCS();
+	r.iClient = NULL;
+	}
+static TBool SndInit;					// device checked, IRQ bound
+static TBool SndPresent;
 static TDfc* PumpDfc;
 static NTimer* PumpTimer;
+static volatile TUint32 IrqPending;
 
-static void Au(TInt aReg, TUint32 aVal) { WriteReg(KHwSVPAudioDevice, aReg, aVal); }
-static TUint32 AuR(TInt aReg) { return ReadReg(KHwSVPAudioDevice, aReg); }
+static TInt NodeSlot(TInt aNode) { return aNode; }
 
 // EAP streams (docs/research/dsp-pcm-format.md): before a raw PCM node is created, eapcontrolmodule
 // sends EAP message 0 (16 bytes, eapgwc_ord8) {0, stream id, mode, rate code, stereo, port count,
@@ -200,122 +239,175 @@ static void DspMessage(SNode* aNode, TUint32 aCmd)
 		aNode->iReplyQueued = ETrue;
 	}
 
-static void Pump(TAny*)
+// copy the head block(s) of node i into its ring; complete what is in and played down to half a ring
+static void PumpNode(TInt i)
 	{
-	if (!Ring)
-		return;
-	TUint32 done = AuR(KAuDone);
-	Inflight -= (TInt)(done - LastDone);
-	if (Inflight < 0)
-		Inflight = 0;
-	LastDone = done;
-	if (CancelAll)
+	using namespace SybSnd;
+	SNode* n = &Nodes[i];
+	SNodeQueue& q = Queues[i];
+	TInt k = NodeSlot(i);
+	if (n->iCancel)
 		{
-		CancelAll = EFalse;
-		Au(KAuCtrl, 2);					// stop: drop the device queue
-		Playing = EFalse;
-		Inflight = 0;
-		LastDone = AuR(KAuDone);
-		EosNode = NULL;
-		while (ReqCount)
+		n->iCancel = EFalse;
+		S(k, SCtrl) = CStop;
+		n->iRunning = EFalse;
+		n->iEosWait = EFalse;
+		while (q.iCount)
 			{
-			SPcmReq& r = Req[ReqHead];
-			Kern::RequestComplete(r.iClient, r.iStatus, KErrCancel);
-			ReqHead = (ReqHead + 1) % KMaxReq;
-			--ReqCount;
+			ReqComplete(q.iReq[q.iHead], KErrCancel);
+			QueuePop(q);
 			}
 		}
-	if (StopNode)
+	if (n->iStopMsg)
 		{
-		Kern::Printf("SYBSTUB: Hwa play stopped");
-		DspMessage(StopNode, KindStoppedMsg(StopNode->iKind));	// stopped node: {8} raw/eAAC+, {4} MP3/AAC
-		StopNode = NULL;
+		n->iStopMsg = EFalse;
+		Kern::Printf("SYBSTUB: Hwa node %d play stopped", i);
+		DspMessage(n, KindStoppedMsg(n->iKind));	// stopped node: {8} raw/eAAC+, {4} MP3/AAC
 		}
-	while (ReqCount)
+	if (n->iEosWait && (S(k, SStatus) & StEos))
 		{
-		SPcmReq& r = Req[ReqHead];
-		if (!Playing)
+		n->iEosWait = EFalse;
+		n->iRunning = EFalse;
+		Kern::Printf("SYBSTUB: Hwa node %d play complete", i);
+		DspMessage(n, KindStoppedMsg(n->iKind));	// play complete: {8} raw/eAAC+, {4} MP3/AAC
+		}
+	while (q.iCount && n->iRing)
+		{
+		SPcmReq& r = q.iReq[q.iHead];
+		if (!n->iRunning || n->iEosWait)
 			{
-			Au(KAuFormat, KindFormat(r.iNode->iKind));
-			Au(KAuRate, r.iNode->iRate);
-			Au(KAuChannels, r.iNode->iChannels);
-			Au(KAuCtrl, 1);
-			Playing = ETrue;
-			Kern::Printf("SYBSTUB: Hwa play kind %d format %d (%d Hz %d ch)", r.iNode->iKind,
-						 KindFormat(r.iNode->iKind), r.iNode->iRate, r.iNode->iChannels);
+			if (n->iEosWait)
+				break;					// the previous stream is still draining
+			S(k, SCtrl) = CStop;
+			S(k, SFormat) = KindFormat(n->iKind);
+			S(k, SRate) = n->iRate;
+			S(k, SChannels) = n->iChannels;
+			S(k, SRingAddr) = n->iRingPhys;
+			S(k, SRingSize) = KRingSize;
+			S(k, SWatermark) = KRingSize / 2;
+			S(k, SGain) = 256;
+			S(k, SClass) = n->iKind == ENodeRaw ? 1 : 4;
+			S(k, SCtrl) = CStart;
+			n->iWpos = 0;
+			n->iRunning = ETrue;
+			Kern::Printf("SYBSTUB: Hwa node %d -> slot %d: kind %d format %d (%d Hz %d ch)", i, k, n->iKind,
+						 KindFormat(n->iKind), n->iRate, n->iChannels);
 			}
-		while (r.iCopied < r.iLen && Inflight < KSlots)
+		TUint32 queued = n->iWpos - S(k, SReadPos);
+		TInt room = KRingSize - (TInt)queued;
+		while (r.iCopied < r.iLen && room > 0)
 			{
-			TInt n = Min(KSlotSize, r.iLen - r.iCopied);
-			TUint8* slot = RingLin + SlotNext * KSlotSize;
-			if (Kern::ThreadRawRead(r.iClient, (const TAny*)(r.iPtr + r.iCopied), slot, n) != KErrNone)
+			TInt at = n->iWpos % KRingSize;
+			TInt m = Min(Min(r.iLen - r.iCopied, room), KRingSize - at);
+			if (Kern::ThreadRawRead(r.iClient, (const TAny*)(r.iPtr + r.iCopied), n->iRingLin + at, m) != KErrNone)
 				{
+				r.iErr = KErrBadDescriptor;	// the client's buffer went away: what was copied plays, the error goes back
 				r.iCopied = r.iLen;
 				break;
 				}
-			Au(KAuBufAddr, RingPhys + SlotNext * KSlotSize);
-			Au(KAuBufLen, n);
-			Au(KAuSubmit, 1);
-			SlotNext = (SlotNext + 1) % KSlots;
-			++Inflight;
-			r.iCopied += n;
+			r.iCopied += m;
+			n->iWpos += m;
+			room -= m;
 			}
-		if (r.iCopied < r.iLen || Inflight > KAheadSlots)
-			break;						// wait for the device to play some of it
+		S(k, SWritePos) = n->iWpos;
+		queued = n->iWpos - S(k, SReadPos);
+		if (r.iCopied < r.iLen || queued > (TUint32)KRingSize / 2)
+			break;						// the watermark interrupt brings us back
 		if (r.iEos)
 			{
-			Au(KAuCtrl, 4);				// end: report once everything queued has played
-			EosNode = r.iNode;
-			Kern::Printf("SYBSTUB: Hwa end of stream queued (inflight %d)", Inflight);
+			S(k, SCtrl) = CEos;			// end: report once everything written has played
+			n->iEosWait = ETrue;
+			Kern::Printf("SYBSTUB: Hwa node %d end of stream queued (%d bytes)", i, n->iWpos);
 			}
-		Kern::RequestComplete(r.iClient, r.iStatus, KErrNone);	// "buffer consumed"
-		ReqHead = (ReqHead + 1) % KMaxReq;
-		--ReqCount;
+		ReqComplete(r, r.iErr);		// "buffer consumed"
+		QueuePop(q);
 		}
-	if (EosNode && (AuR(KAuStatus) & 2))
-		{
-		Kern::Printf("SYBSTUB: Hwa play complete");
-		DspMessage(EosNode, KindStoppedMsg(EosNode->iKind));	// play complete: {8} raw/eAAC+, {4} MP3/AAC
-		EosNode = NULL;
-		Playing = EFalse;
-		}
-	if (ReqCount || Inflight || EosNode)
-		PumpTimer->OneShot(NKern::TimerTicks(10), *PumpDfc);
 	}
 
-static TInt PlaybackInit()
+static void Pump(TAny*)
 	{
-	if (Ring)
-		return KErrNone;
+	TInt irq = NKern::DisableAllInterrupts();
+	IrqPending = 0;
+	NKern::RestoreInterrupts(irq);
+	TBool busy = EFalse;
+	for (TInt i = 0; i < NodeCount; ++i)
+		{
+		PumpNode(i);
+		busy |= Queues[i].iCount || Nodes[i].iEosWait;
+		}
+	if (busy)
+		PumpTimer->OneShot(NKern::TimerTicks(50), *PumpDfc);	// safety net; interrupts drive the pump
+	}
+
+static void SndIsr(TAny*)
+	{
+	using namespace SybSnd;
+	TUint32 st = G(RIntStatus);
+	G(RIntStatus) = st;					// level interrupt: cleared here, the DFC reads the slot status
+	Interrupt::Clear(KIrq);
+	IrqPending |= st;
+	PumpDfc->Add();
+	}
+
+// once: is syborg-snd there (an old QEMU with the v1 device is not), bind its interrupt
+static TBool PlaybackInit()
+	{
+	using namespace SybSnd;
+	if (SndInit)
+		return SndPresent;
+	SndInit = ETrue;
+	SndPresent = Present();
+	if (!SndPresent)
+		{
+		Kern::Printf("SYBSTUB: Hwa no syborg-snd (id %08x): blocks complete unplayed", (TUint32)G(RId));
+		return EFalse;
+		}
 	NKern::ThreadEnterCS();
-	TInt r = Epoc::AllocPhysicalRam(KSlots * KSlotSize, RingPhys, 12);
-	if (r == KErrNone)
-		r = DPlatChunkHw::New(Ring, RingPhys, KSlots * KSlotSize, EMapAttrSupRw | EMapAttrFullyBlocking);
+	PumpDfc = new TDfc(Pump, NULL, Kern::DfcQue0(), 1);
+	PumpTimer = new NTimer;
+	NKern::ThreadLeaveCS();
+	if (!PumpDfc || !PumpTimer || Interrupt::Bind(KIrq, SndIsr, NULL) < 0)
+		{
+		Kern::Printf("SYBSTUB: Hwa playback init failed");
+		SndPresent = EFalse;
+		return EFalse;
+		}
+	G(RIntEnable) = 0x7fff;
+	Interrupt::Enable(KIrq);
+	Kern::Printf("SYBSTUB: Hwa syborg-snd caps %08x", (TUint32)G(RCaps));
+	return ETrue;
+	}
+
+// the node's ring, on its first block (client thread context)
+static TBool NodeRing(SNode* aNode)
+	{
+	if (aNode->iRing)
+		return ETrue;
+	NKern::ThreadEnterCS();
+	TInt r = Epoc::AllocPhysicalRam(KRingSize, aNode->iRingPhys, 12);
 	if (r == KErrNone)
 		{
-		PumpDfc = new TDfc(Pump, NULL, Kern::DfcQue0(), 1);
-		PumpTimer = new NTimer;
-		if (!PumpDfc || !PumpTimer)
-			r = KErrNoMemory;
+		r = DPlatChunkHw::New(aNode->iRing, aNode->iRingPhys, KRingSize, EMapAttrSupRw | EMapAttrFullyBlocking);
+		if (r != KErrNone)
+			{
+			Epoc::FreePhysicalRam(aNode->iRingPhys, KRingSize);
+			aNode->iRing = NULL;
+			}
 		}
 	NKern::ThreadLeaveCS();
 	if (r != KErrNone)
 		{
-		Kern::Printf("SYBSTUB: Hwa playback init failed %d", r);
-		Ring = NULL;
-		return r;
+		Kern::Printf("SYBSTUB: Hwa node ring: %d", r);
+		return EFalse;
 		}
-	RingLin = (TUint8*)Ring->LinearAddress();
-	Au(KAuVolume, 200);
-	LastDone = AuR(KAuDone);
-	Kern::Printf("SYBSTUB: Hwa playback ring %d KB at phys %08x, audio device id %08x",
-				 KSlots * KSlotSize / 1024, RingPhys, AuR(0));
-	return KErrNone;
+	aNode->iRingLin = (TUint8*)aNode->iRing->LinearAddress();
+	return ETrue;
 	}
 
 static void Kick()
 	{
-	PumpDfc->Enque();
+	if (PumpDfc)
+		PumpDfc->Enque();
 	}
 
 static TBool SameUuid(const TUint8* a, const TUint8* b)
@@ -486,10 +578,33 @@ static TInt HwaCtl(DThread* aClient, TInt aFn, TAny* a1, TAny* a2, const TUint32
 		}
 	case 4:			// Bal node create: *a2 = node token
 		{
-		TInt i = NodeCount < KMaxNodes ? NodeCount++ : KMaxNodes - 1;	// reuse the last slot if full
+		// a new node, else an idle one (no stream, no queued blocks, no listener): never one that is playing
+		TInt i = -1;
+		if (NodeCount < KMaxNodes)
+			i = NodeCount++;
+		else
+			{
+			static TInt next;
+			for (TInt t = 0; t < KMaxNodes && i < 0; ++t)
+				{
+				TInt c = (next + t) % KMaxNodes;
+				if (!Nodes[c].iRunning && !Nodes[c].iEosWait && !Queues[c].iCount && !Nodes[c].iListen)
+					i = c;
+				}
+			if (i < 0)
+				{
+				Kern::Printf("SYBSTUB: Hwa node create: all %d nodes busy", KMaxNodes);
+				return KErrNoMemory;
+				}
+			next = i + 1;
+			}
 		Nodes[i].iListen = NULL;
 		Nodes[i].iReplyQueued = EFalse;
 		Nodes[i].iRaw = EFalse;
+		Nodes[i].iEosWait = Nodes[i].iCancel = Nodes[i].iStopMsg = EFalse;
+		if (Nodes[i].iRunning && SndPresent)
+			SybSnd::S(NodeSlot(i), SybSnd::SCtrl) = SybSnd::CStop;
+		Nodes[i].iRunning = EFalse;	// (a reused node keeps its ring)
 		Nodes[i].iKind = NodeKind(LastDefUuid);
 		// a1 -> TBuf8<0x14>{p1 (rate mask), p0, node struct*, p2 (encoding), p3 (channels)}
 		TUint32 c[7] = {0, 0, 0, 0, 0, 0, 0};
@@ -581,10 +696,10 @@ static TInt HwaCtl(DThread* aClient, TInt aFn, TAny* a1, TAny* a2, const TUint32
 			TRequestStatus* send = (TRequestStatus*)b[0];
 			if (send)
 				Kern::RequestComplete(aClient, send, KErrNone);
-			if (m[2] == KindStopCmd(n->iKind) && Ring)
+			if (m[2] == KindStopCmd(n->iKind) && SndPresent)
 				{
-				StopNode = n;
-				CancelAll = ETrue;
+				n->iCancel = ETrue;		// this node only: other nodes keep playing
+				n->iStopMsg = ETrue;
 				Kick();
 				}
 			return KErrNone;
@@ -622,38 +737,58 @@ static TInt HwaCtl(DThread* aClient, TInt aFn, TAny* a1, TAny* a2, const TUint32
 		TUint8 hdr[4] = {0, 0, 0, 0};
 		if (len >= 4)
 			Kern::ThreadRawRead(aClient, (const TAny*)b[2], hdr, 4);
-		if (!n || PlaybackInit() != KErrNone || ReqCount == KMaxReq || len < 4)
+		TBool eos = n && (n->iKind == ENodeAac ? hdr[2] == 1 : (hdr[3] & 0x10) != 0);
+		SNodeQueue* q = n ? &Queues[n - Nodes] : NULL;
+		if (!n || len < 4 || !PlaybackInit() || !NodeRing(n))
 			{
 			if (st)
 				Kern::RequestComplete(aClient, st, KErrNone);
+			if (n && eos)
+				DspMessage(n, KindStoppedMsg(n->iKind));	// nothing plays: the stream ends at once
 			return KErrNone;
 			}
-		NKern::Lock();
-		SPcmReq& r = Req[(ReqHead + ReqCount) % KMaxReq];
+		SPcmReq r;
+		r.iErr = KErrNone;
 		r.iClient = aClient;
 		r.iStatus = st;
 		r.iPtr = b[2] + 4;
 		r.iLen = len - 4;
 		r.iCopied = 0;
-		r.iEos = n->iKind == ENodeAac ? hdr[2] == 1 : (hdr[3] & 0x10) != 0;
+		r.iEos = eos;
 		if (n->iKind == ENodeAac && hdr[2] == 2)
 			r.iLen = 0;					// AAC concealment (header-only) block: nothing to play
+		if (n->iKind != ENodeRaw && !n->iRunning && q->iCount == 0 && len >= 12)
+			{
+			TUint8 p[8];
+			Kern::ThreadRawRead(aClient, (const TAny*)(b[2] + 4), p, 8);
+			Kern::Printf("SYBSTUB: Hwa node %d first codec block len %d hdr %02x %02x %02x %02x data %02x %02x %02x %02x %02x %02x %02x %02x",
+						 n - Nodes, len, hdr[0], hdr[1], hdr[2], hdr[3], p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7]);
+			}
 		if (r.iEos || len <= 4)
-			Kern::Printf("SYBSTUB: Hwa PCM block len %d hdr %02x %02x %02x %02x words %08x %08x %08x", len,
-						 hdr[0], hdr[1], hdr[2], hdr[3], b[4], b[5], b[6]);
-		r.iNode = n;
-		++ReqCount;
-		NKern::Unlock();
+			Kern::Printf("SYBSTUB: Hwa node %d block len %d hdr %02x %02x %02x %02x words %08x %08x %08x", n - Nodes,
+						 len, hdr[0], hdr[1], hdr[2], hdr[3], b[4], b[5], b[6]);
+		NKern::ThreadEnterCS();
+		aClient->Open();				// held by the queued request (ReqComplete drops it)
+		NKern::ThreadLeaveCS();
+		if (!QueuePush(*q, r))
+			{
+			Kern::Printf("SYBSTUB: Hwa node %d queue full: block refused", n - Nodes);
+			r.iClient = aClient;
+			ReqComplete(r, KErrOverflow);
+			return KErrNone;
+			}
 		Kick();
 		return KErrNone;
 		}
-	case 0x800000f:	// cancel PCM issue: pending blocks complete KErrCancel, device stops
-		if (Ring)
-			{
-			CancelAll = ETrue;
-			Kick();
-			}
+	case 0x800000f:	// cancel PCM issue: the node's pending blocks complete KErrCancel, its slot stops
+		{
+		SNode* n = Node(a1);
+		for (TInt i = 0; SndPresent && i < NodeCount; ++i)
+			if (!n || n == &Nodes[i])
+				Nodes[i].iCancel = ETrue;
+		Kick();
 		return KErrNone;
+		}
 	case 0x8000015:	// Bal receive: a2 -> { TRequestStatus* rx, TBuf8<12>* out }
 		{
 		TUint32 b[2] = {0, 0};

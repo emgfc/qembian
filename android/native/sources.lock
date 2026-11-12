@@ -1,0 +1,4 @@
+# Android native build inputs (android/native/build.sh): name, URL, sha256. glib's own wraps fetch libffi,
+# pcre2 and proxy-libintl into its subprojects at configure time (glib pins those).
+glib-2.86.5.tar.xz   https://download.gnome.org/sources/glib/2.86/glib-2.86.5.tar.xz   ce85a947bb8b3c0204dbeff79aec39bcb46371c6fafb64ba5b8726c71e038d5f
+pixman-0.46.4.tar.gz https://cairographics.org/releases/pixman-0.46.4.tar.gz          d09c44ebc3bd5bee7021c79f922fe8fb2fb57f7320f55e97ff9914d2346a591c

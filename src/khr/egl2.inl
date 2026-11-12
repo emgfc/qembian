@@ -154,15 +154,16 @@ EXPORT_C EGLBoolean eglWaitNative(EGLint e) { A((unsigned int)e); return CALL(Wa
 EXPORT_C EGLBoolean eglSwapBuffers(EGLDisplay d, EGLSurface s)
 {
 	WindowContext *w = WinOf((unsigned int)s);
-	if (w && w->iSize != w->iWindow->SizeForEgl() && MakeSurface(w) == KErrNone) {
+	if (w && w->iSize != WindowSize(w) && MakeSurface(w) == KErrNone) {
 		const unsigned int *sid = (const unsigned int *)w->iSurface.iInternal;
 		A((unsigned int)s, sid[0], sid[1], sid[2], sid[3], (unsigned int)w->iSize.iWidth, (unsigned int)w->iSize.iHeight);
 		CALL(WindowUpdate);
 	}
 	A((unsigned int)d, (unsigned int)s);
 	unsigned int r = CALL(SwapBuffers);
-	if (w && (r & 2) && w->iSusOpen) {
-		w->iSus.SubmitUpdate(KAllScreens, w->iSurface, 0, NULL);
+	RSurfaceUpdateSession *sus = w && (r & 2) ? ThreadSus() : NULL;
+	if (sus) {
+		sus->SubmitUpdate(KAllScreens, w->iSurface, 0, NULL);
 		if (w->iFrames++ < 3)
 			RDebug::Printf("KHR: swap %d window %08x %dx%d (host EGL)", w->iFrames, w->iWindow, w->iSize.iWidth, w->iSize.iHeight);
 	}
@@ -171,12 +172,317 @@ EXPORT_C EGLBoolean eglSwapBuffers(EGLDisplay d, EGLSurface s)
 
 EXPORT_C EGLBoolean eglCopyBuffers(EGLDisplay d, EGLSurface s, EGLNativePixmapType px) { A((unsigned int)d, (unsigned int)s, (unsigned int)px); return CALL(CopyBuffers); }
 
-/* the host says whether the function exists and for which OpenGL ES (1 or 2); the stub is ours */
+/* EGL_NOK_resource_profiling(2) and EGL_KHR_reusable_sync: reached through eglGetProcAddress only (no
+   libEGL ordinals). Forwarding; the host keeps the sync objects and the memory figures. */
+static EGLBoolean eglQueryProfilingDataNOK_2(EGLDisplay d, EGLint bits, EGLint *data, EGLint size, EGLint *count)
+{
+	A((unsigned int)d, (unsigned int)bits, (unsigned int)data, (unsigned int)size, (unsigned int)count);
+	return CALL(QueryProfilingDataNOK);
+}
+
+static void *eglCreateSyncKHR_2(EGLDisplay d, EGLenum type, const EGLint *attribs)
+{
+	A((unsigned int)d, (unsigned int)type, (unsigned int)attribs);
+	return (void *)CALL(CreateSyncKHR);
+}
+
+static EGLBoolean eglDestroySyncKHR_2(EGLDisplay d, void *sync)
+{
+	A((unsigned int)d, (unsigned int)sync);
+	return CALL(DestroySyncKHR);
+}
+
+/* the host never blocks the vCPU: while the sync is unsignaled it answers EGL_TIMEOUT_EXPIRED_KHR, and this
+   thread sleeps and asks again until its timeout (nanoseconds; EGL_FOREVER_KHR: no end) ran out */
+static EGLint eglClientWaitSyncKHR_2(EGLDisplay d, void *sync, EGLint flags, TUint64 timeout)
+{
+	const TInt KPollUs = 20000;
+	TUint64 waited = 0;
+	for (;;) {
+		A((unsigned int)d, (unsigned int)sync, (unsigned int)flags);
+		EGLint r = (EGLint)CALL(ClientWaitSyncKHR);
+		if (r != 0x30F5 /* EGL_TIMEOUT_EXPIRED_KHR */ || timeout == 0 || waited >= timeout)
+			return r;
+		User::After(KPollUs);
+		waited += (TUint64)KPollUs * 1000;
+	}
+}
+
+static EGLBoolean eglSignalSyncKHR_2(EGLDisplay d, void *sync, EGLenum mode)
+{
+	A((unsigned int)d, (unsigned int)sync, (unsigned int)mode);
+	return CALL(SignalSyncKHR);
+}
+
+static EGLBoolean eglGetSyncAttribKHR_2(EGLDisplay d, void *sync, EGLint attribute, EGLint *value)
+{
+	A((unsigned int)d, (unsigned int)sync, (unsigned int)attribute, (unsigned int)value);
+	return CALL(GetSyncAttribKHR);
+}
+
+/* EGL_NOK_image_endpoint(2): the host keeps the endpoints, their frames and the EGLImages. What stays here:
+   the surface opened and mapped in this process (its buffers, for producers that draw in guest memory) and the
+   notification requests (a TRequestStatus of a thread of this process: a poller thread asks the host which
+   are due and completes them). */
+struct EpLocal { unsigned int iId; RChunk iChunk; TSurfaceId iSid; TBool iMapped; TRequestStatus *iStatus; TThreadId iThread; };
+static EpLocal gEps[16];
+static RSurfaceManager gEpSm;
+static TBool gEpSmOpen;
+static RMutex gEpLock;
+static TBool gEpPoller;
+
+static EpLocal *EpFind(unsigned int aId)
+{
+	for (TInt i = 0; i < 16; i++)
+		if (gEps[i].iId && gEps[i].iId == aId)
+			return &gEps[i];
+	return NULL;
+}
+
+static void EpComplete(EpLocal *e, TInt aReason)
+{
+	if (!e->iStatus)
+		return;
+	RThread t;
+	if (t.Open(e->iThread) == KErrNone) {
+		t.RequestComplete(e->iStatus, aReason);
+		t.Close();
+	}
+	e->iStatus = NULL;
+}
+
+static TInt EpPollerFn(TAny *)
+{
+	unsigned int dummy = 0;
+	for (;;) {
+		User::After(16000);
+		TBool any = EFalse;
+		gEpLock.Wait();
+		for (TInt i = 0; i < 16 && !any; i++)
+			any = gEps[i].iId && gEps[i].iStatus;
+		gEpLock.Signal();
+		if (!any)
+			continue;
+		if (EglCall(EGL2_FN_EndpointPollNOK, &dummy, 0, 4 * 17)) {
+			unsigned int ids[16], n;
+			OSAcquireMutex();
+			const unsigned int *o = khrHostOutArea();
+			n = o[0] > 16 ? 16 : o[0];
+			for (unsigned int k = 0; k < n; k++)
+				ids[k] = o[1 + k];
+			OSReleaseMutex();
+			gEpLock.Wait();
+			for (unsigned int k = 0; k < n; k++) {
+				EpLocal *e = EpFind(ids[k]);
+				if (e)
+					EpComplete(e, KErrNone);
+			}
+			gEpLock.Signal();
+		}
+	}
+}
+
+static void *eglCreateEndpointNOK_2(EGLDisplay d, EGLenum type, EGLenum stype, void *source, const EGLint *attribs)
+{
+	TInt w = 0, h = 0, stride = 0, nbuf = 0, off0 = 0, off1 = 0;
+	TUint32 fmt = 0, base = 0;
+	EpLocal *slot = NULL;
+	if (!gEpLock.Handle() && gEpLock.CreateLocal() != KErrNone)
+		return NULL;
+	gEpLock.Wait();
+	for (TInt i = 0; i < 16 && !slot; i++)
+		if (!gEps[i].iId)
+			slot = &gEps[i];
+	if (slot && source && stype == 0x30D3) {
+		if (!gEpSmOpen)
+			gEpSmOpen = gEpSm.Open() == KErrNone;
+		const TSurfaceId &sid = *(const TSurfaceId *)source;
+		RSurfaceManager::TInfoBuf ib;
+		if (gEpSmOpen && gEpSm.OpenSurface(sid) == KErrNone) {
+			slot->iSid = sid;
+			if (gEpSm.SurfaceInfo(sid, ib) == KErrNone) {
+				w = ib().iSize.iWidth; h = ib().iSize.iHeight; stride = ib().iStride;
+				fmt = ib().iPixelFormat; nbuf = ib().iBuffers;
+			}
+			if (gEpSm.MapSurface(sid, slot->iChunk) == KErrNone) {
+				slot->iMapped = ETrue;
+				base = (TUint32)slot->iChunk.Base();
+				gEpSm.GetBufferOffset(sid, 0, off0);
+				if (nbuf > 1)
+					gEpSm.GetBufferOffset(sid, 1, off1);
+			}
+		}
+	}
+	A((unsigned int)d, (unsigned int)type, (unsigned int)stype, (unsigned int)source, (unsigned int)attribs,
+	  (unsigned int)w, (unsigned int)h, (unsigned int)stride, (unsigned int)fmt, (unsigned int)nbuf,
+	  (unsigned int)off0, (unsigned int)off1, (unsigned int)base);
+	unsigned int id = slot ? CALL(CreateEndpointNOK) : 0;
+	if (slot && id) {
+		slot->iId = id;
+		slot->iStatus = NULL;
+	} else if (slot) {
+		if (slot->iMapped)
+			slot->iChunk.Close();
+		if (!slot->iSid.IsNull())
+			gEpSm.CloseSurface(slot->iSid);
+		Mem::FillZ(slot, sizeof(*slot));
+	}
+	gEpLock.Signal();
+	return (void *)id;
+}
+
+static EGLBoolean eglDestroyEndpointNOK_2(EGLDisplay d, void *ep)
+{
+	A((unsigned int)d, (unsigned int)ep);
+	EGLBoolean r = CALL(DestroyEndpointNOK);
+	if (r && gEpLock.Handle()) {
+		gEpLock.Wait();
+		EpLocal *e = EpFind((unsigned int)ep);
+		if (e) {
+			EpComplete(e, KErrCancel);
+			if (e->iMapped)
+				e->iChunk.Close();
+			gEpSm.CloseSurface(e->iSid);
+			Mem::FillZ(e, sizeof(*e));
+		}
+		gEpLock.Signal();
+	}
+	return r;
+}
+
+static EGLint eglGetEndpointAttribNOK_2(EGLDisplay d, void *ep, EGLint attrib)
+{
+	A((unsigned int)d, (unsigned int)ep, (unsigned int)attrib);
+	return (EGLint)CALL(GetEndpointAttribNOK);
+}
+
+static EGLBoolean eglSetEndpointAttribNOK_2(EGLDisplay d, void *ep, EGLint attrib, EGLint value)
+{
+	A((unsigned int)d, (unsigned int)ep, (unsigned int)attrib, (unsigned int)value);
+	return CALL(SetEndpointAttribNOK);
+}
+
+static EGLBoolean eglEndpointBeginStreamingNOK_2(EGLDisplay d, void *ep)
+{
+	A((unsigned int)d, (unsigned int)ep);
+	return CALL(EndpointBeginStreamingNOK);
+}
+
+static EGLBoolean eglEndpointEndStreamingNOK_2(EGLDisplay d, void *ep)
+{
+	A((unsigned int)d, (unsigned int)ep);
+	return CALL(EndpointEndStreamingNOK);
+}
+
+static void *eglAcquireImageNOK_2(EGLDisplay d, void *ep)
+{
+	A((unsigned int)d, (unsigned int)ep);
+	return (void *)CALL(AcquireImageNOK);
+}
+
+static EGLBoolean eglReleaseImageNOK_2(EGLDisplay d, void *ep, void *image, EGLenum api)
+{
+	A((unsigned int)d, (unsigned int)ep, (unsigned int)image, (unsigned int)api);
+	return CALL(ReleaseImageNOK);
+}
+
+static EGLint eglGetEndpointDirtyAreaNOK_2(EGLDisplay d, void *ep, EGLint *rects, EGLint start, EGLint max, EGLBoolean collapse)
+{
+	A((unsigned int)d, (unsigned int)ep, (unsigned int)rects, (unsigned int)start, (unsigned int)max, (unsigned int)collapse);
+	return (EGLint)CALL(GetEndpointDirtyAreaNOK);
+}
+
+static EGLBoolean eglEndpointRequestNotificationNOK_2(EGLDisplay d, void *ep, void *status)
+{
+	if (!status || !gEpLock.Handle())
+		return EGL_FALSE;
+	gEpLock.Wait();
+	EpLocal *e = EpFind((unsigned int)ep);
+	if (e) {
+		EpComplete(e, KErrCancel);              /* a new request replaces the old */
+		e->iStatus = (TRequestStatus *)status;
+		*e->iStatus = KRequestPending;
+		e->iThread = RThread().Id();
+	}
+	if (e && !gEpPoller) {
+		RThread t;
+		if (t.Create(_L("KhrEndpoints"), EpPollerFn, 0x2000, NULL, NULL) == KErrNone) {
+			t.Resume();
+			t.Close();
+			gEpPoller = ETrue;
+		}
+	}
+	gEpLock.Signal();
+	A((unsigned int)d, (unsigned int)ep);
+	EGLBoolean r = e ? CALL(EndpointRequestNotificationNOK) : CALL(EndpointRequestNotificationNOK);
+	if (!r && e) {
+		gEpLock.Wait();
+		e->iStatus = NULL;
+		gEpLock.Signal();
+	}
+	return r;
+}
+
+static EGLBoolean eglEndpointCancelNotificationNOK_2(EGLDisplay d, void *ep)
+{
+	A((unsigned int)d, (unsigned int)ep);
+	EGLBoolean r = CALL(EndpointCancelNotificationNOK);
+	if (gEpLock.Handle()) {
+		gEpLock.Wait();
+		EpLocal *e = EpFind((unsigned int)ep);
+		if (e)
+			EpComplete(e, KErrCancel);
+		gEpLock.Signal();
+	}
+	return r;
+}
+
+static EGLBoolean eglDestroyImageKHR_2(EGLDisplay d, void *image)
+{
+	A((unsigned int)d, (unsigned int)image);
+	return CALL(DestroyImageKHR);
+}
+
+static unsigned int vgCreateEGLImageTargetKHR_2(void *image)
+{
+	A((unsigned int)image);
+	return CALL(CreateEGLImageTargetKHR);
+}
+
+/* the host says whether the function exists: for which OpenGL ES (1 or 2), or an EGL extension function (3);
+   the stub is ours */
 typedef void (*KhrProc2)(...);
 EXPORT_C KhrProc2 eglGetProcAddress(const char *name)
 {
 	A((unsigned int)name);
 	unsigned int api = name ? CALL(GetProcAddress) : 0;
+	if (api == 3) {
+		static const struct { const char *iName; KhrProc2 iFn; } KEgl[] = {
+			{ "eglQueryProfilingDataNOK", (KhrProc2)eglQueryProfilingDataNOK_2 },
+			{ "eglCreateSyncKHR", (KhrProc2)eglCreateSyncKHR_2 },
+			{ "eglDestroySyncKHR", (KhrProc2)eglDestroySyncKHR_2 },
+			{ "eglClientWaitSyncKHR", (KhrProc2)eglClientWaitSyncKHR_2 },
+			{ "eglSignalSyncKHR", (KhrProc2)eglSignalSyncKHR_2 },
+			{ "eglGetSyncAttribKHR", (KhrProc2)eglGetSyncAttribKHR_2 },
+			{ "eglCreateEndpointNOK", (KhrProc2)eglCreateEndpointNOK_2 },
+			{ "eglDestroyEndpointNOK", (KhrProc2)eglDestroyEndpointNOK_2 },
+			{ "eglGetEndpointAttribNOK", (KhrProc2)eglGetEndpointAttribNOK_2 },
+			{ "eglSetEndpointAttribNOK", (KhrProc2)eglSetEndpointAttribNOK_2 },
+			{ "eglEndpointBeginStreamingNOK", (KhrProc2)eglEndpointBeginStreamingNOK_2 },
+			{ "eglEndpointEndStreamingNOK", (KhrProc2)eglEndpointEndStreamingNOK_2 },
+			{ "eglAcquireImageNOK", (KhrProc2)eglAcquireImageNOK_2 },
+			{ "eglReleaseImageNOK", (KhrProc2)eglReleaseImageNOK_2 },
+			{ "eglGetEndpointDirtyAreaNOK", (KhrProc2)eglGetEndpointDirtyAreaNOK_2 },
+			{ "eglEndpointRequestNotificationNOK", (KhrProc2)eglEndpointRequestNotificationNOK_2 },
+			{ "eglEndpointCancelNotificationNOK", (KhrProc2)eglEndpointCancelNotificationNOK_2 },
+			{ "eglDestroyImageKHR", (KhrProc2)eglDestroyImageKHR_2 },
+			{ "vgCreateEGLImageTargetKHR", (KhrProc2)vgCreateEGLImageTargetKHR_2 },
+		};
+		for (TUint i = 0; i < sizeof(KEgl) / sizeof(KEgl[0]); i++)
+			if (TPtrC8((const TUint8 *)KEgl[i].iName) == TPtrC8((const TUint8 *)name))
+				return KEgl[i].iFn;
+		return NULL;
+	}
 	return api ? (KhrProc2)khr_gl_proc(name, (int)api) : NULL;
 }
 

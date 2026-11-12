@@ -91,8 +91,12 @@ typedef TInt (*LGetRect)(Layer *, TRect *);
 typedef TInt (*LInt)(Layer *);
 typedef Layer *(*LLayer)(Layer *);
 typedef const TSurfaceId *(*LSurf)(Layer *);
-enum { L_SRC_RECT = 1, L_ALPHA = 3, L_DST_RECT = 5, L_ROTATION = 7, L_NEXT = 14, L_PREV = 15,
+typedef void (*LFlags)(TUint32 *out, Layer *);  /* hidden return pointer in r0 */
+enum { L_SRC_RECT = 1, L_ALPHA = 3, L_DST_RECT = 5, L_ROTATION = 7, L_FLAGS = 13, L_NEXT = 14, L_PREV = 15,
        L_SURFACE = 17, L_ZORDER = 25, L_NULL_SURFACE = 27 };
+/* L_FLAGS bit 0: blend by the surface's alpha (clear: the layer is opaque, its alpha ignored), as Nokia's own
+   backend maps it to the VideoCore element's alpha mode (docs/devices/nokia-n8-rm596/gce-layer-opacity.md) */
+#define LF_SOURCE_ALPHA 1u
 
 #define MAX_SURF 24
 #define MAX_STAGE 32
@@ -137,6 +141,8 @@ typedef struct Backend {
 	TUint32 sceneSig;                   /* layer list of the last logged scene (commit log) */
 	TInt sceneLogs;
 	TInt rotLogs;                       /* landscape layers logged (HostCompose) */
+	TInt flagLogs;                      /* layer flags logged (HostCompose) */
+	TUint32 flagSeen[64];
 	const void *const *vtSurfaceNotify; /* UID 0x2002E6D5 (FP2 surface notification) */
 	TInt notifyLogs;
 	TInt offLogs;                       /* off-screen composition requests logged */
@@ -356,7 +362,20 @@ static int HostCompose(Backend *b)
 		y->dx0 = d.x0; y->dy0 = d.y0; y->dx1 = d.x1; y->dy1 = d.y1;
 		y->sx0 = src.x0; y->sy0 = src.y0; y->sx1 = src.x1; y->sy1 = src.y1;
 		y->alpha = alpha < 0 || alpha > 255 ? 255 : alpha;
-		y->fmt = fmt | rot << 8;            /* the host: format in the low byte, rotation in bits 8..9 */
+		TUint32 lf = LF_SOURCE_ALPHA;
+		((LFlags)LV(l, L_FLAGS))(&lf, l);
+		{   /* each (layer, surface, flags) once */
+			TUint32 key = (TUint32)l ^ id->w[0] ^ (lf << 28);
+			int seen = 0;
+			for (int k = 0; k < b->flagLogs && !seen; k++)
+				seen = b->flagSeen[k] == key;
+			if (!seen && b->flagLogs < 64) {
+				b->flagSeen[b->flagLogs++] = key;
+				LOG(b, "GCEBE: layer %08x surface %08x fmt %d flags %x alpha %d", (TUint32)l, id->w[0], fmt, lf, alpha);
+			}
+		}
+		y->fmt = fmt | rot << 8 | (lf & LF_SOURCE_ALPHA ? 0 : SYGL_LAYER_OPAQUE);   /* the host: format, rotation,
+		                                                                               opaque */
 		y->va = (TUint32)(s->base + s->offset[s->current & 1]);
 		y->stride = s->info.iStride;
 		y->w = s->info.iSize.w;
@@ -700,6 +719,11 @@ static void SuContentUpdated(void *su, const TSurfaceId *id, TInt buffer, const 
 			for (int i = 0; i < b->nScene; i++)
 				if (b->scene[i] && SameId(((LSurf)LV(b->scene[i], L_SURFACE))(b->scene[i]), id))
 					Blit(b, b->scene[i]);
+	}
+	if (HostOn(b)) {        /* EGL_NOK_image_endpoint consumers of this surface (host EGL): a new frame */
+		TUint32 cmd[2 + 9] = { SYGL_SURF_UPDATED, 11, id->w[0], id->w[1], id->w[2], id->w[3], (TUint32)buffer,
+		                       0, 0, 0, 0 };    /* the region: the whole surface (its layout is not read) */
+		HostKick(b, cmd, 11);
 	}
 	Complete(&consumed, KErrNone);
 	if (stamp)

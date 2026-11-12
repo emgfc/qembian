@@ -90,7 +90,11 @@ hack = "H-khr"
 # (0x80e711a6) [V]. A real modem reports "no SIM" when its SIM server starts, right after SAServer subscribes, not
 # after the security check's query: send SIM_IND {05 06} on channel 35 at subscription.
 [modem]
-indications = [{ res = 0x09, msg = 0xEF, data = "05 06", channel = 35 }]
+# With a SIM ([sim] present): SAServer {05 4A} (ESimUsable), the TSY {0D 0B 08 00 00} (SIM init OK), after the
+# first SIM_STATUS (docs/research/n8-sim-present-mock.md 1.1, 1.2) [I values, V parsers]
+indications = [{ res = 0x09, msg = 0xEF, data = "05 06", channel = 35, sim = false },
+               { res = 0x09, msg = 0xEF, data = "05 4A", channel = 35, after = "09 C0", sim = true },
+               { res = 0x09, msg = 0xEF, data = "0D 0B 08 00 00", channel = 7, after = "09 C0", sim = true }]
 # SIM_STATUS service 01 (SIM lock): the real modem answers {01 24} with no SIM [V real N8 Delight, phonet 2026-11-11], but with
 # 0x24 our start-up stops at the security check (sastartupservice takes its retry path, 0x80e71aa8) [V]; the family
 # value 01 (lock OK) passes. Open: what else the real SIM server sends that makes 0x24 work.

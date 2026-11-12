@@ -58,8 +58,12 @@ const TUint KModemBase = KHwBaseModem + KModemPort * 0x2000;
 const TInt KModemIrq = KModemPort ? EIntModem1 : EIntModem0;
 enum { KMTxChannel = 0x04, KMTxLen = 0x08, KMTxGo = 0x0C, KMRxCount = 0x10, KMRxChannel = 0x14, KMRxLen = 0x18,
 	KMRxKind = 0x1C, KMRxPop = 0x20, KMIntEnable = 0x24, KMTxBuf = 0x1000, KMRxBuf = 0x1800 };
-enum { KMSend = 1, KMSubscribe = 2, KMOpen = 3, KMClose = 4 };		// TX kinds
-enum { KMDeliver = 1, KMLog = 2 };									// RX kinds
+enum { KMSend = 1, KMSubscribe = 2, KMOpen = 3, KMClose = 4, KMData = 5 };	// TX kinds (5: ISA DataSend)
+enum { KMDeliver = 1, KMLog = 2, KMDataDeliver = 3 };				// RX kinds (3: for DataReceive)
+// packet data (ISA DataSend/DataReceive on a DATAPORT channel, the virtual SIM's contexts): IP packets up to
+// KMaxData through the same port buffers (2 KB each way); a small queue per channel, allocated on first use
+const TInt KMaxData = 2048;
+const TInt KDataQueue = 8;
 static inline volatile TUint32& ModemReg(TInt aOff) { return *(volatile TUint32*)(KModemBase + aOff); }
 
 class DIscPeerChannel;
@@ -101,6 +105,7 @@ public:
 	DMutex* iLock;
 	DIscPeerChannel* iChannels[KMaxHandles];	// by handle (0 unused)
 	TDfc iRxDfc;
+	TUint8 iBuf[KMaxData + 4];			// Drain's frame / a DataSend's packet (under iLock)
 	};
 
 struct SMsg { TInt iLen; TUint8 iData[KMaxMsg]; };
@@ -143,6 +148,17 @@ private:
 	TInt iSlot;				// handle: index in iF->iChannels (-1: none)
 	TBool iNeededRaw;		// ISA: the receive "needed length" is a raw TUint16*, ISC: a TPtr8*
 	TRequestStatus* iDataRxStatus;		// ISA DataReceive: parked
+	TAny* iDataRxBuf;					// its TDes8* in the client
+	TAny* iDataRxNeeded;				// its TUint16* (needed length) in the client
+	struct SData { TInt iLen; TUint8 iData[KMaxData]; };
+	SData* iDQ;							// received packets (KDataQueue), allocated on first use
+	TInt iDQHead, iDQCount;
+	TInt iDataLog;						// the first data operations are logged (framing, arguments)
+public:
+	void QueueData(const TUint8* aData, TInt aLen);
+	void TryDeliverData();
+	void SendData(TAny* aDes);
+private:
 	TRequestStatus* iCustomStatus[3];	// ISA async custom functions: parked
 	};
 
@@ -199,6 +215,12 @@ DIscPeerChannel::~DIscPeerChannel()
 	Kern::MutexSignal(*iF->iLock);
 	NKern::ThreadLeaveCS();
 	Kern::Printf("ISCPEER: channel %d closed", iChannel);
+	if (iDQ)
+		{
+		NKern::ThreadEnterCS();
+		Kern::Free(iDQ);
+		NKern::ThreadLeaveCS();
+		}
 	}
 
 TInt DIscPeerChannel::ReadArgs(TAny* a1, TUint32* aW, TInt aWords)
@@ -304,11 +326,14 @@ TInt DIscPeerChannel::ControlIsa(TInt aFn, TAny* a1)
 		DoneIsa(iClient, s, r);
 		return KErrNone;
 		}
-	case 14:	// DataSend {const TDesC8*}: data channels go nowhere
+	case 14:	// DataSend {const TDesC8*}: to the modem (packet data of an active context)
+		ReadArgs(a1, w, 1);
+		SendData((TAny*)w[0]);
 		return KErrNone;
 	case 4:		// DataSend(TRequestStatus&, data) {status*, const TDesC8*}
 		{
-		ReadArgs(a1, w, 1);
+		ReadArgs(a1, w, 2);
+		SendData((TAny*)w[1]);
 		TRequestStatus* s = (TRequestStatus*)w[0];
 		DoneIsa(iClient, s, KErrNone);
 		return KErrNone;
@@ -316,15 +341,22 @@ TInt DIscPeerChannel::ControlIsa(TInt aFn, TAny* a1)
 	case 3:		// Receive {status*, TDes8*, TUint16* needed}
 		iNeededRaw = ETrue;
 		return Control(4, a1);
-	case 5:		// DataReceive {status*, ...}: park
-		ReadArgs(a1, w, 1);
+	case 5:		// DataReceive {status*, TDes8*, TUint16* needed} [I: as Receive]: park until a packet comes
+		ReadArgs(a1, w, 3);
+		if (iDataLog < 2)
+			Kern::Printf("ISCPEER: ch %d DataReceive args %08x %08x %08x", iChannel, w[0], w[1], w[2]);
 		if (iDataRxStatus)
 			{
 			TRequestStatus* s = (TRequestStatus*)w[0];
 			DoneIsa(iClient, s, KErrInUse);
 			}
 		else
+			{
 			iDataRxStatus = (TRequestStatus*)w[0];
+			iDataRxBuf = (TAny*)w[1];
+			iDataRxNeeded = (TAny*)w[2];
+			TryDeliverData();
+			}
 		return KErrNone;
 	case 6:		// NotifyConnectionStatus {status*, TInt*}: park
 		return Control(7, a1);
@@ -512,9 +544,9 @@ void DIscPeerFactory::Drain()
 	while (ModemReg(KMRxCount))
 		{
 		TInt kind = ModemReg(KMRxKind), ch = ModemReg(KMRxChannel), len = ModemReg(KMRxLen);
-		TUint8 m[KMaxMsg + 1];
-		if (len > KMaxMsg)
-			len = KMaxMsg;
+		TUint8* m = iBuf;
+		if (len > (kind == KMDataDeliver ? KMaxData : KMaxMsg))
+			len = kind == KMDataDeliver ? KMaxData : KMaxMsg;
 		volatile TUint32* rx = (volatile TUint32*)(KModemBase + KMRxBuf);
 		for (TInt i = 0; i < len; i += 4)
 			{
@@ -531,7 +563,9 @@ void DIscPeerFactory::Drain()
 			}
 		TInt h = ch >> 8;
 		DIscPeerChannel* c = h > 0 && h < KMaxHandles ? iChannels[h] : NULL;
-		if (c && c->Channel() == (ch & 0xff))
+		if (c && c->Channel() == (ch & 0xff) && kind == KMDataDeliver)
+			c->QueueData(m, len);
+		else if (c && c->Channel() == (ch & 0xff))
 			c->Queue(m, len);
 		else
 			Kern::Printf("ISCPEER: ch %d (handle %d) closed, modem message dropped", ch & 0xff, h);
@@ -584,6 +618,68 @@ void DIscPeerChannel::TryDeliver()
 	--iQCount;
 	Kern::RequestComplete(iClient, iRxStatus, r);
 	iRxStatus = NULL;
+	}
+
+// a packet from the client's DataSend to the modem (caller holds iLock)
+void DIscPeerChannel::SendData(TAny* aDes)
+	{
+	TPtr8 p(iF->iBuf, KMaxData);
+	if (!aDes || Kern::ThreadDesRead(iClient, aDes, p, 0) != KErrNone)
+		return;
+	if (iDataLog < 2)
+		{
+		++iDataLog;
+		Kern::Printf("ISCPEER: ch %d DataSend %d bytes %02x %02x %02x %02x", iChannel, p.Length(),
+			p.Length() > 0 ? p[0] : 0, p.Length() > 1 ? p[1] : 0, p.Length() > 2 ? p[2] : 0, p.Length() > 3 ? p[3] : 0);
+		}
+	Forward(KMData, p.Ptr(), p.Length());
+	}
+
+// a packet from the modem for this channel's DataReceive (caller holds iLock)
+void DIscPeerChannel::QueueData(const TUint8* aData, TInt aLen)
+	{
+	if (!iDQ)
+		{
+		NKern::ThreadEnterCS();
+		iDQ = (SData*)Kern::Alloc(sizeof(SData) * KDataQueue);
+		NKern::ThreadLeaveCS();
+		if (!iDQ)
+			return;
+		}
+	if (iDQCount == KDataQueue)
+		{
+		Kern::Printf("ISCPEER: ch %d data queue full, packet dropped", iChannel);
+		return;
+		}
+	SData& q = iDQ[(iDQHead + iDQCount) % KDataQueue];
+	memcpy(q.iData, aData, aLen);
+	q.iLen = aLen;
+	++iDQCount;
+	TryDeliverData();
+	}
+
+void DIscPeerChannel::TryDeliverData()
+	{
+	if (!iDataRxStatus || !iDQCount)
+		return;
+	SData& q = iDQ[iDQHead];
+	TInt max = Kern::ThreadGetDesMaxLength(iClient, iDataRxBuf);
+	if (q.iLen > max)
+		{
+		TUint16 need = (TUint16)q.iLen;
+		if (iDataRxNeeded)
+			Kern::ThreadRawWrite(iClient, iDataRxNeeded, &need, 2);
+		Kern::Printf("ISCPEER: ch %d packet %d > buffer %d, KErrOverflow", iChannel, q.iLen, max);
+		Kern::RequestComplete(iClient, iDataRxStatus, KErrOverflow);
+		iDataRxStatus = NULL;
+		return;
+		}
+	TPtrC8 d(q.iData, q.iLen);
+	TInt r = Kern::ThreadDesWrite(iClient, iDataRxBuf, d, 0);
+	iDQHead = (iDQHead + 1) % KDataQueue;
+	--iDQCount;
+	Kern::RequestComplete(iClient, iDataRxStatus, r);
+	iDataRxStatus = NULL;
 	}
 
 DECLARE_STANDARD_LDD()

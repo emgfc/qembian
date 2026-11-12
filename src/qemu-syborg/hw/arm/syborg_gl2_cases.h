@@ -97,7 +97,6 @@
 		void *h_data = gles_in(s, a[2], b_data);
 		if (a[2] && !h_data) { gles_bad(s, "glBufferData"); break; }
 		glBufferData(v_target, v_size, (const void *)h_data, v_usage);
-		g_free(h_data);
 		break;
 	}
 	case GL2_FN_glBufferSubData: {
@@ -109,7 +108,6 @@
 		void *h_data = gles_in(s, a[3], b_data);
 		if (a[3] && !h_data) { gles_bad(s, "glBufferSubData"); break; }
 		glBufferSubData(v_target, v_offset, v_size, (const void *)h_data);
-		g_free(h_data);
 		break;
 	}
 	case GL2_FN_glCheckFramebufferStatus: {
@@ -175,7 +173,6 @@
 		void *h_data = gles_in(s, a[7], b_data);
 		if (a[7] && !h_data) { gles_bad(s, "glCompressedTexImage2D"); break; }
 		glCompressedTexImage2D(v_target, v_level, v_internalformat, v_width, v_height, v_border, v_imageSize, (const void *)h_data);
-		g_free(h_data);
 		break;
 	}
 	case GL2_FN_glCompressedTexSubImage2D: {
@@ -192,7 +189,6 @@
 		void *h_data = gles_in(s, a[8], b_data);
 		if (a[8] && !h_data) { gles_bad(s, "glCompressedTexSubImage2D"); break; }
 		glCompressedTexSubImage2D(v_target, v_level, v_xoffset, v_yoffset, v_width, v_height, v_format, v_imageSize, (const void *)h_data);
-		g_free(h_data);
 		break;
 	}
 	case GL2_FN_glCopyTexImage2D: {
@@ -296,22 +292,22 @@
 		GLuint v_index = (GLuint)a[1];
 		GLint v_bufsize = (GLint)a[2];
 		size_t b_length = (size_t)(4);
-		void *h_length = gles_room(b_length);
+		void *h_length = gles_room(s, b_length);
+		if (a[3] && !h_length) { gles_oom(c); break; }
 		size_t b_size = (size_t)(4);
-		void *h_size = gles_room(b_size);
+		void *h_size = gles_room(s, b_size);
+		if (a[4] && !h_size) { gles_oom(c); break; }
 		size_t b_type = (size_t)(4);
-		void *h_type = gles_room(b_type);
+		void *h_type = gles_room(s, b_type);
+		if (a[5] && !h_type) { gles_oom(c); break; }
 		size_t b_name = (size_t)(MAX(v_bufsize, 0));
-		void *h_name = gles_room(b_name);
+		void *h_name = gles_room(s, b_name);
+		if (a[6] && !h_name) { gles_oom(c); break; }
 		glGetActiveAttrib(n_program, v_index, v_bufsize, (GLsizei *)h_length, (GLint *)h_size, (GLenum *)h_type, (char *)h_name);
 		gles_put(s, a[3], h_length, b_length);
 		gles_put(s, a[4], h_size, b_size);
 		gles_put(s, a[5], h_type, b_type);
 		gles_put(s, a[6], h_name, b_name);
-		g_free(h_length);
-		g_free(h_size);
-		g_free(h_type);
-		g_free(h_name);
 		break;
 	}
 	case GL2_FN_glGetActiveUniform: {
@@ -321,22 +317,22 @@
 		GLuint v_index = (GLuint)a[1];
 		GLint v_bufsize = (GLint)a[2];
 		size_t b_length = (size_t)(4);
-		void *h_length = gles_room(b_length);
+		void *h_length = gles_room(s, b_length);
+		if (a[3] && !h_length) { gles_oom(c); break; }
 		size_t b_size = (size_t)(4);
-		void *h_size = gles_room(b_size);
+		void *h_size = gles_room(s, b_size);
+		if (a[4] && !h_size) { gles_oom(c); break; }
 		size_t b_type = (size_t)(4);
-		void *h_type = gles_room(b_type);
+		void *h_type = gles_room(s, b_type);
+		if (a[5] && !h_type) { gles_oom(c); break; }
 		size_t b_name = (size_t)(MAX(v_bufsize, 0));
-		void *h_name = gles_room(b_name);
+		void *h_name = gles_room(s, b_name);
+		if (a[6] && !h_name) { gles_oom(c); break; }
 		glGetActiveUniform(n_program, v_index, v_bufsize, (GLsizei *)h_length, (GLint *)h_size, (GLenum *)h_type, (char *)h_name);
 		gles_put(s, a[3], h_length, b_length);
 		gles_put(s, a[4], h_size, b_size);
 		gles_put(s, a[5], h_type, b_type);
 		gles_put(s, a[6], h_name, b_name);
-		g_free(h_length);
-		g_free(h_size);
-		g_free(h_type);
-		g_free(h_name);
 		break;
 	}
 	case GL2_FN_glGetAttribLocation: {
@@ -356,10 +352,10 @@
 		GLuint n_program = gl2_name(c, GL2_N_PROG, v_program, 0);
 		GLenum v_pname = (GLenum)a[1];
 		size_t b_params = (size_t)(4);
-		void *h_params = gles_room(b_params);
+		void *h_params = gles_room(s, b_params);
+		if (a[2] && !h_params) { gles_oom(c); break; }
 		glGetProgramiv(n_program, v_pname, (GLint *)h_params);
 		gles_put(s, a[2], h_params, b_params);
-		g_free(h_params);
 		break;
 	}
 	case GL2_FN_glGetProgramInfoLog: {
@@ -368,14 +364,14 @@
 		GLuint n_program = gl2_name(c, GL2_N_PROG, v_program, 0);
 		GLint v_bufsize = (GLint)a[1];
 		size_t b_length = (size_t)(4);
-		void *h_length = gles_room(b_length);
+		void *h_length = gles_room(s, b_length);
+		if (a[2] && !h_length) { gles_oom(c); break; }
 		size_t b_infolog = (size_t)(MAX(v_bufsize, 0));
-		void *h_infolog = gles_room(b_infolog);
+		void *h_infolog = gles_room(s, b_infolog);
+		if (a[3] && !h_infolog) { gles_oom(c); break; }
 		glGetProgramInfoLog(n_program, v_bufsize, (GLsizei *)h_length, (char *)h_infolog);
 		gles_put(s, a[2], h_length, b_length);
 		gles_put(s, a[3], h_infolog, b_infolog);
-		g_free(h_length);
-		g_free(h_infolog);
 		break;
 	}
 	case GL2_FN_glGetRenderbufferParameteriv: {
@@ -383,10 +379,10 @@
 		GLenum v_target = (GLenum)a[0];
 		GLenum v_pname = (GLenum)a[1];
 		size_t b_params = (size_t)(4);
-		void *h_params = gles_room(b_params);
+		void *h_params = gles_room(s, b_params);
+		if (a[2] && !h_params) { gles_oom(c); break; }
 		glGetRenderbufferParameteriv(v_target, v_pname, (GLint *)h_params);
 		gles_put(s, a[2], h_params, b_params);
-		g_free(h_params);
 		break;
 	}
 	case GL2_FN_glGetShaderiv: {
@@ -395,10 +391,10 @@
 		GLuint n_shader = gl2_name(c, GL2_N_SHADER, v_shader, 0);
 		GLenum v_pname = (GLenum)a[1];
 		size_t b_params = (size_t)(4);
-		void *h_params = gles_room(b_params);
+		void *h_params = gles_room(s, b_params);
+		if (a[2] && !h_params) { gles_oom(c); break; }
 		glGetShaderiv(n_shader, v_pname, (GLint *)h_params);
 		gles_put(s, a[2], h_params, b_params);
-		g_free(h_params);
 		break;
 	}
 	case GL2_FN_glGetShaderInfoLog: {
@@ -407,14 +403,14 @@
 		GLuint n_shader = gl2_name(c, GL2_N_SHADER, v_shader, 0);
 		GLint v_bufsize = (GLint)a[1];
 		size_t b_length = (size_t)(4);
-		void *h_length = gles_room(b_length);
+		void *h_length = gles_room(s, b_length);
+		if (a[2] && !h_length) { gles_oom(c); break; }
 		size_t b_infolog = (size_t)(MAX(v_bufsize, 0));
-		void *h_infolog = gles_room(b_infolog);
+		void *h_infolog = gles_room(s, b_infolog);
+		if (a[3] && !h_infolog) { gles_oom(c); break; }
 		glGetShaderInfoLog(n_shader, v_bufsize, (GLsizei *)h_length, (char *)h_infolog);
 		gles_put(s, a[2], h_length, b_length);
 		gles_put(s, a[3], h_infolog, b_infolog);
-		g_free(h_length);
-		g_free(h_infolog);
 		break;
 	}
 	case GL2_FN_glGetShaderPrecisionFormat: {
@@ -422,14 +418,14 @@
 		GLenum v_shadertype = (GLenum)a[0];
 		GLenum v_precisiontype = (GLenum)a[1];
 		size_t b_range = (size_t)(8);
-		void *h_range = gles_room(b_range);
+		void *h_range = gles_room(s, b_range);
+		if (a[2] && !h_range) { gles_oom(c); break; }
 		size_t b_precision = (size_t)(4);
-		void *h_precision = gles_room(b_precision);
+		void *h_precision = gles_room(s, b_precision);
+		if (a[3] && !h_precision) { gles_oom(c); break; }
 		glGetShaderPrecisionFormat(v_shadertype, v_precisiontype, (GLint *)h_range, (GLint *)h_precision);
 		gles_put(s, a[2], h_range, b_range);
 		gles_put(s, a[3], h_precision, b_precision);
-		g_free(h_range);
-		g_free(h_precision);
 		break;
 	}
 	case GL2_FN_glGetShaderSource: {
@@ -438,14 +434,14 @@
 		GLuint n_shader = gl2_name(c, GL2_N_SHADER, v_shader, 0);
 		GLint v_bufsize = (GLint)a[1];
 		size_t b_length = (size_t)(4);
-		void *h_length = gles_room(b_length);
+		void *h_length = gles_room(s, b_length);
+		if (a[2] && !h_length) { gles_oom(c); break; }
 		size_t b_source = (size_t)(MAX(v_bufsize, 0));
-		void *h_source = gles_room(b_source);
+		void *h_source = gles_room(s, b_source);
+		if (a[3] && !h_source) { gles_oom(c); break; }
 		glGetShaderSource(n_shader, v_bufsize, (GLsizei *)h_length, (char *)h_source);
 		gles_put(s, a[2], h_length, b_length);
 		gles_put(s, a[3], h_source, b_source);
-		g_free(h_length);
-		g_free(h_source);
 		break;
 	}
 	case GL2_FN_glGetTexParameterfv: {
@@ -453,10 +449,10 @@
 		GLenum v_target = (GLenum)a[0];
 		GLenum v_pname = (GLenum)a[1];
 		size_t b_params = (size_t)(4 * gl1_count_texparam(v_pname));
-		void *h_params = gles_room(b_params);
+		void *h_params = gles_room(s, b_params);
+		if (a[2] && !h_params) { gles_oom(c); break; }
 		glGetTexParameterfv(v_target, v_pname, (GLfloat *)h_params);
 		gles_put(s, a[2], h_params, b_params);
-		g_free(h_params);
 		break;
 	}
 	case GL2_FN_glGetTexParameteriv: {
@@ -464,10 +460,10 @@
 		GLenum v_target = (GLenum)a[0];
 		GLenum v_pname = (GLenum)a[1];
 		size_t b_params = (size_t)(4 * gl1_count_texparam(v_pname));
-		void *h_params = gles_room(b_params);
+		void *h_params = gles_room(s, b_params);
+		if (a[2] && !h_params) { gles_oom(c); break; }
 		glGetTexParameteriv(v_target, v_pname, (GLint *)h_params);
 		gles_put(s, a[2], h_params, b_params);
-		g_free(h_params);
 		break;
 	}
 	case GL2_FN_glGetUniformLocation: {
@@ -661,7 +657,6 @@
 		void *h_pixels = gles_in(s, a[8], b_pixels);
 		if (a[8] && !h_pixels) { gles_bad(s, "glTexImage2D"); break; }
 		glTexImage2D(v_target, v_level, v_internalformat, v_width, v_height, v_border, v_format, v_type, (const void *)h_pixels);
-		g_free(h_pixels);
 		break;
 	}
 	case GL2_FN_glTexParameterf: {
@@ -680,7 +675,6 @@
 		void *h_params = gles_in(s, a[2], b_params);
 		if (a[2] && !h_params) { gles_bad(s, "glTexParameterfv"); break; }
 		glTexParameterfv(v_target, v_pname, (const GLfloat *)h_params);
-		g_free(h_params);
 		break;
 	}
 	case GL2_FN_glTexParameteri: {
@@ -699,7 +693,6 @@
 		void *h_params = gles_in(s, a[2], b_params);
 		if (a[2] && !h_params) { gles_bad(s, "glTexParameteriv"); break; }
 		glTexParameteriv(v_target, v_pname, (const GLint *)h_params);
-		g_free(h_params);
 		break;
 	}
 	case GL2_FN_glTexSubImage2D: {
@@ -716,7 +709,6 @@
 		void *h_pixels = gles_in(s, a[8], b_pixels);
 		if (a[8] && !h_pixels) { gles_bad(s, "glTexSubImage2D"); break; }
 		glTexSubImage2D(v_target, v_level, v_xoffset, v_yoffset, v_width, v_height, v_format, v_type, (const void *)h_pixels);
-		g_free(h_pixels);
 		break;
 	}
 	case GL2_FN_glUniform1f: {
@@ -734,7 +726,6 @@
 		void *h_v = gles_in(s, a[2], b_v);
 		if (a[2] && !h_v) { gles_bad(s, "glUniform1fv"); break; }
 		glUniform1fv(v_location, v_count, (const GLfloat *)h_v);
-		g_free(h_v);
 		break;
 	}
 	case GL2_FN_glUniform1i: {
@@ -752,7 +743,6 @@
 		void *h_v = gles_in(s, a[2], b_v);
 		if (a[2] && !h_v) { gles_bad(s, "glUniform1iv"); break; }
 		glUniform1iv(v_location, v_count, (const GLint *)h_v);
-		g_free(h_v);
 		break;
 	}
 	case GL2_FN_glUniform2f: {
@@ -771,7 +761,6 @@
 		void *h_v = gles_in(s, a[2], b_v);
 		if (a[2] && !h_v) { gles_bad(s, "glUniform2fv"); break; }
 		glUniform2fv(v_location, v_count, (const GLfloat *)h_v);
-		g_free(h_v);
 		break;
 	}
 	case GL2_FN_glUniform2i: {
@@ -790,7 +779,6 @@
 		void *h_v = gles_in(s, a[2], b_v);
 		if (a[2] && !h_v) { gles_bad(s, "glUniform2iv"); break; }
 		glUniform2iv(v_location, v_count, (const GLint *)h_v);
-		g_free(h_v);
 		break;
 	}
 	case GL2_FN_glUniform3f: {
@@ -810,7 +798,6 @@
 		void *h_v = gles_in(s, a[2], b_v);
 		if (a[2] && !h_v) { gles_bad(s, "glUniform3fv"); break; }
 		glUniform3fv(v_location, v_count, (const GLfloat *)h_v);
-		g_free(h_v);
 		break;
 	}
 	case GL2_FN_glUniform3i: {
@@ -830,7 +817,6 @@
 		void *h_v = gles_in(s, a[2], b_v);
 		if (a[2] && !h_v) { gles_bad(s, "glUniform3iv"); break; }
 		glUniform3iv(v_location, v_count, (const GLint *)h_v);
-		g_free(h_v);
 		break;
 	}
 	case GL2_FN_glUniform4f: {
@@ -851,7 +837,6 @@
 		void *h_v = gles_in(s, a[2], b_v);
 		if (a[2] && !h_v) { gles_bad(s, "glUniform4fv"); break; }
 		glUniform4fv(v_location, v_count, (const GLfloat *)h_v);
-		g_free(h_v);
 		break;
 	}
 	case GL2_FN_glUniform4i: {
@@ -872,7 +857,6 @@
 		void *h_v = gles_in(s, a[2], b_v);
 		if (a[2] && !h_v) { gles_bad(s, "glUniform4iv"); break; }
 		glUniform4iv(v_location, v_count, (const GLint *)h_v);
-		g_free(h_v);
 		break;
 	}
 	case GL2_FN_glUniformMatrix2fv: {
@@ -884,7 +868,6 @@
 		void *h_value = gles_in(s, a[3], b_value);
 		if (a[3] && !h_value) { gles_bad(s, "glUniformMatrix2fv"); break; }
 		glUniformMatrix2fv(v_location, v_count, v_transpose, (const GLfloat *)h_value);
-		g_free(h_value);
 		break;
 	}
 	case GL2_FN_glUniformMatrix3fv: {
@@ -896,7 +879,6 @@
 		void *h_value = gles_in(s, a[3], b_value);
 		if (a[3] && !h_value) { gles_bad(s, "glUniformMatrix3fv"); break; }
 		glUniformMatrix3fv(v_location, v_count, v_transpose, (const GLfloat *)h_value);
-		g_free(h_value);
 		break;
 	}
 	case GL2_FN_glUniformMatrix4fv: {
@@ -908,7 +890,6 @@
 		void *h_value = gles_in(s, a[3], b_value);
 		if (a[3] && !h_value) { gles_bad(s, "glUniformMatrix4fv"); break; }
 		glUniformMatrix4fv(v_location, v_count, v_transpose, (const GLfloat *)h_value);
-		g_free(h_value);
 		break;
 	}
 	case GL2_FN_glUseProgram: {
@@ -939,7 +920,6 @@
 		void *h_values = gles_in(s, a[1], b_values);
 		if (a[1] && !h_values) { gles_bad(s, "glVertexAttrib1fv"); break; }
 		glVertexAttrib1fv(v_indx, (const GLfloat *)h_values);
-		g_free(h_values);
 		break;
 	}
 	case GL2_FN_glVertexAttrib2f: {
@@ -957,7 +937,6 @@
 		void *h_values = gles_in(s, a[1], b_values);
 		if (a[1] && !h_values) { gles_bad(s, "glVertexAttrib2fv"); break; }
 		glVertexAttrib2fv(v_indx, (const GLfloat *)h_values);
-		g_free(h_values);
 		break;
 	}
 	case GL2_FN_glVertexAttrib3f: {
@@ -976,7 +955,6 @@
 		void *h_values = gles_in(s, a[1], b_values);
 		if (a[1] && !h_values) { gles_bad(s, "glVertexAttrib3fv"); break; }
 		glVertexAttrib3fv(v_indx, (const GLfloat *)h_values);
-		g_free(h_values);
 		break;
 	}
 	case GL2_FN_glVertexAttrib4f: {
@@ -996,7 +974,6 @@
 		void *h_values = gles_in(s, a[1], b_values);
 		if (a[1] && !h_values) { gles_bad(s, "glVertexAttrib4fv"); break; }
 		glVertexAttrib4fv(v_indx, (const GLfloat *)h_values);
-		g_free(h_values);
 		break;
 	}
 	case GL2_FN_glViewport: {
@@ -1023,7 +1000,6 @@
 		void *h_pixels = gles_in(s, a[9], b_pixels);
 		if (a[9] && !h_pixels) { gles_bad(s, "glTexImage3DOES"); break; }
 		glTexImage3D(v_target, v_level, v_internalformat, v_width, v_height, v_depth, v_border, v_format, v_type, (const void *)h_pixels);
-		g_free(h_pixels);
 		break;
 	}
 	case GL2_FN_glTexSubImage3DOES: {
@@ -1042,7 +1018,6 @@
 		void *h_pixels = gles_in(s, a[10], b_pixels);
 		if (a[10] && !h_pixels) { gles_bad(s, "glTexSubImage3DOES"); break; }
 		glTexSubImage3D(v_target, v_level, v_xoffset, v_yoffset, v_zoffset, v_width, v_height, v_depth, v_format, v_type, (const void *)h_pixels);
-		g_free(h_pixels);
 		break;
 	}
 	case GL2_FN_glCopyTexSubImage3DOES: {
@@ -1073,7 +1048,6 @@
 		void *h_data = gles_in(s, a[8], b_data);
 		if (a[8] && !h_data) { gles_bad(s, "glCompressedTexImage3DOES"); break; }
 		glCompressedTexImage3D(v_target, v_level, v_internalformat, v_width, v_height, v_depth, v_border, v_imageSize, (const void *)h_data);
-		g_free(h_data);
 		break;
 	}
 	case GL2_FN_glCompressedTexSubImage3DOES: {
@@ -1092,6 +1066,5 @@
 		void *h_data = gles_in(s, a[10], b_data);
 		if (a[10] && !h_data) { gles_bad(s, "glCompressedTexSubImage3DOES"); break; }
 		glCompressedTexSubImage3D(v_target, v_level, v_xoffset, v_yoffset, v_zoffset, v_width, v_height, v_depth, v_format, v_imageSize, (const void *)h_data);
-		g_free(h_data);
 		break;
 	}

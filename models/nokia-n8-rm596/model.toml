@@ -44,6 +44,7 @@ line_pitch = 1440                          # 360 x 4 bytes [I]
 panel_rows = 640
 caps_words = 27                            # [5800] not checked for the N8's client yet
 touch = true                               # capacitive multitouch (synaptics.dll + exyin.dll); single touch for now
+touch_rate_hz = 100                         # [I] capacitive panel report rate: moves between samples are merged (syborg-pointer sample-hz)
 
 [gl.host]                                  # syborg-gl settings for this phone (docs/devices.md "[gl.host]")
 msaa = 8                                   # OpenVG anti-aliasing samples: 0, 2, 4, 8, 16 (runtime: sydb gl set msaa=4)
@@ -53,6 +54,9 @@ compose = "host"                           # host: composition/presentation on t
 [board.audio]
 dsp = "rapido"                             # RAPIDO DSP model: aamdaifdriver + the ISC peer's F3 replies
 ring_units = 16                            # DSP ring per stream (docs/devices/nokia-n8-rm596/rapido-audio.md)
+# stream type -> syborg-slot PCM format RATE/CHANNELS/BITS/PLANAR (24 = 24 bits in 32-bit words, PLANAR = chunks of N left
+# then N right samples): type 0 measured on the N8 (ring dump, 2026-11-12); types 1, 2 [I]
+streams = "48000/2/24/240,48000/1/24,16000/1/24"
 
 
 [board.flash]
@@ -99,6 +103,9 @@ kind = "composite"
 flags = "FS_COMPOSITE"
 
 # ---------------------------------------------------------------------------------------------
+[board.network]                            # QEMU syborg-net (src/qemu-syborg/hw/arm/syborg_net.c) -> enet.ldd + sybeth.pdd
+ethernet = "user"                          # the host backend: user = slirp (NAT, DHCP 10.0.2.15, DNS 10.0.2.3)
+
 [board.accelerometer]                      # QEMU syborg-sensor (src/qemu-syborg/hw/arm/syborg_sensor.c)
 info = "00=1d3b0203,08=020028006400,14=0200d0070800401f0800,2a=0d00,68=01000000,7e=05"  # driver information block (channel control 0) [V N8 accssy]:
                                            # +0x00 chip id, one of the firmware's cenrep 20000585 keys 10/4010/8010
@@ -248,20 +255,46 @@ kind = "pdd"
 family = "common"
 role = "accelerometer.pdd: empty physical device the channel names"
 
+[[standins]]
+name = "enet"
+kind = "ldd"
+family = "common"
+role = "EPL Ethernet LDD (kernelhwsrv drivers/ethernet) for etherpkt.drv; CommsDat LANService LDD enet/Ethernet"
+
+[[standins]]
+name = "sybeth"
+kind = "pdd"
+family = "common"
+role = "Ethernet PDD on QEMU syborg-net (mailbox NIC); PDD sybeth/Ethernet.Syborg (docs/research/connectivity-options.md section 4)"
+
 [modem]
 # SIM_IND 09 EF {05 06} for SAStartupService: SAServer asks SIM_STATUS (C0, gets 06 = no SIM) at system
 # state 103 and then waits: send it after that reply, on channel 35 only; the TSY (channel 7) panics on this short layout
 # (docs/devices/nokia-5730-rm465/sim-state.md)
-indications = [{ res = 0x09, msg = 0xEF, data = "05 06", channel = 35, after = "09 C0" }]
+# With a SIM ([sim] present, per instance): SAServer gets {05 4A} (stored status 0x4A raises ESimUsable ->
+# KPSSimStatus 101), the TSY {0D 0B 08 00 00} (SIM_SERV_INIT_OK; it reads up to [14]) [I values, V parsers]
+# (docs/research/n8-sim-present-mock.md 1.1, 1.2)
+indications = [{ res = 0x09, msg = 0xEF, data = "05 06", channel = 35, after = "09 C0", sim = false },
+               { res = 0x09, msg = 0xEF, data = "05 4A", channel = 35, after = "09 C0", sim = true },
+               { res = 0x09, msg = 0xEF, data = "0D 0B 08 00 00", channel = 7, after = "09 C0", sim = true }]
 # SIM_STATUS service 01 = SIM lock / autolock: SAStartupService 0x80955ea6 maps 8/9/10/1 to its results
 # 108..111 and leaves anything else (06) unanswered; 01 = OK (no lock) [V branch table, I meaning]
 sim_service_status = { "0x01" = 0x01 }
+
+[sim]                                      # the virtual SIM (fake modem); off: no SIM, Offline profile. An instance
+present = false                            # turns it on with [overrides.sim] present = true (+ imsi/mcc/mnc/spn/rat)
+imsi = "001010123456789"                   # test network 001/01 (3GPP test PLMN)
+mcc = "001"
+mnc = "01"
+spn = "qembian"
+rat = 2                                    # 1 GSM, 2 UMTS (NET_RAT sub-block 0x2C)
 
 [rom]
 code_patches = ["code-patches.txt"]
 files = [{ rom = "Sys/Data/ESTARTCOMP.TXT", local = "ESTARTCOMP.TXT" }]
 
 [gl]
+gpu_memory_mb = 64                         # EGL_NOK_resource_profiling total [I: the phone's figure not probed; 32 made alf fall back to software rendering with our surfaces]
 impl = "none"
 egl_configs = "egl-configs.txt"               # [V] the 37 configs of the owner's N8 (eglprobe, tools/egl-configs.py)
 [gl.identity]                              # H-gles-identity; OpenGL ES 1.1 (src/khr/gl1.c) answers glGetString with these
@@ -272,7 +305,7 @@ extensions = "GL_OES_compressed_ETC1_RGB8_texture GL_OES_compressed_paletted_tex
 egl_vendor = "Broadcom"                    # [V]
 egl_version = "1.4"                        # [V]
 egl_client_apis = "OpenGL_ES OpenVG"      # [V] eglprobe on the owner's N8
-egl_extensions = ""                        # the phone lists 14 (EGL_KHR_image ... EGL_NOK_window_type_eglwindowbase, eglprobe); none of them is implemented on the host yet (H-egl-extensions)
+egl_extensions = "EGL_NOK_resource_profiling EGL_NOK_resource_profiling2 EGL_NOK_image_endpoint EGL_NOK_image_endpoint2"   # of the phone's 14 (eglprobe), the ones the host implements (H-egl-extensions); the memory monitor GOOM needs them
 gles2_version = "OpenGL ES 2.0"            # [I] the Khronos conformance list has the N8 for ES-CM 1.1 only; to probe
 glsl_version = "OpenGL ES GLSL ES 1.00"    # [I]
 gles2_extensions = "GL_OES_rgb8_rgba8 GL_OES_depth24 GL_OES_packed_depth_stencil GL_OES_element_index_uint GL_OES_texture_npot GL_OES_standard_derivatives"   # [I] to probe on the owner's N8 (eglprobe with an ES 2 context)
@@ -289,15 +322,6 @@ level = "L1"
 updated = "2026-11-08"
 open = ["widget removed note at boot (owner)", "some UI actions take seconds, e.g. Settings items (owner)", "some apps hang or fail", "radio HAL (BT/FM chip)", "audio silent (RAPIDO ring not played)", "power key: no power menu"]
 
-
-# H-startuptone-none: the start-up tone points at a file that does not exist, so the start-up
-# animation does not wait for a tone that silent RAPIDO audio never finishes (as on the 5800)
-[[rom.rofs_patches]]
-image = 2
-path = "private/10202be9/101F8763.txt"
-old = 'Z:\\system\\sounds\\Wakeup tone.aac'
-new = 'Z:\\system\\sounds\\Wakeup none.aac'
-hack = "H-startuptone-none"
 
 # H-bt-ondemand: C32 starts the ESock Bluetooth worker only when a client asks for it; at boot it
 # panicked KERN-EXEC 0 on a Bluetooth transport channel it never opened and took C32Start down

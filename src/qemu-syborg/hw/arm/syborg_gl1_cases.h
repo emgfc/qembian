@@ -29,7 +29,6 @@
 		void *h_equation = gles_in(s, a[1], b_equation);
 		if (a[1] && !h_equation) { gles_bad(s, "glClipPlanef"); break; }
 		glClipPlanef(v_plane, (const GLfloat *)h_equation);
-		g_free(h_equation);
 		break;
 	}
 	case GL1_FN_glColor4f: {
@@ -62,17 +61,16 @@
 		void *h_params = gles_in(s, a[1], b_params);
 		if (a[1] && !h_params) { gles_bad(s, "glFogfv"); break; }
 		glFogfv(v_pname, (const GLfloat *)h_params);
-		g_free(h_params);
 		break;
 	}
 	case GL1_FN_glGetClipPlanef: {
 		if (n < 2) break;
 		GLenum v_pname = (GLenum)a[0];
 		size_t b_eqn = (size_t)(16);
-		void *h_eqn = gles_room(b_eqn);
+		void *h_eqn = gles_room(s, b_eqn);
+		if (a[1] && !h_eqn) { gles_oom(c); break; }
 		glGetClipPlanef(v_pname, (GLfloat *)h_eqn);
 		gles_put(s, a[1], h_eqn, b_eqn);
-		g_free(h_eqn);
 		break;
 	}
 	case GL1_FN_glGetLightfv: {
@@ -80,10 +78,10 @@
 		GLenum v_light = (GLenum)a[0];
 		GLenum v_pname = (GLenum)a[1];
 		size_t b_params = (size_t)(4 * gl1_count_light(v_pname));
-		void *h_params = gles_room(b_params);
+		void *h_params = gles_room(s, b_params);
+		if (a[2] && !h_params) { gles_oom(c); break; }
 		glGetLightfv(v_light, v_pname, (GLfloat *)h_params);
 		gles_put(s, a[2], h_params, b_params);
-		g_free(h_params);
 		break;
 	}
 	case GL1_FN_glGetMaterialfv: {
@@ -91,10 +89,10 @@
 		GLenum v_face = (GLenum)a[0];
 		GLenum v_pname = (GLenum)a[1];
 		size_t b_params = (size_t)(4 * gl1_count_material(v_pname));
-		void *h_params = gles_room(b_params);
+		void *h_params = gles_room(s, b_params);
+		if (a[2] && !h_params) { gles_oom(c); break; }
 		glGetMaterialfv(v_face, v_pname, (GLfloat *)h_params);
 		gles_put(s, a[2], h_params, b_params);
-		g_free(h_params);
 		break;
 	}
 	case GL1_FN_glGetTexEnvfv: {
@@ -102,10 +100,10 @@
 		GLenum v_env = (GLenum)a[0];
 		GLenum v_pname = (GLenum)a[1];
 		size_t b_params = (size_t)(4 * gl1_count_texenv(v_pname));
-		void *h_params = gles_room(b_params);
+		void *h_params = gles_room(s, b_params);
+		if (a[2] && !h_params) { gles_oom(c); break; }
 		glGetTexEnvfv(v_env, v_pname, (GLfloat *)h_params);
 		gles_put(s, a[2], h_params, b_params);
-		g_free(h_params);
 		break;
 	}
 	case GL1_FN_glGetTexParameterfv: {
@@ -113,10 +111,10 @@
 		GLenum v_target = (GLenum)a[0];
 		GLenum v_pname = (GLenum)a[1];
 		size_t b_params = (size_t)(4 * gl1_count_texparam(v_pname));
-		void *h_params = gles_room(b_params);
+		void *h_params = gles_room(s, b_params);
+		if (a[2] && !h_params) { gles_oom(c); break; }
 		glGetTexParameterfv(v_target, v_pname, (GLfloat *)h_params);
 		gles_put(s, a[2], h_params, b_params);
-		g_free(h_params);
 		break;
 	}
 	case GL1_FN_glLightModelf: {
@@ -133,7 +131,6 @@
 		void *h_params = gles_in(s, a[1], b_params);
 		if (a[1] && !h_params) { gles_bad(s, "glLightModelfv"); break; }
 		glLightModelfv(v_pname, (const GLfloat *)h_params);
-		g_free(h_params);
 		break;
 	}
 	case GL1_FN_glLightf: {
@@ -152,7 +149,6 @@
 		void *h_params = gles_in(s, a[2], b_params);
 		if (a[2] && !h_params) { gles_bad(s, "glLightfv"); break; }
 		glLightfv(v_light, v_pname, (const GLfloat *)h_params);
-		g_free(h_params);
 		break;
 	}
 	case GL1_FN_glLineWidth: {
@@ -177,7 +173,6 @@
 		void *h_params = gles_in(s, a[2], b_params);
 		if (a[2] && !h_params) { gles_bad(s, "glMaterialfv"); break; }
 		glMaterialfv(v_face, v_pname, (const GLfloat *)h_params);
-		g_free(h_params);
 		break;
 	}
 	case GL1_FN_glMultiTexCoord4f: {
@@ -212,7 +207,6 @@
 		void *h_params = gles_in(s, a[1], b_params);
 		if (a[1] && !h_params) { gles_bad(s, "glPointParameterfv"); break; }
 		glPointParameterfv(v_pname, (const GLfloat *)h_params);
-		g_free(h_params);
 		break;
 	}
 	case GL1_FN_glPointSize: {
@@ -244,7 +238,6 @@
 		void *h_params = gles_in(s, a[2], b_params);
 		if (a[2] && !h_params) { gles_bad(s, "glTexEnvfv"); break; }
 		glTexEnvfv(v_target, v_pname, (const GLfloat *)h_params);
-		g_free(h_params);
 		break;
 	}
 	case GL1_FN_glTexParameterf: {
@@ -263,7 +256,6 @@
 		void *h_params = gles_in(s, a[2], b_params);
 		if (a[2] && !h_params) { gles_bad(s, "glTexParameterfv"); break; }
 		glTexParameterfv(v_target, v_pname, (const GLfloat *)h_params);
-		g_free(h_params);
 		break;
 	}
 	case GL1_FN_glActiveTexture: {
@@ -311,7 +303,6 @@
 		void *h_data = gles_in(s, a[2], b_data);
 		if (a[2] && !h_data) { gles_bad(s, "glBufferData"); break; }
 		glBufferData(v_target, v_size, (const void *)h_data, v_usage);
-		g_free(h_data);
 		break;
 	}
 	case GL1_FN_glBufferSubData: {
@@ -323,7 +314,6 @@
 		void *h_data = gles_in(s, a[3], b_data);
 		if (a[3] && !h_data) { gles_bad(s, "glBufferSubData"); break; }
 		glBufferSubData(v_target, v_offset, v_size, (const void *)h_data);
-		g_free(h_data);
 		break;
 	}
 	case GL1_FN_glClear: {
@@ -360,7 +350,6 @@
 		void *h_equation = gles_in(s, a[1], b_equation);
 		if (a[1] && !h_equation) { gles_bad(s, "glClipPlanex"); break; }
 		glClipPlanex(v_plane, (const GLfixed *)h_equation);
-		g_free(h_equation);
 		break;
 	}
 	case GL1_FN_glColor4ub: {
@@ -403,7 +392,6 @@
 		void *h_data = gles_in(s, a[7], b_data);
 		if (a[7] && !h_data) { gles_bad(s, "glCompressedTexImage2D"); break; }
 		glCompressedTexImage2D(v_target, v_level, v_internalformat, v_width, v_height, v_border, v_imageSize, (const void *)h_data);
-		g_free(h_data);
 		break;
 	}
 	case GL1_FN_glCompressedTexSubImage2D: {
@@ -420,7 +408,6 @@
 		void *h_data = gles_in(s, a[8], b_data);
 		if (a[8] && !h_data) { gles_bad(s, "glCompressedTexSubImage2D"); break; }
 		glCompressedTexSubImage2D(v_target, v_level, v_xoffset, v_yoffset, v_width, v_height, v_format, v_imageSize, (const void *)h_data);
-		g_free(h_data);
 		break;
 	}
 	case GL1_FN_glCopyTexImage2D: {
@@ -498,7 +485,6 @@
 		void *h_params = gles_in(s, a[1], b_params);
 		if (a[1] && !h_params) { gles_bad(s, "glFogxv"); break; }
 		glFogxv(v_pname, (const GLfixed *)h_params);
-		g_free(h_params);
 		break;
 	}
 	case GL1_FN_glFrontFace: {
@@ -511,10 +497,10 @@
 		if (n < 2) break;
 		GLenum v_pname = (GLenum)a[0];
 		size_t b_eqn = (size_t)(16);
-		void *h_eqn = gles_room(b_eqn);
+		void *h_eqn = gles_room(s, b_eqn);
+		if (a[1] && !h_eqn) { gles_oom(c); break; }
 		glGetClipPlanex(v_pname, (GLfixed *)h_eqn);
 		gles_put(s, a[1], h_eqn, b_eqn);
-		g_free(h_eqn);
 		break;
 	}
 	case GL1_FN_glGetLightxv: {
@@ -522,10 +508,10 @@
 		GLenum v_light = (GLenum)a[0];
 		GLenum v_pname = (GLenum)a[1];
 		size_t b_params = (size_t)(4 * gl1_count_light(v_pname));
-		void *h_params = gles_room(b_params);
+		void *h_params = gles_room(s, b_params);
+		if (a[2] && !h_params) { gles_oom(c); break; }
 		glGetLightxv(v_light, v_pname, (GLfixed *)h_params);
 		gles_put(s, a[2], h_params, b_params);
-		g_free(h_params);
 		break;
 	}
 	case GL1_FN_glGetMaterialxv: {
@@ -533,10 +519,10 @@
 		GLenum v_face = (GLenum)a[0];
 		GLenum v_pname = (GLenum)a[1];
 		size_t b_params = (size_t)(4 * gl1_count_material(v_pname));
-		void *h_params = gles_room(b_params);
+		void *h_params = gles_room(s, b_params);
+		if (a[2] && !h_params) { gles_oom(c); break; }
 		glGetMaterialxv(v_face, v_pname, (GLfixed *)h_params);
 		gles_put(s, a[2], h_params, b_params);
-		g_free(h_params);
 		break;
 	}
 	case GL1_FN_glGetTexEnviv: {
@@ -544,10 +530,10 @@
 		GLenum v_env = (GLenum)a[0];
 		GLenum v_pname = (GLenum)a[1];
 		size_t b_params = (size_t)(4 * gl1_count_texenv(v_pname));
-		void *h_params = gles_room(b_params);
+		void *h_params = gles_room(s, b_params);
+		if (a[2] && !h_params) { gles_oom(c); break; }
 		glGetTexEnviv(v_env, v_pname, (GLint *)h_params);
 		gles_put(s, a[2], h_params, b_params);
-		g_free(h_params);
 		break;
 	}
 	case GL1_FN_glGetTexEnvxv: {
@@ -555,10 +541,10 @@
 		GLenum v_env = (GLenum)a[0];
 		GLenum v_pname = (GLenum)a[1];
 		size_t b_params = (size_t)(4 * gl1_count_texenv(v_pname));
-		void *h_params = gles_room(b_params);
+		void *h_params = gles_room(s, b_params);
+		if (a[2] && !h_params) { gles_oom(c); break; }
 		glGetTexEnvxv(v_env, v_pname, (GLfixed *)h_params);
 		gles_put(s, a[2], h_params, b_params);
-		g_free(h_params);
 		break;
 	}
 	case GL1_FN_glGetTexParameteriv: {
@@ -566,10 +552,10 @@
 		GLenum v_target = (GLenum)a[0];
 		GLenum v_pname = (GLenum)a[1];
 		size_t b_params = (size_t)(4 * gl1_count_texparam(v_pname));
-		void *h_params = gles_room(b_params);
+		void *h_params = gles_room(s, b_params);
+		if (a[2] && !h_params) { gles_oom(c); break; }
 		glGetTexParameteriv(v_target, v_pname, (GLint *)h_params);
 		gles_put(s, a[2], h_params, b_params);
-		g_free(h_params);
 		break;
 	}
 	case GL1_FN_glGetTexParameterxv: {
@@ -577,10 +563,10 @@
 		GLenum v_target = (GLenum)a[0];
 		GLenum v_pname = (GLenum)a[1];
 		size_t b_params = (size_t)(4 * gl1_count_texparam(v_pname));
-		void *h_params = gles_room(b_params);
+		void *h_params = gles_room(s, b_params);
+		if (a[2] && !h_params) { gles_oom(c); break; }
 		glGetTexParameterxv(v_target, v_pname, (GLfixed *)h_params);
 		gles_put(s, a[2], h_params, b_params);
-		g_free(h_params);
 		break;
 	}
 	case GL1_FN_glHint: {
@@ -620,7 +606,6 @@
 		void *h_params = gles_in(s, a[1], b_params);
 		if (a[1] && !h_params) { gles_bad(s, "glLightModelxv"); break; }
 		glLightModelxv(v_pname, (const GLfixed *)h_params);
-		g_free(h_params);
 		break;
 	}
 	case GL1_FN_glLightx: {
@@ -639,7 +624,6 @@
 		void *h_params = gles_in(s, a[2], b_params);
 		if (a[2] && !h_params) { gles_bad(s, "glLightxv"); break; }
 		glLightxv(v_light, v_pname, (const GLfixed *)h_params);
-		g_free(h_params);
 		break;
 	}
 	case GL1_FN_glLineWidthx: {
@@ -670,7 +654,6 @@
 		void *h_params = gles_in(s, a[2], b_params);
 		if (a[2] && !h_params) { gles_bad(s, "glMaterialxv"); break; }
 		glMaterialxv(v_face, v_pname, (const GLfixed *)h_params);
-		g_free(h_params);
 		break;
 	}
 	case GL1_FN_glMultiTexCoord4x: {
@@ -712,7 +695,6 @@
 		void *h_params = gles_in(s, a[1], b_params);
 		if (a[1] && !h_params) { gles_bad(s, "glPointParameterxv"); break; }
 		glPointParameterxv(v_pname, (const GLfixed *)h_params);
-		g_free(h_params);
 		break;
 	}
 	case GL1_FN_glPointSizex: {
@@ -803,7 +785,6 @@
 		void *h_params = gles_in(s, a[2], b_params);
 		if (a[2] && !h_params) { gles_bad(s, "glTexEnviv"); break; }
 		glTexEnviv(v_target, v_pname, (const GLint *)h_params);
-		g_free(h_params);
 		break;
 	}
 	case GL1_FN_glTexEnvxv: {
@@ -814,7 +795,6 @@
 		void *h_params = gles_in(s, a[2], b_params);
 		if (a[2] && !h_params) { gles_bad(s, "glTexEnvxv"); break; }
 		glTexEnvxv(v_target, v_pname, (const GLfixed *)h_params);
-		g_free(h_params);
 		break;
 	}
 	case GL1_FN_glTexImage2D: {
@@ -831,7 +811,6 @@
 		void *h_pixels = gles_in(s, a[8], b_pixels);
 		if (a[8] && !h_pixels) { gles_bad(s, "glTexImage2D"); break; }
 		glTexImage2D(v_target, v_level, v_internalformat, v_width, v_height, v_border, v_format, v_type, (const void *)h_pixels);
-		g_free(h_pixels);
 		break;
 	}
 	case GL1_FN_glTexParameteri: {
@@ -858,7 +837,6 @@
 		void *h_params = gles_in(s, a[2], b_params);
 		if (a[2] && !h_params) { gles_bad(s, "glTexParameteriv"); break; }
 		glTexParameteriv(v_target, v_pname, (const GLint *)h_params);
-		g_free(h_params);
 		break;
 	}
 	case GL1_FN_glTexParameterxv: {
@@ -869,7 +847,6 @@
 		void *h_params = gles_in(s, a[2], b_params);
 		if (a[2] && !h_params) { gles_bad(s, "glTexParameterxv"); break; }
 		glTexParameterxv(v_target, v_pname, (const GLfixed *)h_params);
-		g_free(h_params);
 		break;
 	}
 	case GL1_FN_glTexSubImage2D: {
@@ -886,7 +863,6 @@
 		void *h_pixels = gles_in(s, a[8], b_pixels);
 		if (a[8] && !h_pixels) { gles_bad(s, "glTexSubImage2D"); break; }
 		glTexSubImage2D(v_target, v_level, v_xoffset, v_yoffset, v_width, v_height, v_format, v_type, (const void *)h_pixels);
-		g_free(h_pixels);
 		break;
 	}
 	case GL1_FN_glViewport: {
@@ -956,7 +932,6 @@
 		void *h_coords = gles_in(s, a[0], b_coords);
 		if (a[0] && !h_coords) { gles_bad(s, "glDrawTexsvOES"); break; }
 		glDrawTexsvOES((const GLshort *)h_coords);
-		g_free(h_coords);
 		break;
 	}
 	case GL1_FN_glDrawTexivOES: {
@@ -965,7 +940,6 @@
 		void *h_coords = gles_in(s, a[0], b_coords);
 		if (a[0] && !h_coords) { gles_bad(s, "glDrawTexivOES"); break; }
 		glDrawTexivOES((const GLint *)h_coords);
-		g_free(h_coords);
 		break;
 	}
 	case GL1_FN_glDrawTexxvOES: {
@@ -974,7 +948,6 @@
 		void *h_coords = gles_in(s, a[0], b_coords);
 		if (a[0] && !h_coords) { gles_bad(s, "glDrawTexxvOES"); break; }
 		glDrawTexxvOES((const GLfixed *)h_coords);
-		g_free(h_coords);
 		break;
 	}
 	case GL1_FN_glDrawTexfOES: {
@@ -993,7 +966,6 @@
 		void *h_coords = gles_in(s, a[0], b_coords);
 		if (a[0] && !h_coords) { gles_bad(s, "glDrawTexfvOES"); break; }
 		glDrawTexfvOES((const GLfloat *)h_coords);
-		g_free(h_coords);
 		break;
 	}
 	case GL1_FN_glIsRenderbufferOES: {
@@ -1026,10 +998,10 @@
 		GLenum v_target = (GLenum)a[0];
 		GLenum v_pname = (GLenum)a[1];
 		size_t b_params = (size_t)(4);
-		void *h_params = gles_room(b_params);
+		void *h_params = gles_room(s, b_params);
+		if (a[2] && !h_params) { gles_oom(c); break; }
 		glGetRenderbufferParameterivOES(v_target, v_pname, (GLint *)h_params);
 		gles_put(s, a[2], h_params, b_params);
-		g_free(h_params);
 		break;
 	}
 	case GL1_FN_glIsFramebufferOES: {
@@ -1069,7 +1041,6 @@
 		void *h_params = gles_in(s, a[2], b_params);
 		if (a[2] && !h_params) { gles_bad(s, "glTexGenfvOES"); break; }
 		glTexGenfvOES(v_coord, v_pname, (const GLfloat *)h_params);
-		g_free(h_params);
 		break;
 	}
 	case GL1_FN_glTexGeniOES: {
@@ -1088,7 +1059,6 @@
 		void *h_params = gles_in(s, a[2], b_params);
 		if (a[2] && !h_params) { gles_bad(s, "glTexGenivOES"); break; }
 		glTexGenivOES(v_coord, v_pname, (const GLint *)h_params);
-		g_free(h_params);
 		break;
 	}
 	case GL1_FN_glTexGenxOES: {
@@ -1107,7 +1077,6 @@
 		void *h_params = gles_in(s, a[2], b_params);
 		if (a[2] && !h_params) { gles_bad(s, "glTexGenxvOES"); break; }
 		glTexGenxvOES(v_coord, v_pname, (const GLfixed *)h_params);
-		g_free(h_params);
 		break;
 	}
 	case GL1_FN_glGetTexGenfvOES: {
@@ -1115,10 +1084,10 @@
 		GLenum v_coord = (GLenum)a[0];
 		GLenum v_pname = (GLenum)a[1];
 		size_t b_params = (size_t)(4 * gl1_count_texgen(v_pname));
-		void *h_params = gles_room(b_params);
+		void *h_params = gles_room(s, b_params);
+		if (a[2] && !h_params) { gles_oom(c); break; }
 		glGetTexGenfvOES(v_coord, v_pname, (GLfloat *)h_params);
 		gles_put(s, a[2], h_params, b_params);
-		g_free(h_params);
 		break;
 	}
 	case GL1_FN_glGetTexGenivOES: {
@@ -1126,10 +1095,10 @@
 		GLenum v_coord = (GLenum)a[0];
 		GLenum v_pname = (GLenum)a[1];
 		size_t b_params = (size_t)(4 * gl1_count_texgen(v_pname));
-		void *h_params = gles_room(b_params);
+		void *h_params = gles_room(s, b_params);
+		if (a[2] && !h_params) { gles_oom(c); break; }
 		glGetTexGenivOES(v_coord, v_pname, (GLint *)h_params);
 		gles_put(s, a[2], h_params, b_params);
-		g_free(h_params);
 		break;
 	}
 	case GL1_FN_glGetTexGenxvOES: {
@@ -1137,9 +1106,9 @@
 		GLenum v_coord = (GLenum)a[0];
 		GLenum v_pname = (GLenum)a[1];
 		size_t b_params = (size_t)(4 * gl1_count_texgen(v_pname));
-		void *h_params = gles_room(b_params);
+		void *h_params = gles_room(s, b_params);
+		if (a[2] && !h_params) { gles_oom(c); break; }
 		glGetTexGenxvOES(v_coord, v_pname, (GLfixed *)h_params);
 		gles_put(s, a[2], h_params, b_params);
-		g_free(h_params);
 		break;
 	}

@@ -1,0 +1,15 @@
+--- a/kernel/eka/memmodel/epoc/flexible/mmu/mmu.cpp	2026-11-11 19:31:42.583052339 +0100
++++ b/kernel/eka/memmodel/epoc/flexible/mmu/mmu.cpp	2026-11-11 19:44:26.560450296 +0100
+@@ -297,7 +297,11 @@
+ 	iTempPteCacheMaintenance = BlankPte((TMemoryAttributes)(CacheMaintenance::TemporaryMapping()|EMemoryAttributeDefaultShareable),pteType);
+ 	
+ 	// other
+-	PP::MaxUserThreadStack=0x14000;			// 80K - STDLIB asks for 64K for PosixServer!!!!
++	// 1M, as Nokia's own kernels from Symbian Anna on (EPL and S^3 PR1: 80K) [V: ekern Mmu::Init1Common of N8
++	// 025.007 / 111.040: 0x100000; 701/808 113.010: 0x100000 + a patchable constant that is 0]. Belle FP2 EXEs
++	// ask up to 1M (webprocess.exe 512K: with 80K RProcess::Create failed with KErrTooBig and the browser
++	// panicked KERN-EXEC 0 on the unconnected app-server session).
++	PP::MaxUserThreadStack=0x100000;
+ 	PP::UserThreadStackGuard=0x2000;		// 8K
+ 	PP::MaxStackSpacePerProcess=0x200000;	// 2Mb
+ 	K::SupervisorThreadStackSize=0x1000;	// 4K

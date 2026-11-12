@@ -37,7 +37,7 @@ done
 cp src/qemu-syborg/hw/arm/syborg*.{c,h} "$SRC/hw/arm/"
 # the host EGL/OpenVG (the Khronos RI built for the host, C++): a static library linked into the device
 scripts/build-syvg.sh > build/logs/syvg-build.log 2>&1 || { tail -20 build/logs/syvg-build.log; exit 1; }
-cp src/syvg/syvg.h "$SRC/hw/arm/"
+cp src/syvg/syvg.h src/syvg/vg2_fn.h "$SRC/hw/arm/"
 grep -q 'config SYBORG' "$SRC/hw/arm/Kconfig" || cat >> "$SRC/hw/arm/Kconfig" <<'EOF'
 
 config SYBORG
@@ -57,14 +57,14 @@ mkdir -p "$B/build"
 cd "$B/build"
 # link-time optimisation (cross-unit inlining in the TCG hot paths, a few percent); no TCG plugins
 # (nothing here uses them; their hooks cost in slow paths). docs/perf.md
-OPTS="--enable-lto --disable-plugins"
+OPTS="--enable-lto --disable-plugins --enable-slirp"   # slirp: -nic user for syborg-net (libslirp-devel / libslirp-dev)
 if [ ! -f build.ninja ]; then
   "../qemu-$VER/configure" --prefix="$INST" --target-list=arm-softmmu --disable-docs \
     --disable-werror $OPTS 2>&1 | tee "$ROOT/build/logs/qemu-modern-configure.log"
   echo "$OPTS" > .syborg-configure
 elif [ "$(cat .syborg-configure 2>/dev/null)" != "$OPTS" ]; then
   # an existing tree configured with other options: change them in place
-  pyvenv/bin/meson configure -Db_lto=true -Dplugins=false . 2>&1 | tail -3
+  pyvenv/bin/meson configure -Db_lto=true -Dplugins=false -Dslirp=enabled . 2>&1 | tail -3
   echo "$OPTS" > .syborg-configure
 fi
 ninja 2>&1 | tee "$ROOT/build/logs/qemu-modern-build.log" | grep -E 'error|warning: .*syborg|FAILED' || true

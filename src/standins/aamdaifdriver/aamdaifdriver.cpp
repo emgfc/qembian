@@ -1,51 +1,75 @@
 // AAMdaifDriver.ldd stand-in (5730, RAPIDO audio): AAMdaifApi.dll opens "MdaifDriver" (1.0.1) and
-// uses only DoControl. Audio is silent: no DSP memory, the mapping controls are accepted and dropped.
+// uses only DoControl. Sound: each stream type's ring in the DSP window is played by syborg-snd (slot =
+// stream type), paced by the fake modem's F3 0x35 replies on the host's playback clock.
 // Protocol: docs/devices/nokia-5730-rm465/rapido-audio.md.
 #include "nokiastub.h"
 #include <platform.h>
 #include <kernel/kern_priv.h>
+#include <memmodel/epoc/platform.h>
 #include "boardconfig.h"
+#include "sybsnd.h"
 
 // ctl 2 table read by user code (AAMdaifApi ord 1/5): +4 u16 count = 0 -> every id looks up as 0.
 // Kept in ROM (XIP LDD) so any client can read it; a non-zero marker keeps it out of .bss.
 static const TUint32 KDspInfo[0x50 / 4] = { 0x4644444d /* "MDDF" marker, not read */ };
 
-// One shared user-writable buffer for every "write" mapping (silent audio: nothing reads it): a
-// shared kernel chunk, opened in each client process and returned at that process's address. (A
+// The DSP window: one shared user-writable buffer for every "write" mapping, a shared kernel chunk over
+// physically contiguous RAM, opened in each client process and returned at that process's address. (A
 // DPlatChunkHw with EMapAttrUserRw is global on the multiple memory model but not user-accessible on
-// the flexible one: the N8's AudioProcessingEngine faulted writing to it.)
+// the flexible one: the N8's AudioProcessingEngine faulted writing to it.) Contiguous, so that each
+// stream's ring inside it is one syborg-snd slot ring (host reads it by physical address).
 const TInt KWritableSize = 0x100000;	// 1 MB: the 5800 audio server writes 0x4b00-byte blocks past 64 KB (DSP memory window); the N8 engine writes at the end of any size (RAPIDO shared-memory state not modelled)
 static DChunk* WritableChunk;
-static DProcess* MappedIn[4];			// processes holding a handle (one per process is enough)
-static TLinAddr MappedAt[4];
-static TAny* WritableBuffer(DThread* aClient)
+static TPhysAddr WindowPhys;
+const TInt KMaxMapped = 8;
+static TUint MappedId[KMaxMapped];		// processes (by id: a dead process's object address can be reused) holding a
+static TLinAddr MappedAt[KMaxMapped];	// handle to the window, and where it is mapped there
+
+static TInt EnsureWindow()
 	{
+	if (WritableChunk)
+		return KErrNone;
 	NKern::ThreadEnterCS();
-	if (!WritableChunk)
+	TInt r = Epoc::AllocPhysicalRam(KWritableSize, WindowPhys, 16);
+	if (r == KErrNone)
 		{
 		TChunkCreateInfo info;
 		info.iType = TChunkCreateInfo::ESharedKernelMultiple;
 		info.iMaxSize = KWritableSize;
 		info.iMapAttr = EMapAttrCachedMax;
-		info.iOwnsMemory = ETrue;
+		info.iOwnsMemory = EFalse;
 		info.iDestroyedDfc = NULL;
 		TLinAddr kaddr;
 		TUint32 attr;
-		TInt r = Kern::ChunkCreate(info, WritableChunk, kaddr, attr);
+		r = Kern::ChunkCreate(info, WritableChunk, kaddr, attr);
 		if (r == KErrNone)
-			r = Kern::ChunkCommit(WritableChunk, 0, KWritableSize);
-		if (r != KErrNone)
+			r = Kern::ChunkCommitPhysical(WritableChunk, 0, KWritableSize, WindowPhys);
+		if (r == KErrNone)
+			memclr((TAny*)kaddr, KWritableSize);
+		else
 			{
-			Kern::Printf("SYBSTUB: MdaifDriver writable buffer: %d", r);
-			NKern::ThreadLeaveCS();
-			return NULL;
+			if (WritableChunk)
+				{
+				Kern::ChunkClose(WritableChunk);
+				WritableChunk = NULL;
+				}
+			Epoc::FreePhysicalRam(WindowPhys, KWritableSize);	// the chunk does not own it (iOwnsMemory false)
 			}
-		memclr((TAny*)kaddr, KWritableSize);
 		}
-	DProcess* proc = aClient->iOwningProcess;
+	NKern::ThreadLeaveCS();
+	Kern::Printf("SYBSTUB: MdaifDriver DSP window %d bytes at phys %08x: %d", KWritableSize, WindowPhys, r);
+	return r;
+	}
+
+static TAny* WritableBuffer(DThread* aClient)
+	{
+	if (EnsureWindow() != KErrNone)
+		return NULL;
+	NKern::ThreadEnterCS();
+	TUint pid = aClient->iOwningProcess->iId;
 	TAny* ret = NULL;
-	for (TInt i = 0; i < 4 && !ret; i++)
-		if (MappedIn[i] == proc)
+	for (TInt i = 0; i < KMaxMapped && !ret; i++)
+		if (MappedId[i] == pid)
 			ret = (TAny*)MappedAt[i];
 	if (!ret)
 		{
@@ -53,18 +77,79 @@ static TAny* WritableBuffer(DThread* aClient)
 		if (h >= 0)
 			{
 			ret = (TAny*)Kern::ChunkUserBase(WritableChunk, aClient);
-			for (TInt i = 0; i < 4; i++)
-				if (!MappedIn[i])
-					{
-					MappedIn[i] = proc;
-					MappedAt[i] = (TLinAddr)ret;
-					break;
-					}
+			static TInt next;
+			TInt i = next++ % KMaxMapped;			// round robin: a full table forgets the oldest process
+			MappedId[i] = pid;
+			MappedAt[i] = (TLinAddr)ret;
 			}
 		Kern::Printf("SYBSTUB: MdaifDriver writable buffer %d bytes at %08x for %O (handle %d)", KWritableSize, ret, aClient, h);
 		}
 	NKern::ThreadLeaveCS();
 	return ret;
+	}
+
+// The PCM format of each stream type, declared by the profile ([board.audio] streams -> "audio.streams",
+// "RATE/CHANNELS/BITS[/PLANAR]" per type: "48000/2/24/240,..."; 24 = 24-bit samples in 32-bit words, PLANAR = stereo
+// in chunks of N left then N right samples, as the N8 engine writes stream type 0 [V: 2026-11-12 ring dump, 1920
+// bytes = 240 stereo frames]; other types [I]
+static TBool StreamFormat(TInt aType, TInt& aRate, TInt& aCh, TInt& aFmt, TInt& aPlanar)
+	{
+	char b[64];
+	TInt n = BoardConfig("audio.streams", b, sizeof(b));
+	aRate = 0, aCh = 2, aFmt = SybSnd::FS16, aPlanar = 0;
+	TInt field = 0, k = 0, f[4] = {0, 0, 0, 0};
+	for (TInt i = 0; i <= n && n > 0; i++)
+		{
+		char c = i < n ? b[i] : ',';
+		if (c >= '0' && c <= '9')
+			f[k] = f[k] * 10 + (c - '0');
+		else if (c == '/' && k < 3)
+			k++;
+		else if (c == ',')
+			{
+			if (field == aType && f[0] > 0)
+				{
+				aRate = f[0];
+				aCh = f[1] == 2 ? 2 : 1;
+				aFmt = f[2] == 24 ? SybSnd::FS24in32 : f[2] == 32 ? SybSnd::FS32 : SybSnd::FS16;
+				aPlanar = f[3];
+				}
+			field++, k = 0, f[0] = f[1] = f[2] = f[3] = 0;
+			}
+		}
+	return aRate > 0;			// not declared for this phone: the ring stays unbound (silent)
+	}
+
+// what each stream type's slot was last bound to: a repeated ring query does not restart a playing stream
+static TUint32 BoundOffset[3], BoundSize[3];
+
+// stream type t's ring {window + offset, size} becomes syborg-snd slot t; the fake modem then moves its
+// write position on F3 0x34 and answers 0x35 on the host's playback clock (syborg_modem.c)
+static void BindSlot(TInt aType, TUint32 aOffset, TUint32 aSize)
+	{
+	using namespace SybSnd;
+	if (aType < 0 || aType > 2 || !Present() || EnsureWindow() != KErrNone)
+		return;							// stream types 0..2 only (cdspcontrolserver's set)
+	TInt rate, ch, fmt, planar;
+	if (!StreamFormat(aType, rate, ch, fmt, planar))
+		return;
+	if (BoundSize[aType] == aSize && BoundOffset[aType] == aOffset && (S(aType, SStatus) & StRun))
+		return;							// already playing this ring
+	BoundSize[aType] = aSize;
+	BoundOffset[aType] = aOffset;
+	S(aType, SCtrl) = CStop;
+	S(aType, SFormat) = fmt;
+	S(aType, SRate) = rate;
+	S(aType, SChannels) = ch;
+	S(aType, SRingAddr) = WindowPhys + aOffset;
+	S(aType, SRingSize) = aSize;
+	S(aType, SWatermark) = 0;
+	S(aType, SGain) = 256;
+	S(aType, SClass) = 4;
+	S(aType, SPlanar) = planar;
+	S(aType, SCtrl) = CStart;
+	Kern::Printf("SYBSTUB: MdaifDriver stream %d -> syborg-snd slot %d: %d Hz %d ch format %d planar %d, ring %d bytes at +%x",
+				 aType, aType, rate, ch, fmt, planar, aSize, aOffset);
 	}
 
 // Control numbers differ between client generations: the numbers below are the 5730/5800/N8 (011.012,
@@ -140,16 +225,22 @@ static TInt MdaifCtl(DThread* aClient, TInt aFn, TAny* a1, TAny*, const TUint32*
 		TInt units = BoardConfigInt("audio.ring_units", 0);	// [[standins]] config = { ring_units = N }
 		if (units <= 0)
 			return KErrNone;
-		static TInt rings;	// each stream its own 128 KB region of the window (8 regions in 1 MB)
 		TUint32 unit = w[0] == 0 ? 1920 : w[0] == 1 ? 960 : 320;	// bytes per 10 ms [verified: cdsp]
 		TUint32 size = units * unit;
-		TUint32 offset = (rings++ & 7) * 0x20000;
+		if (size > 0x20000)
+			size = 0x20000 / unit * unit;	// the ring fits its 128 KB region of the window
+		if (w[0] > 2)
+			return KErrArgument;		// stream types 0..2 (cdspcontrolserver divides by 1920 / 960 / 320)
+		TUint32 offset = w[0] * 0x20000;	// each stream type its own 128 KB region of the window: the engine
+												// and cdspcontrolserver both ask, and must get the same ring
 		TUint32 x = 0;
 		TInt r = Kern::ThreadRawWrite(aClient, (TAny*)w[1], &size, sizeof(size));
 		if (r == KErrNone)
 			r = Kern::ThreadRawWrite(aClient, (TAny*)w[2], &offset, sizeof(offset));
 		if (r == KErrNone && w[3])
 			r = Kern::ThreadRawWrite(aClient, (TAny*)w[3], &x, sizeof(x));
+		if (r == KErrNone)
+			BindSlot(w[0], offset, size);
 		return r;
 		}
 	case 6: case 7:	// map entry {i, size, addr, 0} / map done: accepted

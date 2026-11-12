@@ -32,16 +32,25 @@
 #include "hw/core/sysbus.h"
 #include "hw/core/qdev-properties.h"
 #include "hw/core/cpu.h"
+#include "cpu.h"
+#include "target/arm/internals.h"
+#include "target/arm/cpregs.h"
+#include "accel/tcg/probe.h"
+#include "exec/target_page.h"
+#include "exec/tlb-flags.h"
 #include "system/address-spaces.h"
 #include "qom/object.h"
 #include "qapi/visitor.h"
 #include "syborg.h"
 #include "syborg_gl_proto.h"
 #include "syvg.h"                   /* the host EGL/OpenVG (src/syvg, libsyvg.a) */
+#include "vg2_fn.h"                 /* VG2_FN_* (src/syvg) */
 #include <math.h>
 #include <sys/mman.h>
 #include "qemu/atomic.h"
 #include "qemu/timer.h"
+#include "qemu/thread.h"
+#include "qemu/rcu.h"
 
 #include <epoxy/egl.h>
 #include <epoxy/gl.h>
@@ -50,8 +59,11 @@ OBJECT_DECLARE_SIMPLE_TYPE(SyborgGlState, SYBORG_GL)
 
 #define MAX_SURF 4096                   /* sanity caps: hash tables, these only stop runaways */
 #define MAX_TEX  65536
+/* per process (S6): one process cannot take what the others need */
+enum { BUDGET_SURF, BUDGET_TEX, BUDGET_CTX, BUDGET_N };
+static const int budget_max[BUDGET_N] = { 1024, 16384, 64 };
 
-#define MAX_SCAN 64
+#define MAX_SCAN 256
 #define RAMP_N 1024
 
 /* fbo/color: the surface's pixels (a texture); multisampled surfaces draw into msfbo and are
@@ -62,11 +74,34 @@ typedef struct {
     GLuint msfbo, mscolor, msdepth; int dirty;
     int want_msaa;                      /* an OpenVG surface: follows the `msaa` setting */
     int samples;                        /* its sample count now (0: single-sampled) */
+    uint64_t mem;                       /* GPU bytes counted for it (EGL_NOK_resource_profiling) */
 } GlSurf;
-typedef struct { uint64_t k; uint32_t owner, key, gen, w, h; GLuint tex; } GlTex;
+typedef struct { uint64_t k; uint32_t owner, key, gen, w, h; GLuint tex; uint64_t mem; } GlTex;
 /* a GCE surface's image for composition: from an EGL window (host: GL rows bottom-up) or read from
    guest memory (rows top-down, guest pixel format) */
-typedef struct { uint32_t sid[4]; GLuint tex; uint32_t w, h, fmt; int host, used; } GlScan;
+typedef struct { uint32_t sid[4]; GLuint tex; uint32_t w, h, fmt; int host, used; uint32_t owner; } GlScan;
+#define SCAN_PER_OWNER 16                /* scan-out images one process may claim (review H1) */
+
+/* One execution of commands (phase 5): a kick's on the vCPU, a job's on the GL worker, a host batch's. The
+   handlers reach it through gl_ex (per thread), so a host batch running on the worker does not disturb the
+   kick the vCPU is in. */
+typedef struct GlExec {
+    uint32_t buf, len, out, outlen;     /* the command buffer and the output area (guest addresses) */
+    int va;                             /* buf/out are guest-virtual (SYGL_REG_KICK) */
+    uint32_t owner;                     /* SYGL_OWNER: whose ids/keys the commands use */
+    uint32_t auth_owner, auth_rights;   /* the kick's process and SYGL_RIGHT_* (phase 1) */
+    uint32_t *cmd;                      /* the commands (host copy) */
+    size_t cmdcap;
+    bool host_batch;                    /* a host batch (syvg): no guest memory is touched */
+    uint8_t *host_out;                  /* its results go here (byte offsets as SYGL_REG_OUT offsets) */
+    size_t host_outlen;
+    bool vg_dirty;                      /* OpenVG calls ran whose RI drawing is not flushed yet (phase 3) */
+    uint32_t last_fn;                   /* the batch's last command: op << 16 | VG/EGL fn (what it waited for) */
+    CPUState *cpu;                      /* the vCPU whose memory the commands use (parked while a worker job
+                                           runs for it); NULL: no guest memory (async jobs) */
+} GlExec;
+
+static __thread GlExec *gl_ex;          /* this thread's current execution */
 
 struct SyborgGlState {
     SysBusDevice parent_obj;
@@ -85,17 +120,39 @@ struct SyborgGlState {
     uint32_t msaa_applied;          /* the value `samples` was last computed from */
     int filter;                     /* property (runtime) "filter": 0 auto, 1 nearest, 2 linear */
     bool compose_host;              /* property (runtime) "compose": host (default) or guest */
-    uint32_t buf, len, out, outlen, result;
-    int va;                         /* buf/out are guest-virtual (SYGL_REG_KICK) */
+    uint32_t buf, len, r_out, r_outlen, result;    /* registers (the kernel's EXEC path; KICK: SyglKick) */
+    GlExec exv;                     /* the vCPU's execution context (kicks and EXEC) */
+    GlExec exm;                     /* the main loop's (frame timer, reset) */
+    bool thread;                    /* property "thread": GL on its own thread (phase 5); off: inline */
+    QemuThread th;
+    QemuMutex jlock;                /* the job queue */
+    QemuCond jwork, jdone;
+    struct GlJob *jhead, *jtail;
+    int jqueued;                    /* async jobs waiting (backpressure) */
+    bool worker_up;
+    QemuMutex frame_lock;           /* hframe: written by GL (worker), read by syborg-fb (main loop) */
+    QemuMutex cap_lock;             /* the GPU capture/journal (syborg_gl_capture.h) */
+    uint64_t st_async_jobs, st_sync_jobs;
+    char *present;                  /* property: "frame" (read back for the window/frame file) or "window"
+                                       (Android: straight into the app's window, syborg_gl_set_window) */
+    void *win;                      /* the window (ANativeWindow*, the GL thread's) and its surface */
+    EGLSurface wsurf;
+    EGLConfig cfg;                  /* the device context's config (window-capable on Android) */
+    uint64_t st_presents;
+    uint32_t gpu_mem_mb;            /* property "gpu-memory-mb": the phone's graphics memory (profile [gl]) */
     int es3;                        /* GLES 3 context: multisampling, row length */
     int has_minmax;                 /* GL_MIN/GL_MAX blend equations (ES3 or EXT_blend_minmax) */
     int has_ds;                     /* packed depth/stencil (ES3 or OES_packed_depth_stencil) */
     uint64_t glerrors;              /* GL errors seen (logged the first few) */
     /* statistics (SYBORG_GL_STATS=1 prints them every 5 s; the `stats` property later) */
     uint64_t st_kicks, st_kick_ns, st_compose, st_compose_ns, st_read_ns, st_fills, st_dropped;
+    uint64_t st_vg2, st_egl;        /* OpenVG and EGL calls (phase 3: calls per kick) */
+    uint64_t st_in_direct, st_in_copied;   /* GLES input bytes read in place / copied (phase 4) */
+    struct { uint8_t *p; size_t cap, used; } tmp[8];  /* per-call scratch arena (gl_tmp), kept across kicks */
+    int ntmp, tmpcur;
+    uint64_t st_end[160];           /* kicks ended by VG fn (0..127) and EGL fn (128 + fn), SYBORG_GL_STATS */
     uint64_t st_last_print;
     GLint samples;                  /* OpenVG surfaces' samples (0: single-sampled) */
-    uint32_t owner;                 /* SYGL_OWNER: whose ids/keys the commands use */
     int ready;                      /* 0 not tried, 1 ok, -1 failed */
     EGLDisplay dpy;
     EGLContext ctx;
@@ -117,9 +174,6 @@ struct SyborgGlState {
     GLsync fence;
     int pending;                    /* a frame in the PBO not yet written */
     uint32_t pW, pH, pStride;
-    hwaddr *pPages;                 /* guest-physical page of each 4K page of the frame buffer */
-    vaddr pBase;                    /* its first byte (virtual) */
-    size_t pNPages, pPagesCap;
     QEMUTimer *rb_timer;
     uint64_t st_async, st_async_wait;
     size_t cpixcap;
@@ -127,8 +181,6 @@ struct SyborgGlState {
     size_t vgvcap;
     GLint uSize, uTexOn, uHasRGB, uHasA, uEnv, uEnvColor, uAlphaFunc, uAlphaRef, uFog, uFogColor;
     GHashTable *surfs, *texs;       /* (owner << 32 | id/key) -> GlSurf* / GlTex* (owned) */
-    uint32_t *cmd;                  /* host copy of the command buffer */
-    size_t cmdcap;
     uint8_t *pix;                   /* read-back scratch */
     size_t pixcap;
     uint8_t *pix2;                  /* GL2 read-back as RGBA before converting (syborg_gl2.h) */
@@ -136,10 +188,43 @@ struct SyborgGlState {
     int gl2_readconv;               /* converted GL2 read-backs logged */
     int gl2_fb0_logs;               /* refused GL2 attachments to framebuffer 0 logged */
     uint64_t draws, tris;
-    bool host_batch;                /* running a host batch (syvg): no guest memory is touched */
-    uint8_t *host_out;              /* its results go here (byte offsets as SYGL_REG_OUT offsets) */
-    size_t host_outlen;
+    /* authority (docs/gpu-boundary-roadmap.md phase 1) */
+    uint32_t kpid, kflags;          /* SYGL_REG_PID / FLAGS: the kernel's, for its next run or BIND */
+    uint32_t bind_result;           /* SYGL_REG_BIND read */
+    GHashTable *binds;              /* user TTBR0 -> SyglBind* (owned) */
+    GHashTable *budgets;            /* owner -> int[BUDGET_N] (owned): its objects now */
+    uint64_t refused;               /* refusals (logged the first ones) */
 };
+
+/* phase 5: may this thread call GL? Thread off (property "thread"): every thread, as before (the vCPU and,
+   with the vCPUs stopped or between kicks, the main loop); on: the GL worker only */
+static bool gl_here(SyborgGlState *s)
+{
+    return !s->worker_up || qemu_thread_is_self(&s->th);
+}
+
+typedef struct GlJob {
+    int kind;
+    GlExec ex;                          /* the execution the job runs in */
+    size_t from, to;                    /* command words */
+    uint32_t result;
+    bool sync, done;
+    uint32_t *own;                      /* a queued job's copy of its words */
+    struct GlJob *next;
+} GlJob;
+enum { GL_JOB_INIT, GL_JOB_OPS, GL_JOB_HOST, GL_JOB_FRAME, GL_JOB_RESET, GL_JOB_WINDOW };
+#define GL_JOB_QUEUE_MAX 256            /* queued jobs before the producer waits (backpressure) */
+static uint32_t gl_job_run(SyborgGlState *s, GlJob *j);
+
+/* the vCPU whose memory the running commands use: this thread's, or the one parked waiting for a worker job.
+   Invariant (review M1): the worker uses a vCPU's MMU (probe_access_full_mmu: TLB lookups and fills) only
+   for a synchronous job, while that vCPU is blocked in gl_job_run holding the BQL, and the machine has one
+   vCPU; nothing else touches that CPU's TLB meanwhile. A second vCPU, or a QEMU whose TLB code asserts
+   the owning thread (DEBUG_TLB), needs the guest spans resolved on the vCPU before the job is queued. */
+static CPUState *gl_cpu(void)
+{
+    return current_cpu ? current_cpu : (gl_ex ? gl_ex->cpu : NULL);
+}
 
 static EGLConfig gl2_cfg;               /* OpenGL ES 2 contexts (syborg_gl2.h) are made with this config */
 
@@ -199,7 +284,19 @@ static GLuint compile(GLenum type, const char *src)
     return s;
 }
 
+static int gl_init_now(SyborgGlState *s);
+static int gl_job_init(SyborgGlState *s);
+
+/* the host GL, set up on first use: on the GL worker when it runs (phase 5) */
 static int gl_init(SyborgGlState *s)
+{
+    if (s->ready) {
+        return s->ready > 0;
+    }
+    return gl_here(s) ? gl_init_now(s) : gl_job_init(s);
+}
+
+static int gl_init_now(SyborgGlState *s)
 {
     if (s->ready) {
         return s->ready > 0;
@@ -208,6 +305,15 @@ static int gl_init(SyborgGlState *s)
     if (s->backend && strcmp(s->backend, "host") != 0) {
         return 0;
     }
+#ifdef __ANDROID__
+    /* Android (android/): the system's display; contexts are made current without a surface
+       (EGL_KHR_surfaceless_context) and the config also suits the app's window (present=window) */
+    s->dpy = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+    if (s->dpy == EGL_NO_DISPLAY || !eglInitialize(s->dpy, NULL, NULL)) {
+        warn_report("syborg-gl: no EGL display: software rendering in the guest");
+        return 0;
+    }
+#else
     /* client extensions only: epoxy aborts on EGL 1.5 entry points before a display exists */
     if (!epoxy_has_egl_extension(EGL_NO_DISPLAY, "EGL_EXT_platform_base") ||
         !epoxy_has_egl_extension(EGL_NO_DISPLAY, "EGL_MESA_platform_surfaceless")) {
@@ -219,15 +325,22 @@ static int gl_init(SyborgGlState *s)
         warn_report("syborg-gl: no surfaceless EGL display: software rendering in the guest");
         return 0;
     }
+#endif
     eglBindAPI(EGL_OPENGL_ES_API);
     for (int v = 3; v >= 2 && (s->ctx == EGL_NO_CONTEXT || !s->ctx); v--) {   /* GLES 3 if we can */
-        const EGLint cattr[] = { EGL_RENDERABLE_TYPE, v == 3 ? EGL_OPENGL_ES3_BIT : EGL_OPENGL_ES2_BIT, EGL_NONE };
+        const EGLint cattr[] = { EGL_RENDERABLE_TYPE, v == 3 ? EGL_OPENGL_ES3_BIT : EGL_OPENGL_ES2_BIT,
+#ifdef __ANDROID__
+                                 EGL_SURFACE_TYPE, EGL_WINDOW_BIT | EGL_PBUFFER_BIT, EGL_RED_SIZE, 8,
+                                 EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8, EGL_ALPHA_SIZE, 8,
+#endif
+                                 EGL_NONE };
         EGLConfig cfg = NULL;
         EGLint n = 0;
         eglChooseConfig(s->dpy, cattr, &cfg, 1, &n);
         const EGLint xattr[] = { EGL_CONTEXT_CLIENT_VERSION, v, EGL_NONE };
         s->ctx = eglCreateContext(s->dpy, n ? cfg : EGL_NO_CONFIG_KHR, EGL_NO_CONTEXT, xattr);
         gl2_cfg = n ? cfg : EGL_NO_CONFIG_KHR;     /* OpenGL ES 2 contexts share with this one */
+        s->cfg = gl2_cfg;
         if (s->ctx != EGL_NO_CONTEXT && !eglMakeCurrent(s->dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, s->ctx)) {
             eglDestroyContext(s->dpy, s->ctx);
             s->ctx = EGL_NO_CONTEXT;
@@ -367,13 +480,14 @@ static int gl_init(SyborgGlState *s)
         static const char *cvs = "attribute vec2 aPos; attribute vec2 aUV; uniform vec2 uSize; varying vec2 vUV;\n"
             "void main() { gl_Position = vec4(aPos / uSize * 2.0 - 1.0, 0.0, 1.0); vUV = aUV; }\n";
         /* uFmt: 0 XRGB, 1 ARGB, 2 ARGB PRE (guest words as bytes), 3 RGB 565, 4 host image (RGBA PRE),
-           5 copy as is (surf_resample: a surface's pixels into its new sample buffers) */
+           5 copy as is (surf_resample: a surface's pixels into its new sample buffers), 6 host image drawn
+           opaque (a layer without source alpha: its alpha ignored) */
         static const char *cfs = "precision mediump float;\n"
             "uniform sampler2D uTex; uniform int uFmt; uniform float uAlpha; varying vec2 vUV;\n"
             "void main() {\n"
             "  vec4 c = texture2D(uTex, vUV);\n"
             "  if (uFmt <= 2) c = c.bgra;\n"
-            "  if (uFmt == 0 || uFmt == 3) c.a = 1.0; else if (uFmt == 1) c.rgb *= c.a;\n"
+            "  if (uFmt == 0 || uFmt == 3 || uFmt == 6) c.a = 1.0; else if (uFmt == 1) c.rgb *= c.a;\n"
             "  gl_FragColor = uFmt == 5 ? c * uAlpha : (c * uAlpha).bgra;\n"
             "}\n";
         s->cpProg = glCreateProgram();
@@ -404,7 +518,7 @@ static void surf_resample(SyborgGlState *s, GlSurf *g);
 
 static GlSurf *find_surf(SyborgGlState *s, uint32_t id)
 {
-    uint64_t k = okey(s->owner, id);
+    uint64_t k = okey(gl_ex->owner, id);
     GlSurf *g = id ? g_hash_table_lookup(s->surfs, &k) : NULL;
     if (g && g->want_msaa && g->samples != s->samples) {
         surf_resample(s, g);            /* the `msaa` setting changed since it was made */
@@ -429,15 +543,113 @@ static void surf_gl_free(GlSurf *g)
     g->stencil = g->dirty = 0;
 }
 
+/* one more object of `kind` for the current owner: 0, or -1 when its budget is spent */
+static int budget_take(SyborgGlState *s, int kind)
+{
+    int *b = g_hash_table_lookup(s->budgets, GUINT_TO_POINTER(gl_ex->owner));
+    if (!b) {
+        b = g_new0(int, BUDGET_N);
+        g_hash_table_insert(s->budgets, GUINT_TO_POINTER(gl_ex->owner), b);
+    }
+    if (b[kind] >= budget_max[kind]) {
+        if (s->refused++ < 32) {
+            warn_report("syborg-gl: refused: owner %u has %d objects of kind %d", gl_ex->owner, b[kind], kind);
+        }
+        return -1;
+    }
+    b[kind]++;
+    return 0;
+}
+
+static void budget_give(SyborgGlState *s, uint32_t owner, int kind)
+{
+    int *b = g_hash_table_lookup(s->budgets, GUINT_TO_POINTER(owner));
+    if (b && b[kind] > 0) {
+        b[kind]--;
+    }
+}
+
+/* ---- GPU memory in use per process (EGL_NOK_resource_profiling: the host EGL answers the guest's memory
+   monitor, GOOM, with it). Each surface and texture keeps the bytes counted for it; the sums per owner are
+   under mem_lock: the GL thread changes them, syvg reads them on the vCPU. */
+static QemuMutex mem_lock;
+static GHashTable *mem_owner;           /* owner -> uint64_t* bytes (owned) */
+static uint32_t mem_total_mb = 32;
+
+static void mem_add(uint32_t owner, int64_t delta)
+{
+    if (!mem_owner || !delta) {
+        return;
+    }
+    qemu_mutex_lock(&mem_lock);
+    uint64_t *b = g_hash_table_lookup(mem_owner, GUINT_TO_POINTER(owner));
+    if (!b) {
+        b = g_new0(uint64_t, 1);
+        g_hash_table_insert(mem_owner, GUINT_TO_POINTER(owner), b);
+    }
+    *b = delta < 0 && (uint64_t)-delta > *b ? 0 : *b + delta;
+    qemu_mutex_unlock(&mem_lock);
+}
+
+/* the owner's memory is gone (OWNER_FREE; ~0: everyone, a machine reset) */
+static void mem_owner_drop(uint32_t owner)
+{
+    if (!mem_owner) {
+        return;
+    }
+    qemu_mutex_lock(&mem_lock);
+    if (owner == ~0u) {
+        g_hash_table_remove_all(mem_owner);
+    } else {
+        g_hash_table_remove(mem_owner, GUINT_TO_POINTER(owner));
+    }
+    qemu_mutex_unlock(&mem_lock);
+}
+
+uint64_t syborg_gl_mem_total(void)
+{
+    return (uint64_t)mem_total_mb << 20;
+}
+
+/* up to max (owner, bytes) pairs of processes using GPU memory; *used = their sum; returns how many there are */
+int syborg_gl_mem_usage(uint32_t *owners, uint64_t *bytes, int max, uint64_t *used)
+{
+    int n = 0;
+    *used = 0;
+    if (!mem_owner) {
+        return 0;
+    }
+    qemu_mutex_lock(&mem_lock);
+    GHashTableIter it;
+    gpointer k, v;
+    g_hash_table_iter_init(&it, mem_owner);
+    while (g_hash_table_iter_next(&it, &k, &v)) {
+        uint64_t b = *(uint64_t *)v;
+        if (!b) {
+            continue;
+        }
+        *used += b;
+        if (n < max) {
+            owners[n] = GPOINTER_TO_UINT(k);
+            bytes[n] = b;
+        }
+        n++;
+    }
+    qemu_mutex_unlock(&mem_lock);
+    return n;
+}
+
 static void surf_free(SyborgGlState *s, GlSurf *g)
 {
+    mem_add(g->owner, -(int64_t)g->mem);
+    budget_give(s, g->owner, BUDGET_SURF);
     surf_gl_free(g);
     g_hash_table_remove(s->surfs, &g->k);       /* frees g */
 }
 
 static GlTex *find_tex(SyborgGlState *s, uint32_t key)
 {
-    uint64_t k = okey(s->owner, key);
+    uint64_t k = okey(gl_ex->owner, key);
     return key ? g_hash_table_lookup(s->texs, &k) : NULL;
 }
 
@@ -452,10 +664,13 @@ static GlTex *get_tex(SyborgGlState *s, uint32_t key)
         qemu_log_mask(LOG_GUEST_ERROR, "syborg-gl: too many textures\n");
         return NULL;
     }
+    if (budget_take(s, BUDGET_TEX)) {
+        return NULL;
+    }
     t = g_new0(GlTex, 1);
-    t->owner = s->owner;
+    t->owner = gl_ex->owner;
     t->key = key;
-    t->k = okey(s->owner, key);
+    t->k = okey(gl_ex->owner, key);
     glGenTextures(1, &t->tex);
     g_hash_table_insert(s->texs, &t->k, t);
     return t;
@@ -463,6 +678,8 @@ static GlTex *get_tex(SyborgGlState *s, uint32_t key)
 
 static void tex_free(SyborgGlState *s, GlTex *t)
 {
+    mem_add(t->owner, -(int64_t)t->mem);
+    budget_give(s, t->owner, BUDGET_TEX);
     glDeleteTextures(1, &t->tex);
     g_hash_table_remove(s->texs, &t->k);        /* frees t */
 }
@@ -527,18 +744,30 @@ static void surf_make(SyborgGlState *s, uint32_t id, uint32_t w, uint32_t h, uin
     }
     if (g) {
         surf_gl_free(g);
+        mem_add(g->owner, -(int64_t)g->mem);
+        g->mem = 0;
     } else {
         if (g_hash_table_size(s->surfs) >= MAX_SURF) {
             qemu_log_mask(LOG_GUEST_ERROR, "syborg-gl: too many surfaces\n");
             return;
         }
+        if (budget_take(s, BUDGET_SURF)) {
+            return;
+        }
         g = g_new0(GlSurf, 1);
-        g->k = okey(s->owner, id);
+        g->k = okey(gl_ex->owner, id);
         g_hash_table_insert(s->surfs, &g->k, g);
     }
-    g->owner = s->owner; g->id = id; g->w = w; g->h = h;
+    g->owner = gl_ex->owner; g->id = id; g->w = w; g->h = h;
     g->want_msaa = (depth & SYGL_SURF_MSAA) && (depth & SYGL_SURF_STENCIL);
     g->samples = 0;
+    {   /* its GPU memory as the phone would count it: colour and depth/stencil. The host's own multisample
+           buffers (the msaa setting) are not the phone's: counted, they made the guest's memory monitor
+           report low graphics memory and alf fell back to software rendering (the browser's page hole lost) */
+        uint64_t px = (uint64_t)w * h * 4, ds = (depth & (SYGL_SURF_DEPTH | SYGL_SURF_STENCIL)) ? px : 0;
+        g->mem = px + ds;
+        mem_add(g->owner, (int64_t)g->mem);
+    }
     glGenTextures(1, &g->color);
     glBindTexture(GL_TEXTURE_2D, g->color);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
@@ -628,6 +857,8 @@ static void tex_upload(SyborgGlState *s, const uint32_t *a, size_t words)
     glBindTexture(GL_TEXTURE_2D, t->tex);
     if (y0 == 0) {      /* a new image: (re)define it */
         t->gen = gen; t->w = w; t->h = h;
+        mem_add(t->owner, (int64_t)w * h * 4 - (int64_t)t->mem);
+        t->mem = (uint64_t)w * h * 4;
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
     }
     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, y0, w, rows, GL_RGBA, GL_UNSIGNED_BYTE, a + 6);
@@ -643,19 +874,236 @@ static void bind_surf(GlSurf *g)
     glViewport(0, 0, g->w, g->h);
 }
 
-/* guest memory: physical, or virtual in the address space of the kick (SYGL_REG_KICK) */
-static int gmem_rw(SyborgGlState *s, uint32_t addr, void *p, size_t n, bool write)
+/* S6: guest-sized host memory: capped per call and never aborting QEMU (g_malloc does); a failure is the
+   call's error, as an out-of-memory driver would give */
+#define GL_ALLOC_MAX ((size_t)128 << 20)
+
+static void *gl_try_alloc0(size_t n)
 {
-    if (s->host_batch) {                /* a host batch: the only memory it touches is its output area */
-        uint32_t off = addr - s->out;
-        if (!write || !s->host_out || off > s->host_outlen || n > s->host_outlen - off) {
-            return -1;
-        }
-        memcpy(s->host_out + off, p, n);
+    return n <= GL_ALLOC_MAX ? g_try_malloc0(n ? n : 1) : NULL;
+}
+
+/* grow a scratch buffer to n bytes; -1 when it cannot be (the buffer stays as it was) */
+static int gl_room(void **p, size_t *cap, size_t n)
+{
+    if (*cap >= n) {
         return 0;
     }
-    if (s->va) {
-        return current_cpu ? cpu_memory_rw_debug(current_cpu, addr, p, n, write) : -1;
+    void *q = n <= GL_ALLOC_MAX ? g_try_realloc(*p, n) : NULL;
+    if (!q) {
+        return -1;
+    }
+    *p = q;
+    *cap = n;
+    return 0;
+}
+#define GL_ROOM(p, cap, n) gl_room((void **)&(p), &(cap), (n))
+
+/* phase 4: scratch for a GL call's copied inputs and its outputs, used as a stack: gles_call takes a mark
+   and releases to it, so the arena holds one call's data and no allocation happens in steady state */
+#define GL_TMP_MAX ((size_t)192 << 20)  /* all chunks together (review M3: one call cannot take 8 x 128 MB) */
+
+static size_t gl_tmp_total(SyborgGlState *s)
+{
+    size_t t = 0;
+    for (int i = 0; i < s->ntmp; i++) {
+        t += s->tmp[i].cap;
+    }
+    return t;
+}
+
+static void *gl_tmp(SyborgGlState *s, size_t n)
+{
+    n = MAX((n + 15) & ~(size_t)15, (size_t)16);
+    if (n > GL_ALLOC_MAX) {
+        return NULL;
+    }
+    for (;;) {
+        if (s->tmpcur < s->ntmp && s->tmp[s->tmpcur].cap - s->tmp[s->tmpcur].used >= n) {
+            void *p = s->tmp[s->tmpcur].p + s->tmp[s->tmpcur].used;
+            s->tmp[s->tmpcur].used += n;
+            return p;
+        }
+        int nx = s->tmpcur < s->ntmp ? s->tmpcur + 1 : s->tmpcur;
+        if (nx >= (int)G_N_ELEMENTS(s->tmp)) {
+            return NULL;
+        }
+        if (nx < s->ntmp && s->tmp[nx].cap >= n) {
+            s->tmpcur = nx;
+            s->tmp[nx].used = 0;
+            continue;
+        }
+        size_t cap = MAX(n, (size_t)1 << 20);
+        size_t total = gl_tmp_total(s) - (nx < s->ntmp ? s->tmp[nx].cap : 0);
+        if (total + cap > GL_TMP_MAX) {
+            return NULL;
+        }
+        uint8_t *p = g_try_malloc(cap);
+        if (!p) {
+            return NULL;
+        }
+        if (nx < s->ntmp) {
+            g_free(s->tmp[nx].p);
+        }
+        s->tmp[nx].p = p;
+        s->tmp[nx].cap = cap;
+        s->tmp[nx].used = 0;
+        s->ntmp = MAX(s->ntmp, nx + 1);
+        s->tmpcur = nx;
+    }
+}
+
+static size_t gl_tmp_mark(SyborgGlState *s)
+{
+    return (size_t)s->tmpcur << 40 | (s->tmpcur < s->ntmp ? s->tmp[s->tmpcur].used : 0);
+}
+
+static void gl_tmp_release(SyborgGlState *s, size_t mark)
+{
+    s->tmpcur = mark >> 40;
+    if (s->tmpcur < s->ntmp) {
+        s->tmp[s->tmpcur].used = mark & (((size_t)1 << 40) - 1);
+    }
+}
+
+/* after a kick: one chunk as large as this kick needed (up to 16 MB), so a steady workload stops
+   allocating (review P1: freeing every extra chunk after each kick made big inputs mmap/munmap per kick) */
+static void gl_tmp_trim(SyborgGlState *s)
+{
+    if (s->ntmp > 1) {
+        size_t want = MIN(gl_tmp_total(s), (size_t)16 << 20);
+        for (int i = 0; i < s->ntmp; i++) {
+            g_free(s->tmp[i].p);
+        }
+        s->ntmp = 0;
+        uint8_t *p = g_try_malloc(want);
+        if (p) {
+            s->tmp[0].p = p;
+            s->tmp[0].cap = want;
+            s->ntmp = 1;
+        }
+    }
+    s->tmpcur = 0;
+    if (s->ntmp) {
+        s->tmp[0].used = 0;
+    }
+}
+
+/* a refusal: the app's call fails as on the phone; the first ones are logged (the glsec probe greps them) */
+static void refuse(SyborgGlState *s, const char *why, uint32_t a, uint32_t b)
+{
+    if (s->refused++ < 32) {
+        warn_report("syborg-gl: refused %s (owner %u, rights %u: %08x %08x)", why, gl_ex->auth_owner,
+                    gl_ex->auth_rights, a, b);
+    }
+}
+
+/* a user address space bound to its process by the kernel (SYGL_REG_BIND, d_display ctl 0x7f13) */
+typedef struct { uint64_t ttbr; uint32_t pid, rights; int shared; } SyglBind;
+
+static gboolean bind_drop(gpointer k, gpointer v, gpointer pid)
+{
+    return ((SyglBind *)v)->pid == *(uint32_t *)pid;
+}
+
+/* the user regime of the current CPU: its MMU index, and its TTBR0 (a process's address space) */
+static int user_mmu_idx(CPUARMState *env)
+{
+    return arm_to_core_mmu_idx(arm_mmu_idx_el(env, 0));
+}
+
+static uint64_t user_ttbr0(CPUARMState *env)
+{
+    return A32_BANKED_CURRENT_REG_GET(env, ttbr0);
+}
+
+/* guest-virtual memory with the permissions of the user-mode app (S1): page by page through the TLB; a
+   page it could not touch, or a device page, refuses the whole access */
+static int user_rw(uint32_t va, void *p, size_t n, bool write)
+{
+    CPUState *cs = gl_cpu();
+    if (!cs) {
+        return -1;
+    }
+    CPUARMState *env = cpu_env(cs);
+    int idx = user_mmu_idx(env);
+    size_t psz = qemu_target_page_size();
+    uint8_t *b = p;
+    if ((uint64_t)va + n > 0x100000000ull) {
+        return -1;
+    }
+    while (n) {
+        size_t c = MIN(n, psz - (va & (psz - 1)));
+        void *host = NULL;
+        CPUTLBEntryFull *full = NULL;
+        int fl = probe_access_full_mmu(env, va, c, write ? MMU_DATA_STORE : MMU_DATA_LOAD, idx, &host, &full);
+        if ((fl & TLB_INVALID_MASK) || !full || !host) {
+            return -1;                  /* not the app's, or not RAM/ROM */
+        }
+        if (!write && !(fl & TLB_MMIO)) {
+            memcpy(b, host, c);         /* phase 4: RAM/ROM read straight from the host mapping */
+        } else {                        /* writes keep the dirty tracking (display, migration) */
+            hwaddr pa = full->phys_addr | (va & (psz - 1));
+            AddressSpace *as = cpu_get_address_space(cs, cpu_asidx_from_attrs(cs, full->attrs));
+            MemTxResult r = write ? address_space_write(as, pa, full->attrs, b, c)
+                                  : address_space_read(as, pa, full->attrs, b, c);
+            if (r != MEMTX_OK) {
+                return -1;
+            }
+        }
+        va += c; b += c; n -= c;
+    }
+    return 0;
+}
+
+/* phase 4: [va, va + n) of the kick's app as one host pointer into guest RAM, when the app may read every
+   page (user permissions, as user_rw) and the pages lie one after the other on the host; NULL otherwise
+   (the caller copies). Valid while the kick runs: the guest does not run meanwhile (one vCPU, the kick is
+   synchronous). A renderer running after the kick (phase 5) must copy instead. */
+static const void *user_map_read(SyborgGlState *s, uint32_t va, size_t n)
+{
+    static int off = -1;                /* SYBORG_GL_NO_DIRECT=1: always copy (before/after measurements) */
+    CPUState *cs = gl_cpu();
+    if (off < 0) {
+        off = getenv("SYBORG_GL_NO_DIRECT") && *getenv("SYBORG_GL_NO_DIRECT") == '1';
+    }
+    if (off || !gl_ex->va || gl_ex->host_batch || !n || !cs || (uint64_t)va + n > 0x100000000ull) {
+        return NULL;
+    }
+    CPUARMState *env = cpu_env(cs);
+    int idx = user_mmu_idx(env);
+    size_t psz = qemu_target_page_size(), done = 0;
+    uint8_t *base = NULL;
+    while (done < n) {
+        uint32_t cur = va + done;
+        size_t c = MIN(n - done, psz - (cur & (psz - 1)));
+        void *host = NULL;
+        CPUTLBEntryFull *full = NULL;
+        int fl = probe_access_full_mmu(env, cur, c, MMU_DATA_LOAD, idx, &host, &full);
+        if ((fl & (TLB_INVALID_MASK | TLB_MMIO)) || !host || (base && (uint8_t *)host != base + done)) {
+            return NULL;
+        }
+        if (!base) {
+            base = host;
+        }
+        done += c;
+    }
+    return base;
+}
+
+/* guest memory: physical (the kernel's EXEC), or virtual in the address space of the kick (SYGL_REG_KICK) */
+static int gmem_rw(SyborgGlState *s, uint32_t addr, void *p, size_t n, bool write)
+{
+    if (gl_ex->host_batch) {                /* a host batch: the only memory it touches is its output area */
+        uint32_t off = addr - gl_ex->out;
+        if (!write || !gl_ex->host_out || off > gl_ex->host_outlen || n > gl_ex->host_outlen - off) {
+            return -1;
+        }
+        memcpy(gl_ex->host_out + off, p, n);
+        return 0;
+    }
+    if (gl_ex->va) {
+        return user_rw(addr, p, n, write);
     }
     MemTxResult r = write ? address_space_write(&address_space_memory, addr, MEMTXATTRS_UNSPECIFIED, p, n)
                           : address_space_read(&address_space_memory, addr, MEMTXATTRS_UNSPECIFIED, p, n);
@@ -763,16 +1211,12 @@ static int readback(SyborgGlState *s, const uint32_t *a)
         return -1;          /* nothing written: the guest must not take the output */
     }
     uint32_t y0 = a[2], rows = a[3];
-    if (y0 + rows > g->h) {
+    if ((uint64_t)y0 + rows > g->h) {
         return -1;
     }
     size_t bytes = (size_t)g->w * rows * 4;
-    if ((uint64_t)a[1] + bytes > s->outlen) {
+    if ((uint64_t)a[1] + bytes > gl_ex->outlen || GL_ROOM(s->pix, s->pixcap, bytes)) {
         return -1;
-    }
-    if (s->pixcap < bytes) {
-        s->pix = g_realloc(s->pix, bytes);
-        s->pixcap = bytes;
     }
     bind_read(g);
     glReadPixels(0, y0, g->w, rows, GL_RGBA, GL_UNSIGNED_BYTE, s->pix);
@@ -782,7 +1226,7 @@ static int readback(SyborgGlState *s, const uint32_t *a)
         const uint8_t *p = s->pix + i * 4;
         w[i] = ((uint32_t)p[3] << 24 & amask) | (uint32_t)p[0] << 16 | (uint32_t)p[1] << 8 | p[2];
     }
-    return gmem_rw(s, s->out + a[1], s->pix, bytes, true) ? -1 : 0;
+    return gmem_rw(s, gl_ex->out + a[1], s->pix, bytes, true) ? -1 : 0;
 }
 
 /* ---- OpenVG (src/khr; docs/devices/nokia-n8-rm596/vg-host.md) ---- */
@@ -1042,7 +1486,10 @@ static int vg_fill(SyborgGlState *s, const uint32_t *a, size_t n)
     }
     size_t need = (size_t)ne * 6 + 12;
     if (s->vgvcap < need) {
-        s->vgv = g_realloc(s->vgv, need * sizeof(float));
+        size_t bytes = s->vgvcap * sizeof(float);
+        if (GL_ROOM(s->vgv, bytes, need * sizeof(float))) {
+            return -1;
+        }
         s->vgvcap = need;
     }
     float minx = e[0], maxx = e[0], miny = e[1], maxy = e[1];
@@ -1163,16 +1610,12 @@ static int vg_texread(SyborgGlState *s, const uint32_t *a)
     GlSurf *g = find_surf(s, a[0] | 1);
     GlTex *t = g ? NULL : find_tex(s, a[0]);
     uint32_t w = g ? g->w : t ? t->w : 0, h = g ? g->h : t ? t->h : 0, y0 = a[2], rows = a[3];
-    if (!w || y0 + rows > h) {
+    if (!w || (uint64_t)y0 + rows > h) {
         return -1;          /* nothing written: the guest must not take the output */
     }
     size_t bytes = (size_t)w * rows * 4;
-    if ((uint64_t)a[1] + bytes > s->outlen) {
+    if ((uint64_t)a[1] + bytes > gl_ex->outlen || GL_ROOM(s->pix, s->pixcap, bytes)) {
         return -1;
-    }
-    if (s->pixcap < bytes) {
-        s->pix = g_realloc(s->pix, bytes);
-        s->pixcap = bytes;
     }
     GLuint fbo = 0;
     if (g) {
@@ -1187,7 +1630,7 @@ static int vg_texread(SyborgGlState *s, const uint32_t *a)
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glDeleteFramebuffers(1, &fbo);
     }
-    return gmem_rw(s, s->out + a[1], s->pix, bytes, true) ? -1 : 0;
+    return gmem_rw(s, gl_ex->out + a[1], s->pix, bytes, true) ? -1 : 0;
 }
 
 /* ---- composition (src/gcebe, docs/devices/nokia-n8-rm596/composition.md) ---- */
@@ -1299,12 +1742,86 @@ static void vg_dump_maybe(SyborgGlState *s)
     }
 }
 
-static void vg_present(SyborgGlState *s, const uint32_t *a)
+/* ---- EGL_NOK_image_endpoint helpers: textures from a GCE surface's host image, or from another texture */
+static void tex_copy_from(SyborgGlState *s, GLuint src, uint32_t w, uint32_t h, GlTex *t)
+{
+    GLuint fbo;
+    glGenFramebuffers(1, &fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, src, 0);
+    glBindTexture(GL_TEXTURE_2D, t->tex);
+    glCopyTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 0, 0, w, h, 0);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glDeleteFramebuffers(1, &fbo);
+    mem_add(t->owner, (int64_t)w * h * 4 - (int64_t)t->mem);
+    t->mem = (uint64_t)w * h * 4;
+    t->w = w; t->h = h; t->gen++;
+}
+
+/* only an image that has been presented on the host (its pixels are a host texture); a surface drawn in guest
+   memory is read by the consumer itself (syvg uploads it) */
+static int tex_from_scan(SyborgGlState *s, const uint32_t *a)
+{
+    GlScan *c = find_scan(s, a + 1, 0);
+    if (!c || !c->host || !c->w || !c->h) {
+        return -1;
+    }
+    GlTex *t = get_tex(s, a[0]);
+    if (!t) {
+        return -1;
+    }
+    tex_copy_from(s, c->tex, c->w, c->h, t);
+    return 0;
+}
+
+static int tex_copy(SyborgGlState *s, const uint32_t *a)
+{
+    uint32_t keep = gl_ex->owner;
+    if (a[2] && !gl_ex->host_batch) {
+        refuse(s, "TEX_COPY from another owner", a[1], a[2]);
+        return -1;
+    }
+    if (a[2]) {
+        gl_ex->owner = a[2];
+    }
+    GlTex *src = find_tex(s, a[1]);
+    gl_ex->owner = keep;
+    if (!src || !src->w || !src->h) {
+        return -1;
+    }
+    GlTex *t = get_tex(s, a[0]);
+    if (!t) {
+        return -1;
+    }
+    tex_copy_from(s, src->tex, src->w, src->h, t);
+    return 0;
+}
+
+/* 0, or -1 when refused (the command fails: the presenting app sees it) */
+static int vg_present(SyborgGlState *s, const uint32_t *a)
 {
     GlSurf *g = find_surf(s, a[0]);
     GlScan *c = g ? find_scan(s, a + 1, 1) : NULL;
     if (!c) {
-        return;
+        return 0;
+    }
+    /* S3 / review H1: a scan-out image is its first presenter's, whether or not it holds a host image yet
+       (an entry the compositor made for a guest-memory layer is unclaimed: owner 0); one process claims at
+       most SCAN_PER_OWNER (the table is shared) */
+    if (c->owner && c->owner != gl_ex->owner) {
+        refuse(s, "present into another process's GCE surface", a[1], c->owner);
+        return -1;
+    }
+    if (!c->owner) {
+        int mine = 0;
+        for (int i = 0; i < MAX_SCAN; i++) {
+            mine += s->scan[i].used && s->scan[i].owner == gl_ex->owner;
+        }
+        if (mine >= SCAN_PER_OWNER) {
+            refuse(s, "too many GCE surfaces presented by one process", a[1], mine);
+            return -1;
+        }
+        c->owner = gl_ex->owner;
     }
     bind_read(g);
     glBindTexture(GL_TEXTURE_2D, c->tex);
@@ -1315,33 +1832,50 @@ static void vg_present(SyborgGlState *s, const uint32_t *a)
     }
     c->w = g->w; c->h = g->h; c->host = 1; c->fmt = 4;
     vg_dump_maybe(s);
+    syvg_endpoint_updated(a + 1, -1, 0, 0, g->w, g->h);     /* consumers of this surface (endpoints) */
+    return 0;
 }
 
 /* a layer's image from guest memory (rows top-down, the guest's pixel format) */
 static int scan_upload(SyborgGlState *s, GlScan *c, const SyglLayer *l)
 {
     uint32_t bpp = l->fmt == 3 ? 2 : 4;
-    if (!l->va || !l->w || !l->h || l->w > 4096 || l->h > 4096 || l->stride < l->w * bpp) {
+    if (!l->va || !l->w || !l->h || l->w > 4096 || l->h > 4096 || l->stride < l->w * bpp ||
+        l->stride > 4096 * 4 * 4) {     /* S6: the stride's span too */
         return -1;
     }
     size_t bytes = (size_t)l->stride * (l->h - 1) + l->w * bpp;
-    if (s->cpixcap < bytes) {
-        s->cpix = g_realloc(s->cpix, bytes);
-        s->cpixcap = bytes;
-    }
-    if (gmem_rw(s, l->va, s->cpix, bytes, false)) {
-        return -1;
+    /* phase 4: the surface's pixels in place when they are one run of host memory (GCE surfaces are
+       physically contiguous), else a copy */
+    const uint8_t *px = user_map_read(s, l->va, bytes);
+    if (px) {
+        s->st_in_direct += bytes;
+    } else {
+        if (GL_ROOM(s->cpix, s->cpixcap, bytes) || gmem_rw(s, l->va, s->cpix, bytes, false)) {
+            return -1;
+        }
+        px = s->cpix;
+        s->st_in_copied += bytes;
     }
     glBindTexture(GL_TEXTURE_2D, c->tex);
     GLenum fmt = bpp == 2 ? GL_RGB : GL_RGBA, type = bpp == 2 ? GL_UNSIGNED_SHORT_5_6_5 : GL_UNSIGNED_BYTE;
+    /* phase 4: the texture already has this size and format (a guest-memory layer redrawn): update it in
+       place instead of re-specifying it */
+    bool same = !c->host && c->w == l->w && c->h == l->h && c->fmt == l->fmt;
     if (l->stride % bpp == 0 && s->es3) {
         glPixelStorei(GL_UNPACK_ROW_LENGTH, l->stride / bpp);
-        glTexImage2D(GL_TEXTURE_2D, 0, fmt, l->w, l->h, 0, fmt, type, s->cpix);
+        if (same) {
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, l->w, l->h, fmt, type, px);
+        } else {
+            glTexImage2D(GL_TEXTURE_2D, 0, fmt, l->w, l->h, 0, fmt, type, px);
+        }
         glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
     } else {
-        glTexImage2D(GL_TEXTURE_2D, 0, fmt, l->w, l->h, 0, fmt, type, NULL);
+        if (!same) {
+            glTexImage2D(GL_TEXTURE_2D, 0, fmt, l->w, l->h, 0, fmt, type, NULL);
+        }
         for (uint32_t y = 0; y < l->h; y++) {
-            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, y, l->w, 1, fmt, type, s->cpix + (size_t)y * l->stride);
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, y, l->w, 1, fmt, type, px + (size_t)y * l->stride);
         }
     }
     c->w = l->w; c->h = l->h; c->fmt = l->fmt; c->host = 0;
@@ -1358,8 +1892,15 @@ static SyborgGlState *gl_dev;           /* the machine's one device (also for sy
 static void frame_store(SyborgGlState *s, const uint8_t *px, uint32_t W, uint32_t H)
 {
     size_t bytes = (size_t)W * H * 4;
+    qemu_mutex_lock(&s->frame_lock);    /* phase 5: syborg-fb reads it on the main loop (review M2: the
+                                           buffer may move here) */
     if (s->hfCap < bytes) {
-        s->hframe = g_realloc(s->hframe, bytes);
+        uint8_t *nf = g_try_realloc(s->hframe, bytes);
+        if (!nf) {
+            qemu_mutex_unlock(&s->frame_lock);
+            return;
+        }
+        s->hframe = nf;
         s->hfCap = bytes;
     }
     if (s->frame_seq) {
@@ -1380,18 +1921,30 @@ static void frame_store(SyborgGlState *s, const uint8_t *px, uint32_t W, uint32_
         smp_wmb();
         qatomic_set(&s->frame_seq[1], s->frame_seq[1] + 1);
     }
+    qemu_mutex_unlock(&s->frame_lock);
 }
 
+/* true: the host frame, locked until syborg_gl_frame_done (the GL worker may be writing the next one) */
 bool syborg_gl_frame(uint32_t *w, uint32_t *h, const uint8_t **px)
 {
     SyborgGlState *s = gl_dev;
-    if (!s || !s->hfOn || !s->hframe) {
+    if (!s) {
+        return false;
+    }
+    qemu_mutex_lock(&s->frame_lock);
+    if (!s->hfOn || !s->hframe) {
+        qemu_mutex_unlock(&s->frame_lock);
         return false;
     }
     *w = s->hfW;
     *h = s->hfH;
     *px = s->hframe;
     return true;
+}
+
+void syborg_gl_frame_done(void)
+{
+    qemu_mutex_unlock(&gl_dev->frame_lock);
 }
 
 static void frame_write_pending(SyborgGlState *s, bool wait)
@@ -1421,11 +1974,17 @@ static void frame_write_pending(SyborgGlState *s, bool wait)
     glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
 }
 
+static void gl_job_frame(SyborgGlState *s);
+
 /* main loop: the GPU may be done with the pending frame */
 static void frame_timer(void *opaque)
 {
     SyborgGlState *s = opaque;
     if (!s->pending || s->ready <= 0) {
+        return;
+    }
+    if (s->worker_up) {                 /* phase 5: the worker owns the GL context */
+        gl_job_frame(s);
         return;
     }
     eglMakeCurrent(s->dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, s->ctx);
@@ -1438,20 +1997,8 @@ static int compose_async(SyborgGlState *s, uint32_t fb, uint32_t W, uint32_t H, 
 {
     frame_write_pending(s, true);       /* the previous frame first (normally long done) */
     size_t bytes = (size_t)W * H * 4;
-    vaddr end = (vaddr)fb + (vaddr)(H - 1) * stride + W * 4;
-    vaddr pg0 = fb & ~(vaddr)0xfff;
-    size_t np = (end - pg0 + 4095) >> 12;
-    if (s->pPagesCap < np) {
-        s->pPages = g_renew(hwaddr, s->pPages, np);
-        s->pPagesCap = np;
-    }
-    for (size_t i = 0; i < np; i++) {   /* translate now: the guest's page tables are current */
-        TranslateForDebugResult tr;
-        s->pPages[i] = cpu_translate_for_debug(current_cpu, pg0 + i * 4096, &tr) ?
-                       (tr.physaddr & ~(hwaddr)0xfff) : (hwaddr)-1;
-    }
-    s->pNPages = np;
-    s->pBase = fb; s->pW = W; s->pH = H; s->pStride = stride;
+    (void)fb;                           /* the frame stays on the host (b13fc67): no guest pages (S8) */
+    s->pW = W; s->pH = H; s->pStride = stride;
     if (!s->pbo) {
         glGenBuffers(1, &s->pbo);
     }
@@ -1470,6 +2017,105 @@ static int compose_async(SyborgGlState *s, uint32_t fb, uint32_t W, uint32_t H, 
     s->st_compose++;
     timer_mod(s->rb_timer, qemu_clock_get_ms(QEMU_CLOCK_REALTIME) + 1);
     return 0;
+}
+
+/* ---- present=window (Android): the composed screen FBO straight into the app's window surface. Runs on
+   the GL thread (the worker: Android sets thread=on). The picture keeps its aspect ratio (black bars) and
+   is centred; swap interval 0: the newest frame replaces a pending one, the vCPU never waits for vsync. */
+#ifdef __ANDROID__
+#include <android/native_window.h>
+#endif
+
+static void window_drop(SyborgGlState *s)
+{
+    if (s->wsurf != EGL_NO_SURFACE && s->wsurf) {
+        eglMakeCurrent(s->dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, s->ctx);
+        eglDestroySurface(s->dpy, s->wsurf);
+    }
+    s->wsurf = EGL_NO_SURFACE;
+#ifdef __ANDROID__
+    if (s->win) {
+        ANativeWindow_release(s->win);
+    }
+#endif
+    s->win = NULL;
+}
+
+/* the GL thread's part of syborg_gl_set_window */
+static void window_take(SyborgGlState *s, void *w)
+{
+    window_drop(s);
+    if (!w || s->ready <= 0) {
+#ifdef __ANDROID__
+        if (w) {
+            ANativeWindow_release(w);
+        }
+#endif
+        return;
+    }
+    s->win = w;
+    s->wsurf = eglCreateWindowSurface(s->dpy, s->cfg, (EGLNativeWindowType)w, NULL);
+    if (s->wsurf == EGL_NO_SURFACE) {
+        warn_report("syborg-gl: no window surface (0x%x)", eglGetError());
+        return;
+    }
+    eglMakeCurrent(s->dpy, s->wsurf, s->wsurf, s->ctx);
+    eglSwapInterval(s->dpy, 0);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glClearColor(0, 0, 0, 1);
+    glClear(GL_COLOR_BUFFER_BIT);
+    eglSwapBuffers(s->dpy, s->wsurf);
+    eglMakeCurrent(s->dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, s->ctx);
+    info_report("syborg-gl: presenting into the window");
+}
+
+static void present_window(SyborgGlState *s)
+{
+    EGLint ww = 0, wh = 0;
+    if (s->wsurf == EGL_NO_SURFACE || !s->wsurf || !s->scrFbo) {
+        return;
+    }
+    eglMakeCurrent(s->dpy, s->wsurf, s->wsurf, s->ctx);
+    eglQuerySurface(s->dpy, s->wsurf, EGL_WIDTH, &ww);
+    eglQuerySurface(s->dpy, s->wsurf, EGL_HEIGHT, &wh);
+    /* fit, keeping the aspect ratio: the window's integer-free scale, centred */
+    double sc = MIN((double)ww / s->scrW, (double)wh / s->scrH);
+    int dw = (int)(s->scrW * sc), dh = (int)(s->scrH * sc), dx = (ww - dw) / 2, dy = (wh - dh) / 2;
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glDisable(GL_SCISSOR_TEST);
+    glDisable(GL_BLEND);
+    glColorMask(1, 1, 1, 1);
+    glViewport(0, 0, ww, wh);
+    glClearColor(0, 0, 0, 1);
+    glClear(GL_COLOR_BUFFER_BIT);
+    /* the screen texture keeps the frame buffer's byte order (B, G, R, A): drawn with the composition
+       shader as a host image (uFmt 4), which swaps red and blue back (a plain blit would show them swapped);
+       screen row 0 is the top and the window's origin is bottom left, so v runs downwards */
+    glViewport(dx, dy, dw, dh);
+    glUseProgram(s->cpProg);
+    glUniform2f(s->cpSize, 1, 1);
+    glUniform1i(s->cpTex, 0);
+    glUniform1i(s->cpFmt, 4);
+    glUniform1f(s->cpAlpha, 1);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, s->scrTex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    static const float q[] = { 0, 0, 0, 1,  1, 0, 1, 1,  0, 1, 0, 0,  1, 0, 1, 1,  1, 1, 1, 0,  0, 1, 0, 0 };
+    glBindBuffer(GL_ARRAY_BUFFER, s->vbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(q), q, GL_STREAM_DRAW);
+    glEnableVertexAttribArray(0);
+    glEnableVertexAttribArray(1);
+    glDisableVertexAttribArray(2);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, 0);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 16, (void *)8);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    glEnableVertexAttribArray(2);
+    glUseProgram(s->prog);
+    eglSwapBuffers(s->dpy, s->wsurf);
+    eglMakeCurrent(s->dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, s->ctx);
+    glEnable(GL_SCISSOR_TEST);
+    s->st_presents++;
 }
 
 static int compose(SyborgGlState *s, const uint32_t *a, size_t n)
@@ -1513,6 +2159,7 @@ static int compose(SyborgGlState *s, const uint32_t *a, size_t n)
     for (uint32_t i = 0; i < nl; i++) {
         SyglLayer lc = *(const SyglLayer *)(a + 5 + i * SYGL_LAYER_WORDS);
         uint32_t lrot = (lc.fmt >> 8) & 3;    /* the layer's source rotation (anticlockwise, OpenWF-C) */
+        bool opaque = lc.fmt & SYGL_LAYER_OPAQUE;   /* the layer ignores its surface's alpha (gce flags) */
         lc.fmt &= 0xff;
         const SyglLayer *l = &lc;
         GlScan *c = find_scan(s, l->sid, 1);
@@ -1565,7 +2212,7 @@ static int compose(SyborgGlState *s, const uint32_t *a, size_t n)
         GLint cf = s->filter == 1 ? GL_NEAREST : (scaled || s->filter == 2) ? GL_LINEAR : GL_NEAREST;
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, cf);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, cf);
-        glUniform1i(s->cpFmt, c->host ? 4 : c->fmt);
+        glUniform1i(s->cpFmt, c->host ? (opaque ? 6 : 4) : (opaque && (c->fmt == 1 || c->fmt == 2) ? 0 : c->fmt));
         glUniform1f(s->cpAlpha, MIN(l->alpha, 255u) / 255.0f);
         float x0 = l->dx0, y0 = l->dy0, x1 = l->dx1, y1 = l->dy1;
         /* the source's corners for the destination's TL, TR, BR, BL: turned anticlockwise by lrot */
@@ -1592,12 +2239,16 @@ static int compose(SyborgGlState *s, const uint32_t *a, size_t n)
     glUseProgram(s->prog);
     /* the finished screen into the frame buffer */
     size_t bytes = (size_t)W * H * 4;
-    if (s->es3 && current_cpu && !getenv("SYBORG_GL_SYNC_READBACK")) {
+    if (s->present && !strcmp(s->present, "window")) {
+        present_window(s);              /* Android: on the screen, no read-back */
+        s->st_compose++;
+        return 0;
+    }
+    if (s->es3 && gl_cpu() && !getenv("SYBORG_GL_SYNC_READBACK")) {
         return compose_async(s, fb, W, H, stride);
     }
-    if (s->pixcap < bytes) {
-        s->pix = g_realloc(s->pix, bytes);
-        s->pixcap = bytes;
+    if (GL_ROOM(s->pix, s->pixcap, bytes)) {
+        return -1;
     }
     int64_t tr = get_clock();
     glReadPixels(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE, s->pix);
@@ -1616,8 +2267,16 @@ static uint32_t exec_cmds(SyborgGlState *s, size_t total);
 static uint32_t run(SyborgGlState *s)
 {
     int64_t t0 = get_clock();
+    gl_ex->last_fn = 0;
     uint32_t r = run_batch(s);
-    if (s->ready > 0) {                 /* free for frame_timer on the main loop */
+    if (!s->worker_up) {
+        gl_tmp_trim(s);                 /* (the worker trims after each job) */
+    }
+    if (gl_ex->va && gl_ex->last_fn) {          /* which call the guest waited for */
+        uint32_t f = gl_ex->last_fn & 0xffff, k = (gl_ex->last_fn >> 16) == SYGL_VG2 ? MIN(f, 127u) : 128 + MIN(f, 31u);
+        s->st_end[k]++;
+    }
+    if (s->ready > 0 && !s->worker_up) {    /* free for frame_timer on the main loop */
         eglMakeCurrent(s->dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     }
     int64_t now = get_clock();
@@ -1629,6 +2288,14 @@ static uint32_t run(SyborgGlState *s)
                 "(sync read-back %.1f ms, async %" PRIu64 ", of which waited %" PRIu64 "), fills %" PRIu64 "\n",
                 s->st_kicks, s->st_kick_ns / 1e6, s->st_compose, s->st_compose_ns / 1e6,
                 s->st_read_ns / 1e6, s->st_async, s->st_async_wait, s->st_fills);
+        GString *e = g_string_new("syborg-gl: kicks ended by (VG fn / EGL 128+fn):");
+        for (int k = 0; k < 160; k++) {
+            if (s->st_end[k]) {
+                g_string_append_printf(e, " %d:%" PRIu64, k, s->st_end[k]);
+            }
+        }
+        fprintf(stderr, "%s\n", e->str);
+        g_string_free(e, true);
     }
     return r;
 }
@@ -1639,19 +2306,64 @@ static uint32_t run(SyborgGlState *s)
 
 #include "syborg_gl_capture.h"
 
-/* the commands in s->cmd[0..total) (a guest batch, or a host one from syvg: syborg_gl_exec_host) */
+/* the commands in gl_ex->cmd[0..total) (a guest batch, or a host one from syvg: syborg_gl_exec_host) */
+/* phase 3: a run of OpenVG calls shares one flush of the RI's drawing, done before the batch's next other
+   command (it may read or compose what was drawn) and at the batch's end */
+static uint32_t exec_range(SyborgGlState *s, size_t from, size_t total);
+static bool gl_here(SyborgGlState *s);
+
+static void vg_settle(SyborgGlState *s)
+{
+    if (gl_ex->vg_dirty && !gl_ex->host_batch) {
+        gl_ex->vg_dirty = false;
+        syvg_vg_flush();
+    }
+}
+
+/* the device's GL errors after a batch (or a worker job): logged, the first few */
+static void gl_errors_drain(SyborgGlState *s, size_t total)
+{
+    gl2_main(s);                        /* the errors below are the device's, not an app's */
+    for (GLenum e = glGetError(); e != GL_NO_ERROR; e = glGetError()) {
+        if (s->glerrors++ < 8) {   /* black frames otherwise give no clue */
+            warn_report("syborg-gl: GL error 0x%x after a batch of %zu words", e, total);
+        }
+    }
+}
+
 static uint32_t exec_cmds(SyborgGlState *s, size_t total)
 {
-    size_t i = 0;
+    uint32_t r = exec_range(s, 0, total);
+    if (!r && gl_here(s)) {
+        gl_errors_drain(s, total);
+    }
+    vg_settle(s);
+    return r;
+}
+
+static void gl_capture_locked(SyborgGlState *s, const uint32_t *cmd, size_t words)
+{
+    qemu_mutex_lock(&s->cap_lock);
+    gl_capture_record(s, cmd, words);
+    qemu_mutex_unlock(&s->cap_lock);
+}
+
+/* the commands in gl_ex->cmd[from..total): their failing word index + 1, or 0 */
+static uint32_t exec_range(SyborgGlState *s, size_t from, size_t total)
+{
+    size_t i = from;
     while (i + 2 <= total) {
-        uint32_t op = s->cmd[i], words = s->cmd[i + 1];
+        uint32_t op = gl_ex->cmd[i], words = gl_ex->cmd[i + 1];
         if (words < 2 || i + words > total) {
             return i + 1;
         }
-        gl_capture_record(s, s->cmd + i, words);
-        const uint32_t *a = s->cmd + i + 2;
+        gl_capture_locked(s, gl_ex->cmd + i, words);
+        const uint32_t *a = gl_ex->cmd + i + 2;
         size_t n = words - 2;
-        if (op < SYGL_GL2 || op > SYGL_GL_TEXIMAGE) {
+        if (op != SYGL_VG2) {
+            vg_settle(s);
+        }
+        if ((op < SYGL_GL2 || op > SYGL_GL_TEXIMAGE) && gl_here(s)) {
             gl2_main(s);                /* after OpenGL ES calls: the device's context again */
         }
         switch (op) {
@@ -1695,47 +2407,97 @@ static uint32_t exec_cmds(SyborgGlState *s, size_t total)
         case SYGL_VG_SURF2TEX: if (n >= 2) vg_surf2tex(s, a); break;
         case SYGL_VG_PRESENT:           /* "compose" = guest: refused, eglos copies the frame */
             if (!s->compose_host) return i + 1;
-            if (n >= 5) vg_present(s, a);
+            if (n >= 5 && vg_present(s, a)) return i + 1;
             gl2_frame_end();                /* SYBORG_GL2_TRACE */
             break;
         case SYGL_COMPOSE: {            /* "compose" = guest: refused, gcebe copies the layers */
             if (!s->compose_host) return i + 1;
+            if (!gl_ex->host_batch && !(gl_ex->auth_rights & SYGL_RIGHT_COMPOSITOR)) {
+                refuse(s, "COMPOSE without the compositor right", 0, 0);
+                return i + 1;
+            }
             int64_t tc = get_clock();
             int bad = n < 5 || compose(s, a, n);
             s->st_compose_ns += get_clock() - tc;
             if (bad) return i + 1;
             break;
         }
-        case SYGL_SCANOUT_FREE: if (n >= 4) scan_free(find_scan(s, a, 0)); break;
+        case SYGL_SCANOUT_FREE:
+            if (!gl_ex->host_batch && !(gl_ex->auth_rights & SYGL_RIGHT_COMPOSITOR)) {
+                refuse(s, "SCANOUT_FREE without the compositor right", n >= 1 ? a[0] : 0, 0);
+                return i + 1;
+            }
+            if (n >= 4) scan_free(find_scan(s, a, 0));
+            break;
         case SYGL_VG_TEXREAD: if (n < 4 || vg_texread(s, a)) return i + 1; break;
-        case SYGL_OWNER: if (n >= 1) s->owner = a[0]; break;
+        case SYGL_SURF_UPDATED:
+            if (!gl_ex->host_batch && !(gl_ex->auth_rights & SYGL_RIGHT_COMPOSITOR)) {
+                refuse(s, "SURF_UPDATED without the compositor right", n >= 1 ? a[0] : 0, 0);
+                return i + 1;
+            }
+            if (n >= 9) syvg_endpoint_updated(a, (int32_t)a[4], a[5], a[6], a[7], a[8]);
+            break;
+        case SYGL_TEX_FROM_SCAN: if (n < 5 || tex_from_scan(s, a)) return i + 1; break;
+        case SYGL_TEX_COPY: if (n < 3 || tex_copy(s, a)) return i + 1; break;
+        case SYGL_OWNER:                /* S3: a guest batch names its own process (the kernel: any) */
+            if (n < 1) break;
+            if (!gl_ex->host_batch && a[0] != gl_ex->auth_owner && !(gl_ex->auth_rights & SYGL_RIGHT_KERNEL)) {
+                refuse(s, "OWNER of another process", a[0], 0);
+                return i + 1;
+            }
+            gl_ex->owner = a[0];
+            break;
         case SYGL_VG2:
         case SYGL_EGL: {                /* the host EGL/OpenVG (syvg): only in a guest thread's own kick */
+            if (op == SYGL_VG2) s->st_vg2++; else s->st_egl++;
+            gl_ex->last_fn = op << 16 | (n >= 1 ? (a[0] & 0xffff) : 0xffff);
             uint32_t res[257];
-            size_t ow = MIN(s->outlen / 4, (uint32_t)G_N_ELEMENTS(res));
-            if (s->host_batch || !s->va || ow < 1) return i + 1;
-            int e = op == SYGL_VG2 ? syvg_vg_call(s->owner, a, n, res, ow) : syvg_egl_call(s->owner, a, n, res, ow);
-            if (e || gmem_rw(s, s->out, res, ow * 4, true)) return i + 1;
+            size_t ow = MIN(gl_ex->outlen / 4, (uint32_t)G_N_ELEMENTS(res));
+            if (gl_ex->host_batch || !gl_ex->va || ow < 1) return i + 1;
+            int e;
+            size_t back = ow;           /* words written back: a VG call's result is one word (its string:
+                                           the length and the bytes) */
+            if (op == SYGL_VG2) {
+                e = syvg_vg_call(gl_ex->owner, a, n, res, ow);
+                gl_ex->vg_dirty = true;
+                if (n >= 1 && a[0] != VG2_FN_vgGetString) {
+                    back = 1;
+                } else if (!e && res[0] != ~0u) {
+                    back = MIN(ow, 1 + (res[0] + 3) / 4);
+                }
+            } else {
+                e = syvg_egl_call(gl_ex->owner, a, n, res, ow);
+            }
+            if (e || gmem_rw(s, gl_ex->out, res, back * 4, true)) return i + 1;
             break;
         }
         case SYGL_OWNER_FREE:           /* eglTerminate, or the owner's last channel closed */
             if (n >= 1) {
                 uint32_t o = a[0];
+                bool kernel = gl_ex->host_batch || (gl_ex->auth_rights & SYGL_RIGHT_KERNEL);
+                if (o == ~0u || (!kernel && o != gl_ex->auth_owner)) {
+                    refuse(s, "OWNER_FREE of another process", o, 0);
+                    return i + 1;
+                }
+                if (kernel && !gl_ex->host_batch) {
+                    g_hash_table_foreach_remove(s->binds, bind_drop, &o);  /* the process is gone */
+                }
                 g_hash_table_foreach_remove(s->surfs, owner_surf_drop, &o);
                 g_hash_table_foreach_remove(s->texs, owner_tex_drop, &o);
                 gl2_owner_free(s, o);
                 syvg_owner_free(o);
+                g_hash_table_remove(s->budgets, GUINT_TO_POINTER(o));
+                mem_owner_drop(o);
+                for (int k = 0; k < MAX_SCAN; k++) {     /* review H1: its scan-out claims go too */
+                    if (s->scan[k].used && s->scan[k].owner == o) {
+                        scan_free(&s->scan[k]);
+                    }
+                }
             }
             break;
         default: return i + 1;
         }
         i += words;
-    }
-    gl2_main(s);                        /* the errors below are the device's, not an app's */
-    for (GLenum e = glGetError(); e != GL_NO_ERROR; e = glGetError()) {
-        if (s->glerrors++ < 8) {   /* black frames otherwise give no clue */
-            warn_report("syborg-gl: GL error 0x%x after a batch of %zu words", e, total);
-        }
     }
     return 0;
 }
@@ -1746,23 +2508,23 @@ static uint32_t exec_cmds(SyborgGlState *s, size_t total)
 static SyborgGlState *gl_dev;
 
 /* syvg reads a call's pointer arguments and writes its outputs in the calling guest thread's memory
-   (during that thread's kick: SYGL_REG_KICK, s->va) */
+   (during that thread's kick: SYGL_REG_KICK, gl_ex->va) */
 int syvg_guest_read(uint32_t va, void *dst, size_t n)
 {
     SyborgGlState *s = gl_dev;
-    if (!s || !s->va || s->host_batch || !current_cpu) {
+    if (!s || !gl_ex->va || gl_ex->host_batch || !gl_cpu()) {
         return -1;
     }
-    return cpu_memory_rw_debug(current_cpu, va, dst, n, false) ? -1 : 0;
+    return user_rw(va, dst, n, false);
 }
 
 int syvg_guest_write(uint32_t va, const void *src, size_t n)
 {
     SyborgGlState *s = gl_dev;
-    if (!s || !s->va || s->host_batch || !current_cpu) {
+    if (!s || !gl_ex->va || gl_ex->host_batch || !gl_cpu()) {
         return -1;
     }
-    return cpu_memory_rw_debug(current_cpu, va, (void *)src, n, true) ? -1 : 0;
+    return user_rw(va, (void *)src, n, true);
 }
 
 uint32_t syborg_gl_exec_host(const uint32_t *cmd, size_t words, void *out, size_t outlen)
@@ -1771,38 +2533,35 @@ uint32_t syborg_gl_exec_host(const uint32_t *cmd, size_t words, void *out, size_
     if (!s || !gl_init(s)) {
         return 1;
     }
-    uint32_t *scmd = s->cmd, so = s->out, sol = s->outlen;
-    size_t scap = s->cmdcap;
-    uint8_t *sho = s->host_out;
-    size_t shl = s->host_outlen;
-    bool shb = s->host_batch;
-    s->host_batch = true;
-    s->cmd = (uint32_t *)cmd;
-    s->cmdcap = words * 4;
-    s->out = 0;
-    s->outlen = out ? (uint32_t)outlen : 0;   /* the read-backs check their size against it */
-    s->host_out = out;
-    s->host_outlen = out ? outlen : 0;
-    eglMakeCurrent(s->dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, s->ctx);
+    GlExec e = {
+        .host_batch = true, .cmd = (uint32_t *)cmd, .cmdcap = words * 4,
+        .outlen = out ? (uint32_t)outlen : 0,  /* the read-backs check their size against it */
+        .host_out = out, .host_outlen = out ? outlen : 0, .owner = gl_ex ? gl_ex->owner : 0,
+    };
+    if (!gl_here(s)) {                  /* phase 5: to the worker; without results the caller goes on */
+        if (!out) {
+            GlJob *j = g_new0(GlJob, 1);
+            j->kind = GL_JOB_HOST;
+            j->ex = e;
+            j->own = g_memdup2(cmd, words * 4);
+            j->ex.cmd = j->own;
+            j->to = words;
+            gl_job_run(s, j);
+            return 0;
+        }
+        GlJob j = { .kind = GL_JOB_HOST, .ex = e, .to = words, .sync = true };
+        return gl_job_run(s, &j);
+    }
+    GlExec *prev = gl_ex;
+    gl_ex = &e;
+    gl2_main(s);
     uint32_t r = exec_cmds(s, words);
-    s->cmd = scmd; s->cmdcap = scap; s->out = so; s->outlen = sol;
-    s->host_out = sho; s->host_outlen = shl; s->host_batch = shb;
+    gl_ex = prev;
     return r;
 }
 
-static uint32_t run_batch(SyborgGlState *s)
+static void gl_msaa_check(SyborgGlState *s)
 {
-    if (!gl_init(s) || s->len < 8 || s->len > 64 * 1024 * 1024) {
-        return 1;
-    }
-    if (s->cmdcap < s->len) {
-        s->cmd = g_realloc(s->cmd, s->len);
-        s->cmdcap = s->len;
-    }
-    if (gmem_rw(s, s->buf, s->cmd, s->len, false)) {
-        return ~0u;
-    }
-    eglMakeCurrent(s->dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, s->ctx);
     if (s->msaa != s->msaa_applied) {   /* `msaa` set at run time: surfaces follow lazily */
         GLint m = 0;
         if (s->es3) {
@@ -1815,59 +2574,355 @@ static uint32_t run_batch(SyborgGlState *s)
         s->msaa_applied = s->msaa;
         info_report("syborg-gl: OpenVG %dx MSAA", s->samples);
     }
-    return exec_cmds(s, s->len / 4);
 }
 
-static uint64_t syborg_gl_read(void *opaque, hwaddr offset, unsigned size)
+/* ---- phase 5: the GL worker (property "thread"; docs/gpu-boundary-roadmap.md). One thread owns the GL
+   context. The vCPU keeps the OpenVG RI and EGL (syvg: CPU work answering the app), whose drawing reaches
+   the worker as queued host batches; every other command run, init, the frame timer and reset are jobs.
+   A job the vCPU waits for may use its memory (gl_ex->cpu: parked, so its MMU is not in use); queued
+   jobs touch no guest memory (host batches: their words copied). One queue, so the order is the
+   stream's. */
+
+static void gl_reset_now(SyborgGlState *s);
+
+static void gl_job_exec(SyborgGlState *s, GlJob *j)
+{
+    GlExec *prev = gl_ex;
+    gl_ex = &j->ex;
+    if (j->kind != GL_JOB_INIT && s->ready > 0) {
+        gl2_main(s);
+    }
+    switch (j->kind) {
+    case GL_JOB_INIT:
+        j->result = gl_init_now(s);
+        break;
+    case GL_JOB_OPS:
+        gl_msaa_check(s);
+        j->result = exec_range(s, j->from, j->to);
+        if (!j->result) {
+            gl_errors_drain(s, j->to - j->from);
+        }
+        gl_tmp_trim(s);
+        break;
+    case GL_JOB_HOST:
+        j->result = exec_cmds(s, j->to);
+        break;
+    case GL_JOB_FRAME:
+        if (s->pending && s->ready > 0) {
+            frame_write_pending(s, false);
+        }
+        break;
+    case GL_JOB_RESET:
+        gl_reset_now(s);
+        break;
+    case GL_JOB_WINDOW:                 /* ex.host_out carries the window */
+        window_take(s, j->ex.host_out);
+        break;
+    }
+    gl_ex = prev;
+}
+
+static void *gl_worker(void *opaque)
 {
     SyborgGlState *s = opaque;
-    switch (offset >> 2) {
-    case SYGL_REG_ID: return SYGL_ID;
-    case SYGL_REG_CAPS: return gl_init(s) ? 1 : 0;
-    case SYGL_REG_BUF: return s->buf;
-    case SYGL_REG_LEN: return s->len;
-    case SYGL_REG_EXEC: return s->result;
-    case SYGL_REG_OUT: return s->out;
-    case SYGL_REG_OUTLEN: return s->outlen;
-    case SYGL_REG_KICK: return s->result;
+    rcu_register_thread();
+    qemu_mutex_lock(&s->jlock);
+    for (;;) {
+        while (!s->jhead) {
+            qemu_cond_wait(&s->jwork, &s->jlock);
+        }
+        GlJob *j = s->jhead;
+        s->jhead = j->next;
+        if (!s->jhead) {
+            s->jtail = NULL;
+        }
+        qemu_mutex_unlock(&s->jlock);
+        gl_job_exec(s, j);
+        qemu_mutex_lock(&s->jlock);
+        if (j->sync) {
+            j->done = true;
+        } else {
+            s->jqueued--;
+            g_free(j->own);
+            g_free(j);
+        }
+        qemu_cond_broadcast(&s->jdone);
     }
+    return NULL;
+}
+
+/* a sync job (on the caller's stack) runs and its result comes back; a queued one (heap) is the worker's */
+static uint32_t gl_job_run(SyborgGlState *s, GlJob *j)
+{
+    if (gl_here(s)) {                   /* on the worker already (a nested host batch) */
+        gl_job_exec(s, j);
+        uint32_t r = j->result;
+        if (!j->sync) {
+            g_free(j->own);
+            g_free(j);
+        }
+        return r;
+    }
+    qemu_mutex_lock(&s->jlock);
+    if (!j->sync) {
+        while (s->jqueued >= GL_JOB_QUEUE_MAX) {
+            qemu_cond_wait(&s->jdone, &s->jlock);
+        }
+        s->jqueued++;
+        s->st_async_jobs++;
+    } else {
+        s->st_sync_jobs++;
+    }
+    j->next = NULL;
+    if (s->jtail) {
+        s->jtail->next = j;
+    } else {
+        s->jhead = j;
+    }
+    s->jtail = j;
+    qemu_cond_signal(&s->jwork);
+    uint32_t r = 0;
+    if (j->sync) {
+        while (!j->done) {
+            qemu_cond_wait(&s->jdone, &s->jlock);
+        }
+        r = j->result;
+    }
+    qemu_mutex_unlock(&s->jlock);
+    return r;
+}
+
+/* the app's window (Android, android/native/syborg_android.c): taken on the GL thread; returns when the
+   old one is no longer used (Android's surfaceDestroyed contract). Takes the caller's reference. */
+static void *gl_pending_win;            /* a window handed over before the GL thread exists */
+
+static void window_release(void *w)
+{
+#ifdef __ANDROID__
+    if (w) {
+        ANativeWindow_release(w);
+    }
+#endif
+}
+
+void syborg_gl_set_window(void *w)
+{
+    SyborgGlState *s = qatomic_read(&gl_dev);
+    if (!s || !qatomic_read(&s->worker_up)) {
+        /* the app's window may come before the machine: kept, given to the GL thread when it starts */
+        window_release(qatomic_xchg(&gl_pending_win, w));
+        s = qatomic_read(&gl_dev);
+        if (!s || !qatomic_read(&s->worker_up)) {
+            return;
+        }
+        w = qatomic_xchg(&gl_pending_win, NULL);
+    }
+    gl_init(s);
+    GlJob j = { .kind = GL_JOB_WINDOW, .sync = true };
+    j.ex.host_out = w;
+    gl_job_run(s, &j);
+}
+
+static int gl_job_init(SyborgGlState *s)
+{
+    GlJob j = { .kind = GL_JOB_INIT, .sync = true };
+    return (int)gl_job_run(s, &j);
+}
+
+static void gl_job_frame(SyborgGlState *s)
+{
+    GlJob *j = g_new0(GlJob, 1);
+    j->kind = GL_JOB_FRAME;
+    gl_job_run(s, j);
+}
+
+/* a guest batch with the worker: runs of OpenVG/EGL calls here (syvg), the runs between them as jobs */
+static uint32_t exec_split(SyborgGlState *s, size_t total)
+{
+    size_t i = 0;
+    while (i + 2 <= total) {
+        bool vg = gl_ex->cmd[i] == SYGL_VG2 || gl_ex->cmd[i] == SYGL_EGL;
+        size_t j = i;
+        while (j + 2 <= total) {
+            uint32_t op = gl_ex->cmd[j], w = gl_ex->cmd[j + 1];
+            if (w < 2 || j + w > total || (op == SYGL_VG2 || op == SYGL_EGL) != vg) {
+                break;
+            }
+            j += w;
+        }
+        if (j == i) {
+            j = total;                  /* malformed: exec_range reports it */
+        }
+        uint32_t r;
+        if (vg) {
+            r = exec_range(s, i, j);
+        } else {
+            vg_settle(s);               /* the RI's drawing goes first */
+            GlJob job = { .kind = GL_JOB_OPS, .ex = *gl_ex, .from = i, .to = j, .sync = true };
+            r = gl_job_run(s, &job);
+            gl_ex->owner = job.ex.owner;    /* a SYGL_OWNER in the run */
+        }
+        if (r) {
+            vg_settle(s);
+            return r;
+        }
+        i = j;
+    }
+    vg_settle(s);
     return 0;
 }
 
-static void syborg_gl_write(void *opaque, hwaddr offset, uint64_t value, unsigned size)
+static uint32_t run_batch(SyborgGlState *s)
+{
+    if (!gl_init(s) || gl_ex->len < 8 || gl_ex->len > 64 * 1024 * 1024) {
+        return 1;
+    }
+    if (GL_ROOM(gl_ex->cmd, gl_ex->cmdcap, gl_ex->len)) {
+        return 1;
+    }
+    if (gmem_rw(s, gl_ex->buf, gl_ex->cmd, gl_ex->len, false)) {
+        refuse(s, "command buffer not readable", gl_ex->buf, gl_ex->len);
+        return ~0u;
+    }
+    gl_ex->owner = gl_ex->auth_owner;           /* S3: the kick's process, whatever the stream says */
+    if (s->worker_up) {
+        return exec_split(s, gl_ex->len / 4);
+    }
+    eglMakeCurrent(s->dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, s->ctx);
+    gl_msaa_check(s);
+    return exec_cmds(s, gl_ex->len / 4);
+}
+
+static void bind_space(SyborgGlState *s, uint32_t pid)
+{
+    CPUState *cs = current_cpu;
+    s->bind_result = 0;
+    if (!cs) {
+        return;
+    }
+    uint64_t t = user_ttbr0(cpu_env(cs));
+    SyglBind *b = g_hash_table_lookup(s->binds, &t);
+    if (!b) {
+        b = g_new0(SyglBind, 1);
+        b->ttbr = t;
+        g_hash_table_insert(s->binds, &b->ttbr, b);
+    } else if (b->pid != pid) {
+        /* two processes in one space (moving memory model): user kicks cannot tell them apart */
+        if (!b->shared) {
+            warn_report("syborg-gl: user address space %" PRIx64 " shared by processes %u and %u: "
+                        "kicks through the kernel only", t, b->pid, pid);
+        }
+        b->shared = 1;
+        return;
+    }
+    b->pid = pid;
+    b->rights = s->kflags & SYGL_RIGHT_COMPOSITOR;
+    s->bind_result = 1;
+}
+
+/* who runs the kick: a user-mode store names the process bound to its address space; a supervisor
+   store (d_display's ctl 0x7f12) names PID/FLAGS, set by the kernel just before it */
+static bool kick_identity(SyborgGlState *s, bool user)
+{
+    if (!user) {
+        gl_ex->auth_owner = s->kpid;
+        gl_ex->auth_rights = s->kflags;
+        s->kpid = s->kflags = 0;
+        return gl_ex->auth_owner != 0 || (gl_ex->auth_rights & SYGL_RIGHT_KERNEL);
+    }
+    CPUState *cs = current_cpu;
+    uint64_t t = cs ? user_ttbr0(cpu_env(cs)) : 0;
+    SyglBind *b = cs ? g_hash_table_lookup(s->binds, &t) : NULL;
+    if (!b || b->shared) {
+        gl_ex->auth_owner = gl_ex->auth_rights = 0;
+        refuse(s, "user kick from an unbound address space", (uint32_t)t, b ? b->pid : 0);
+        return false;
+    }
+    gl_ex->auth_owner = b->pid;
+    gl_ex->auth_rights = b->rights;
+    return true;
+}
+
+static MemTxResult syborg_gl_read(void *opaque, hwaddr offset, uint64_t *data, unsigned size, MemTxAttrs attrs)
 {
     SyborgGlState *s = opaque;
-    switch (offset >> 2) {
+    unsigned r = offset >> 2;
+    gl_ex = &s->exv;
+    if (attrs.user && r != SYGL_REG_ID && r != SYGL_REG_CAPS && r != SYGL_REG_KICK) {
+        *data = 0;
+        return MEMTX_OK;
+    }
+    switch (r) {
+    case SYGL_REG_ID: *data = SYGL_ID; break;
+    case SYGL_REG_CAPS: *data = gl_init(s) ? 1 : 0; break;
+    case SYGL_REG_BUF: *data = s->buf; break;
+    case SYGL_REG_LEN: *data = s->len; break;
+    case SYGL_REG_EXEC: *data = s->result; break;
+    case SYGL_REG_OUT: *data = s->r_out; break;
+    case SYGL_REG_OUTLEN: *data = s->r_outlen; break;
+    case SYGL_REG_KICK: *data = s->result; break;
+    case SYGL_REG_BIND: *data = s->bind_result; break;
+    default: *data = 0;
+    }
+    return MEMTX_OK;
+}
+
+static MemTxResult syborg_gl_write(void *opaque, hwaddr offset, uint64_t value, unsigned size, MemTxAttrs attrs)
+{
+    SyborgGlState *s = opaque;
+    unsigned r = offset >> 2;
+    GlExec *e = &s->exv;                /* the vCPU's execution */
+    gl_ex = e;
+    if (attrs.user && r != SYGL_REG_KICK) {     /* S2: the rest is the kernel's */
+        refuse(s, "user write to a kernel register", r, (uint32_t)value);
+        return MEMTX_OK;
+    }
+    switch (r) {
     case SYGL_REG_BUF: s->buf = value; break;
     case SYGL_REG_LEN: s->len = value; break;
-    case SYGL_REG_EXEC: s->result = run(s); break;
-    case SYGL_REG_KICK: {
-        /* a SyglKick at a virtual address of the writer: its buffers are used in place */
-        SyglKick k;
-        CPUState *cs = current_cpu;
-        if (!cs || (value & 3) || cpu_memory_rw_debug(cs, value, &k, sizeof(k), false)) {
+    case SYGL_REG_EXEC:                 /* physical buffers: the kernel's own (d_display ctl 0x7f11, close) */
+        if (!kick_identity(s, false)) {
+            refuse(s, "kernel run without PID", 0, 0);
             s->result = ~0u;
             break;
         }
-        uint32_t sb = s->buf, sl = s->len, so = s->out, sol = s->outlen;
-        s->buf = k.buf; s->len = k.len; s->out = k.out; s->outlen = k.outlen;
-        s->va = 1;
+        e->buf = s->buf; e->len = s->len; e->out = s->r_out; e->outlen = s->r_outlen;
+        e->va = 0;
+        e->cpu = current_cpu;
         s->result = run(s);
-        s->va = 0;
-        s->buf = sb; s->len = sl; s->out = so; s->outlen = sol;
-        cpu_memory_rw_debug(cs, value + offsetof(SyglKick, result), &s->result, 4, true);
+        e->auth_owner = e->auth_rights = 0;
+        break;
+    case SYGL_REG_KICK: {
+        /* a SyglKick at a virtual address of the writer: its buffers are used in place */
+        SyglKick k;
+        if (!kick_identity(s, attrs.user) || (value & 3) || user_rw(value, &k, sizeof(k), false)) {
+            s->result = ~0u;
+            gl_ex->auth_owner = gl_ex->auth_rights = 0;
+            break;
+        }
+        e->buf = k.buf; e->len = k.len; e->out = k.out; e->outlen = k.outlen;
+        e->va = 1;
+        e->cpu = current_cpu;
+        s->result = run(s);
+        e->va = 0;
+        user_rw(value + offsetof(SyglKick, result), &s->result, 4, true);
+        gl_ex->auth_owner = gl_ex->auth_rights = 0;
         break;
     }
-    case SYGL_REG_OUT: s->out = value; break;
-    case SYGL_REG_OUTLEN: s->outlen = value; break;
+    case SYGL_REG_OUT: s->r_out = value; break;
+    case SYGL_REG_OUTLEN: s->r_outlen = value; break;
+    case SYGL_REG_PID: s->kpid = value; break;
+    case SYGL_REG_FLAGS: s->kflags = value; break;
+    case SYGL_REG_BIND: bind_space(s, value); s->kflags = 0; break;
     default:
         qemu_log_mask(LOG_GUEST_ERROR, "syborg-gl: write 0x%x ignored\n", (int)offset);
     }
+    return MEMTX_OK;
 }
 
 static const MemoryRegionOps syborg_gl_ops = {
-    .read = syborg_gl_read,
-    .write = syborg_gl_write,
+    .read_with_attrs = syborg_gl_read,
+    .write_with_attrs = syborg_gl_write,
     .endianness = DEVICE_LITTLE_ENDIAN,
     .valid.min_access_size = 4,
     .valid.max_access_size = 4,
@@ -1876,6 +2931,9 @@ static const MemoryRegionOps syborg_gl_ops = {
 static void syborg_gl_realize(DeviceState *dev, Error **errp)
 {
     gl_dev = SYBORG_GL(dev);           /* for syvg's host batches (one device per machine) */
+    /* review L4: guest pointers used in place (phase 4) and client arrays need GL to run each call when it
+       is made: Mesa's glthread would defer them past the kick. The user's own setting wins. */
+    g_setenv("mesa_glthread", "false", FALSE);
     SyborgGlState *s = SYBORG_GL(dev);
     if (s->frame_file && *s->frame_file) {
         int fd = open(s->frame_file, O_RDWR | O_CREAT | O_TRUNC, 0644);
@@ -1898,6 +2956,25 @@ static void syborg_gl_realize(DeviceState *dev, Error **errp)
     s->rb_timer = timer_new_ms(QEMU_CLOCK_REALTIME, frame_timer, s);
     s->surfs = g_hash_table_new_full(g_int64_hash, g_int64_equal, NULL, g_free);
     s->texs = g_hash_table_new_full(g_int64_hash, g_int64_equal, NULL, g_free);
+    s->binds = g_hash_table_new_full(g_int64_hash, g_int64_equal, NULL, g_free);
+    s->budgets = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, g_free);
+    qemu_mutex_init(&mem_lock);
+    mem_owner = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, g_free);
+    mem_total_mb = s->gpu_mem_mb ? s->gpu_mem_mb : 32;
+    qemu_mutex_init(&s->jlock);
+    qemu_cond_init(&s->jwork);
+    qemu_cond_init(&s->jdone);
+    qemu_mutex_init(&s->frame_lock);
+    qemu_mutex_init(&s->cap_lock);
+    if (s->thread) {                    /* phase 5: GL on its own thread */
+        qemu_thread_create(&s->th, "syborg-gl", gl_worker, s, QEMU_THREAD_JOINABLE);
+        qatomic_set(&s->worker_up, true);
+        info_report("syborg-gl: GL on its own thread");
+        void *w = qatomic_xchg(&gl_pending_win, NULL);
+        if (w) {
+            syborg_gl_set_window(w);    /* the app's window came first */
+        }
+    }
     memory_region_init_io(&s->iomem, OBJECT(s), &syborg_gl_ops, s, "syborg-gl", 0x1000);
     sysbus_init_mmio(SYS_BUS_DEVICE(s), &s->iomem);
 }
@@ -1907,6 +2984,9 @@ static const Property syborg_gl_properties[] = {
     DEFINE_PROP_STRING("frame-file", SyborgGlState, frame_file),
     DEFINE_PROP_STRING("identity", SyborgGlState, identity),
     DEFINE_PROP_STRING("egl-configs", SyborgGlState, egl_configs),
+    DEFINE_PROP_BOOL("thread", SyborgGlState, thread, false),   /* phase 5: GL on a worker thread */
+    DEFINE_PROP_STRING("present", SyborgGlState, present),     /* "frame" (default) or "window" (Android) */
+    DEFINE_PROP_UINT32("gpu-memory-mb", SyborgGlState, gpu_mem_mb, 32),  /* EGL_NOK_resource_profiling total */
 };
 
 /*
@@ -1965,10 +3045,13 @@ static char *gl_get_stats(Object *o, Error **errp)
     return g_strdup_printf("{\"ready\": %d, \"msaa\": %u, \"samples\": %d, \"kicks\": %" PRIu64
                            ", \"kick_ms\": %.1f, \"composes\": %" PRIu64 ", \"compose_ms\": %.1f, "
                            "\"async_readbacks\": %" PRIu64 ", \"waited\": %" PRIu64 ", \"fills\": %" PRIu64
+                           ", \"vg_calls\": %" PRIu64 ", \"egl_calls\": %" PRIu64
+                           ", \"in_direct\": %" PRIu64 ", \"in_copied\": %" PRIu64
+                           ", \"thread\": %d, \"async_jobs\": %" PRIu64 ", \"sync_jobs\": %" PRIu64
                            ", \"surfaces\": %u, \"textures\": %u, \"gl_errors\": %" PRIu64 "}",
                            s->ready, s->msaa, s->samples, s->st_kicks, s->st_kick_ns / 1e6, s->st_compose,
                            s->st_compose_ns / 1e6, s->st_async, s->st_async_wait, s->st_fills,
-                           s->surfs ? g_hash_table_size(s->surfs) : 0,
+                           s->st_vg2, s->st_egl, s->st_in_direct, s->st_in_copied, s->worker_up, s->st_async_jobs, s->st_sync_jobs, s->surfs ? g_hash_table_size(s->surfs) : 0,
                            s->texs ? g_hash_table_size(s->texs) : 0, s->glerrors);
 }
 
@@ -2013,8 +3096,37 @@ static void syborg_gl_reset(DeviceState *dev)
 {
     SyborgGlState *s = SYBORG_GL(dev);
     timer_del(s->rb_timer);
+    if (s->worker_up) {                 /* phase 5: on the worker, after what is queued */
+        GlJob j = { .kind = GL_JOB_RESET, .sync = true };
+        gl_job_run(s, &j);
+    } else {
+        gl_reset_now(s);
+    }
+    s->pending = 0;
+    s->hfOn = false;                    /* the display shows guest memory until the next composition */
+    if (s->frame_seq) {
+        s->frame_seq[4] = 0;
+    }
+    s->exv.owner = 0;
+    s->exv.auth_owner = s->exv.auth_rights = s->kpid = s->kflags = s->bind_result = 0;
+    g_hash_table_remove_all(s->binds);
+    g_hash_table_remove_all(s->budgets);
+    mem_owner_drop(~0u);
+    s->buf = s->len = s->r_out = s->r_outlen = s->result = 0;
+    s->exv.buf = s->exv.len = s->exv.out = s->exv.outlen = 0;
+    s->exv.va = 0;
+    s->exv.host_batch = false;
+    s->exv.host_out = NULL;
+    s->exv.host_outlen = 0;
+}
+
+/* the GL part of a reset (the worker's when it runs, else the main loop's with the vCPUs stopped) */
+static void gl_reset_now(SyborgGlState *s)
+{
     if (s->ready > 0) {
         syvg_reset();
+        GlExec ex = { 0 }, *prev = gl_ex;
+        gl_ex = gl_ex ? gl_ex : &ex;    /* the main loop has none of its own */
         eglMakeCurrent(s->dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, s->ctx);
         gl2_owner_free(s, ~0u);
         gl2_main(s);
@@ -2035,19 +3147,11 @@ static void syborg_gl_reset(DeviceState *dev)
         }
         while (glGetError() != GL_NO_ERROR) {
         }
-        eglMakeCurrent(s->dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+        if (!s->worker_up) {
+            eglMakeCurrent(s->dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+        }
+        gl_ex = prev;
     }
-    s->pending = 0;
-    s->hfOn = false;                    /* the display shows guest memory until the next composition */
-    if (s->frame_seq) {
-        s->frame_seq[4] = 0;
-    }
-    s->owner = 0;
-    s->buf = s->len = s->out = s->outlen = s->result = 0;
-    s->va = 0;
-    s->host_batch = false;
-    s->host_out = NULL;
-    s->host_outlen = 0;
 }
 
 static void syborg_gl_class_init(ObjectClass *oc, const void *data)

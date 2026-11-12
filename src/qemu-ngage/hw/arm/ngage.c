@@ -13,6 +13,7 @@
  *   0x0A000000  SDRAM, 16 MB                                                   Q3
  *   0x0C120100  interrupt controller, 4 banks x 32                              Q16
  *   0x0C120A00  timers 0-5 (0x20 apart), interrupt sources 0-5                 Q13 Q31
+ *   0x0C120300  DMA engine (7 channels), 0x0C120600 MMC host (ngage_mmc.c, -M ngage,mmc=CARD.img)
  *   0x0C1F0000  NOS stand-in device (board-only, H-nos-standin)                 Q20 Q21
  *   0x0DE00000  kernel debug output (trace port), to serial 0                 Q18
  *   0x0C150420  CBus master to the external chips (device 1: power ASIC)       Q11
@@ -38,6 +39,7 @@
 #include "target/arm/cpu.h"
 #include "qemu/timer.h"
 #include "hw/core/irq.h"
+#include "ngage_mmc.h"
 #include "accel/tcg/cpu-loop.h"
 #include "tcg/insn-start-words.h"
 #include "exec/target_page.h"
@@ -443,7 +445,8 @@ static const MemoryRegionOps ngage_intc_ops = {
  * Registers [V: kernel helpers 0x5031ea58 (+04 mode, written and read back), eac4 (+18),
  * eae8 (+10), eafc (+14), eb14 (+08), eadc (read +10); timer 0 = the tick (0x5031c718),
  * timer 1 = the one-shot timer queue (object 0x80000558, methods 0x5031ca64-0x5031cb80)]:
- *   +04 mode: 0 stopped, 1 one-shot down-counter, 2 periodic (reload from +18)
+ *   +04 mode: 0 stopped (the remaining count is kept), 1 one-shot down-counter, 2 periodic (reload from
+ *       +18); a running mode written while stopped resumes from +10
  *   +08 interrupt status: set when the count expires; handlers write it (tick: 0, timer 1
  *       and the bootstrap: 1), which acknowledges; the bootstrap then polls it for != 0
  *   +10 count: writing (re)starts the countdown from the value; reading returns the live
@@ -539,12 +542,23 @@ static void ngage_timer_write(void *opaque, hwaddr addr, uint64_t val, unsigned 
         qemu_log_mask(LOG_UNIMP, "ngage-timer%d: W +%02x = %08x pc=%08x lr=%08x\n", s->index,
                       r, (unsigned)val, ngage_pc(), ngage_lr());
     }
+    uint32_t live = ngage_timer_count(s);     /* the remaining count before this write */
     s->regs[r >> 2] = val;
     switch (r) {
     case 0x04:
+        /* mode 0 stops the countdown and keeps the remaining count; a running mode written while stopped
+           resumes from the count register. The kernel's one-shot queue (timer 1) toggles 0/1 around its
+           updates: when only +10 restarted the countdown, a stop-start without a new count left timer 1
+           dead, and with it every one-shot kernel timer (the keypad's scan stalled mid-scan: no key worked
+           a minute after boot, docs/eka1-ngage.md Next 1) */
         if (!val) {
+            if (timer_pending(s->t)) {
+                s->regs[0x10 >> 2] = live;
+            }
             timer_del(s->t);
             qemu_set_irq(s->irq, 0);
+        } else if (!timer_pending(s->t) && s->regs[0x10 >> 2]) {
+            ngage_timer_arm(s, s->regs[0x10 >> 2]);
         }
         break;
     case 0x08:
@@ -1235,6 +1249,7 @@ static void ngage_fix_md5_table(uint8_t *img, size_t len)
 static char *ngage_ppm_dir;
 static char *ngage_isi_file;         /* -M ngage,isi=FILE: the ISI reply table (Q50) */
 static char *ngage_flash_file;       /* -M ngage,flash=FILE: the phone's own flash (Q55) */
+static char *ngage_mmc_file;         /* -M ngage,mmc=FILE: the memory card image (ngage_mmc.c) */
 
 /*
  * Persistent flash (Q55): the phone's writes to its flash (C:, the internal user disk, and any
@@ -1452,6 +1467,7 @@ static void ngage_init(MachineState *machine)
             t->t[i].irq = in[i];                                         /* IrqTimer<i> */
         }
         ngage_keys_init(sys, in[25]);                       /* keypad, IrqCTSI_IRQ (Q53) */
+        ngage_mmc_init(sys, in, ngage_mmc_file);            /* MMC 21-24, DMA channels 6.. [I] */
         memory_region_init_io(&t->mr, NULL, &ngage_timer_ops, t, "ngage.timers",
                               0x20 * NGAGE_TIMERS);
         memory_region_add_subregion(sys, NGAGE_TIMER_BASE, &t->mr);       /* Q13 Q17 Q31 */
@@ -1523,9 +1539,24 @@ static void ngage_set_flash(Object *obj, const char *value, Error **errp)
     ngage_flash_file = *value ? g_strdup(value) : NULL;
 }
 
+static char *ngage_get_mmc(Object *obj, Error **errp)
+{
+    return g_strdup(ngage_mmc_file ? ngage_mmc_file : "");
+}
+
+static void ngage_set_mmc(Object *obj, const char *value, Error **errp)
+{
+    g_free(ngage_mmc_file);
+    ngage_mmc_file = *value ? g_strdup(value) : NULL;
+}
+
 static void ngage_machine_class_init(ObjectClass *oc, const void *data)
 {
     MachineClass *mc = MACHINE_CLASS(oc);
+
+    object_class_property_add_str(oc, "mmc", ngage_get_mmc, ngage_set_mmc);
+    object_class_property_set_description(oc, "mmc",
+        "memory card image (MBR + FAT16, eka1/tools/ngage_card.py), the phone's E:");
 
     object_class_property_add_str(oc, "flash", ngage_get_flash, ngage_set_flash);
     object_class_property_set_description(oc, "flash",

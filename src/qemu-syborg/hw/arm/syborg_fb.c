@@ -125,7 +125,10 @@ static bool syborg_fb_update_display(void *opaque)
         /* the host-composed screen when the guest composes on the host (syborg-gl), else guest memory */
         uint32_t hw = 0, hh = 0;
         const uint8_t *hpx = NULL;
-        bool host = syborg_gl_frame(&hw, &hh, &hpx) && hw == pw && hh == ph;
+        bool got = syborg_gl_frame(&hw, &hh, &hpx), host = got && hw == pw && hh == ph;
+        if (got && !host) {
+            syborg_gl_frame_done();
+        }
         for (uint32_t y = 0; y < ph; y++) {
             uint32_t *row = rot ? s->pic + y * pw : (uint32_t *)(dst + y * dstride);
             if (host) {
@@ -154,6 +157,9 @@ static bool syborg_fb_update_display(void *opaque)
                              ((p & 0xff) * s->blank_dim / 100);
                 }
             }
+        }
+        if (host) {
+            syborg_gl_frame_done();     /* the GL worker may write the next frame now */
         }
         /* rotate onto the screen: screen pixel (x, y) shows picture pixel (px, py) */
         for (uint32_t y = 0; rot && y < s->height; y++) {

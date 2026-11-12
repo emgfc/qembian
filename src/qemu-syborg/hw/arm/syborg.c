@@ -50,6 +50,7 @@
 #include "chardev/char-fe.h"
 #include "target/arm/cpu-qom.h"
 #include "qom/object.h"
+#include "net/net.h"
 #include "syborg.h"
 
 /* ---- platform device ---- */
@@ -275,6 +276,7 @@ static void syborg_init(MachineState *machine)
        its settings are the platform's board config (modem.*, audio.ring_units) */
     {
         DeviceState *modem = qdev_new(TYPE_SYBORG_MODEM);
+        qemu_configure_nic_device(modem, false, NULL);  /* packet data: -nic user,model=syborg-modem */
         if (plat->config) {
             qdev_prop_set_string(modem, "config", plat->config);
         }
@@ -292,6 +294,17 @@ static void syborg_init(MachineState *machine)
         object_property_add_child(OBJECT(machine), "sensor", OBJECT(sensor));
         sysbus_realize_and_unref(SYS_BUS_DEVICE(sensor), &error_fatal);
         sysbus_mmio_map(SYS_BUS_DEVICE(sensor), 0, 0xc001d000);
+    }
+
+    /* the Ethernet NIC (syborg_net.c) in the baseport's net slot (KHwSVPNetDevice, EIntNet0): on the
+       first -nic (e.g. -nic user); without one its link is down. /machine/net */
+    {
+        DeviceState *net = qdev_new(TYPE_SYBORG_NET);
+        qemu_configure_nic_device(net, true, NULL);
+        object_property_add_child(OBJECT(machine), "net", OBJECT(net));
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(net), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(net), 0, 0xc000c000);
+        sysbus_connect_irq(SYS_BUS_DEVICE(net), 0, pic[9]);
     }
 
     /* read-only flash window (ROFS partition), outside RAM */

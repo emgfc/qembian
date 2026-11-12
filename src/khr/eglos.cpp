@@ -13,6 +13,7 @@
 #include <fbs.h>
 #include <graphics/surface.h>
 #include <graphics/surfacemanager.h>
+#include <graphics/surfaceconfiguration.h>
 #include <graphics/surfaceupdateclient.h>
 #include <pixelformats.h>
 #include "egl.h"
@@ -73,23 +74,70 @@ EGLDisplay OSGetDisplay(EGLNativeDisplayType display_id)
 
 void OSDestroyWindowContext(void *context);
 
+/* EGLNativeWindowType is an RWindow or, on Belle, an REglWindowBase from eglwindow.dll (the browser's web
+   process draws into an REglStandAloneWindow; webprocess.exe). Told apart as the phone's EGL does: an
+   REglWindowBase has 0xFFFFFFFF in word 1, where an RWindowBase keeps its RWsBuffer pointer. Its virtual
+   functions, in order [V: eglwindow.dll 113.010.1508, REglStandAloneWindow's vtable and code]: IsValid,
+   SizeInPixels (TSize returned through memory), SizeInTwips, ScreenNumber, SetBackgroundColor(TRgb, TBool),
+   SetBackgroundSurface(const TSurfaceConfiguration &, TBool) (stores it and tells the window's owner, who
+   hands the surface on, e.g. to an EGL_NOK_image_endpoint consumer), RemoveBackgroundSurface(TBool); two
+   more follow that EGL does not need. Names [I] (SF's eglwindow interface). */
+class REglWindowIf {
+public:
+	virtual TBool IsValid() const = 0;
+	virtual TSize SizeInPixels() const = 0;
+	virtual TSize SizeInTwips() const = 0;
+	virtual TInt ScreenNumber() const = 0;
+	virtual void SetBackgroundColor(TRgb aColor, TBool aTriggerRedraw) = 0;
+	virtual TInt SetBackgroundSurface(const TSurfaceConfiguration &aConfiguration, TBool aTriggerRedraw) = 0;
+	virtual void RemoveBackgroundSurface(TBool aTriggerRedraw) = 0;
+};
+
+static inline REglWindowIf *EglWindowOf(const void *aWindow)
+{
+	return ((const TUint32 *)aWindow)[1] == 0xFFFFFFFFu ? (REglWindowIf *)aWindow : NULL;
+}
+
 struct WindowContext {
 	RWindowBase *iWindow;
+	REglWindowIf *iEglWindow;	/* the same object when it is an REglWindowBase, else NULL */
 	RSurfaceManager iSm;
-	RSurfaceUpdateSession iSus;
 	TSurfaceId iSurface;
 	RChunk iChunk;
 	TUint8 *iBase;
 	TInt iStride;
 	TSize iSize;
-	TInt iSmOpen, iSusOpen, iFrames;
+	TInt iSmOpen, iFrames;
 };
+
+/* The surface update session of the calling thread: a session handle belongs to the thread that connected
+   it, and a window may be swapped from another thread than the one that made it (Belle's web process swaps
+   on its EglBufferSwapper thread: KERN-EXEC 0 with one session per window). Kept in this DLL's TLS; the
+   kernel closes it when the thread ends. */
+static RSurfaceUpdateSession *ThreadSus()
+{
+	RSurfaceUpdateSession *s = (RSurfaceUpdateSession *)Dll::Tls();
+	if (!s) {
+		s = new RSurfaceUpdateSession;
+		if (!s)
+			return NULL;
+		if (s->Connect() != KErrNone || Dll::SetTls(s) != KErrNone) {
+			s->Close();
+			delete s;
+			return NULL;
+		}
+	}
+	return s;
+}
 
 static void FreeSurface(WindowContext *c)
 {
 	if (c->iSurface.IsNull())
 		return;
-	c->iWindow->RemoveBackgroundSurface(ETrue);
+	if (c->iEglWindow)
+		c->iEglWindow->RemoveBackgroundSurface(ETrue);
+	else
+		c->iWindow->RemoveBackgroundSurface(ETrue);
 	c->iChunk.Close();
 	c->iSm.CloseSurface(c->iSurface);
 	c->iSurface = TSurfaceId::CreateNullId();
@@ -101,10 +149,15 @@ static void FreeSurface(WindowContext *c)
    native orientation (360x640) for its surface while the window itself turns with the screen mode
    (640x360); the app renders rotated itself (Angry Birds). As the phone's own EGL glue does
    (eglwindow.dll imports SizeForEgl). */
+static TSize WindowSize(const WindowContext *c)
+{
+	return c->iEglWindow ? c->iEglWindow->SizeInPixels() : c->iWindow->SizeForEgl();
+}
+
 static TInt MakeSurface(WindowContext *c)
 {
 	FreeSurface(c);
-	TSize size = c->iWindow->SizeForEgl();
+	TSize size = WindowSize(c);
 	if (size.iWidth <= 0 || size.iHeight <= 0)
 		return KErrArgument;
 	RSurfaceManager::TSurfaceCreationAttributesBuf buf;
@@ -132,8 +185,14 @@ static TInt MakeSurface(WindowContext *c)
 	c->iStride = a.iStride;
 	c->iSize = size;
 	Mem::FillZ(c->iBase, c->iStride * size.iHeight);
-	r = c->iWindow->SetBackgroundSurface(c->iSurface);
-	c->iWindow->Session()->Flush();
+	if (c->iEglWindow) {
+		TSurfaceConfiguration cfg;
+		cfg.SetSurfaceId(c->iSurface);
+		r = c->iEglWindow->SetBackgroundSurface(cfg, ETrue);
+	} else {
+		r = c->iWindow->SetBackgroundSurface(c->iSurface);
+		c->iWindow->Session()->Flush();
+	}
 	RDebug::Printf("KHR: window %08x surface %08x %dx%d, background %d", c->iWindow, c->iSurface.iInternal[0],
 	               size.iWidth, size.iHeight, r);
 	return KErrNone;
@@ -148,11 +207,14 @@ void *OSCreateWindowContext(EGLNativeWindowType window)
 		return NULL;
 	Mem::FillZ(c, sizeof(*c));
 	new (&c->iSm) RSurfaceManager;
-	new (&c->iSus) RSurfaceUpdateSession;
 	c->iSurface = TSurfaceId::CreateNullId();
 	c->iWindow = (RWindowBase *)window;
+	c->iEglWindow = EglWindowOf(window);
+	if (c->iEglWindow && !c->iEglWindow->IsValid()) {
+		delete c;
+		return NULL;
+	}
 	c->iSmOpen = c->iSm.Open() == KErrNone;
-	c->iSusOpen = c->iSus.Connect() == KErrNone;
 	if (!c->iSmOpen || MakeSurface(c) != KErrNone) {
 		RDebug::Printf("KHR: window context: surface manager %d", c->iSmOpen);
 		OSDestroyWindowContext(c);
@@ -167,8 +229,6 @@ void OSDestroyWindowContext(void *context)
 	if (!c)
 		return;
 	FreeSurface(c);
-	if (c->iSusOpen)
-		c->iSus.Close();
 	if (c->iSmOpen)
 		c->iSm.Close();
 	delete c;
@@ -182,7 +242,7 @@ bool OSIsWindow(const void *context)
 void OSGetWindowSize(const void *context, int &width, int &height)
 {
 	const WindowContext *c = (const WindowContext *)context;
-	TSize s = c ? c->iWindow->SizeForEgl() : TSize(0, 0);
+	TSize s = c ? WindowSize(c) : TSize(0, 0);
 	width = s.iWidth;
 	height = s.iHeight;
 }

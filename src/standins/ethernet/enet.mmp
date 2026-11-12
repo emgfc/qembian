@@ -1,0 +1,14 @@
+// enet.ldd: the EPL Ethernet logical device (kernelhwsrv drivers/ethernet, unchanged) as a stand-in, for
+// etherpkt.drv (CommsDat LANService LDD "enet", name "Ethernet"); the PDD is sybeth.pdd
+#include "../../variant.mmh"
+#include <kernel/kern_ext.mmh>
+target			VariantTarget(enet,ldd)
+linkas			enet.ldd
+targettype		ldd
+OS_LAYER_SYSTEMINCLUDE_SYMBIAN
+// standins/ethernet -> sf/os/kernelhwsrv/kernel/eka/drivers/ethernet
+sourcepath		../../../../../../os/kernelhwsrv/kernel/eka/drivers/ethernet
+source			d_ethernet.cpp
+noexportlibrary
+vendorid		0x70000001
+capability		all

@@ -12,6 +12,7 @@ int syvg_guest_read(uint32_t va, void *dst, size_t n);
 int syvg_guest_write(uint32_t va, const void *src, size_t n);
 /* provided by syvg to the device */
 int syvg_vg_call(uint32_t owner, const uint32_t *a, size_t n, uint32_t *out, size_t outWords);
+void syvg_vg_flush(void);       /* the RI's drawing of the OpenVG calls run so far (phase 3: once per run) */
 int syvg_egl_call(uint32_t owner, const uint32_t *a, size_t n, uint32_t *out, size_t outWords);
 void syvg_owner_free(uint32_t owner);
 /* a machine reset: every guest process's EGL and VG objects (and their GPU objects) go, the tables are empty */
@@ -23,6 +24,11 @@ uint32_t syvg_gl_current(uint32_t owner, uint32_t thread);
 /* provided by the device (syborg_gl.c): the profile's GL identity strings, and whether a GL function exists */
 const char *syborg_gl_identity(const char *key);
 int syborg_gl_has_proc(const char *name);
+/* the GPU memory (EGL_NOK_resource_profiling): the phone's total, and the bytes in use per process */
+uint64_t syborg_gl_mem_total(void);
+int syborg_gl_mem_usage(uint32_t *owners, uint64_t *bytes, int max, uint64_t *used);
+/* EGL_NOK_image_endpoint: a producer's new frame of GCE surface sid (buffer -1: presented on the host) */
+void syvg_endpoint_updated(const uint32_t *sid, int32_t buffer, uint32_t x, uint32_t y, uint32_t w, uint32_t h);
 /* inside syvg */
 uint32_t syvg_owner(void);
 uint32_t syvg_thread(void);

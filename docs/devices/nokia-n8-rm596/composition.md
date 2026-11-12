@@ -199,8 +199,9 @@ into the frame buffer by the guest CPU.
   OpenVG; wserv's own UI goes to alf through its render stage).
 - Transport (both gcebe and khr): a SyglKick descriptor in the process's own memory names the command
   buffer and the output area by virtual address; the device reads and writes them in place through the
-  vCPU's page tables while the kick runs. The kick is one store to the syborg-gl register page, which
-  DisplayDriver maps user-writable (control 0x7f13): no kernel call, no copy. Fallbacks: control 0x7f12
-  (the kernel writes the kick), control 0x7f11 (the old copy into contiguous RAM) when the device cannot
-  reach a page (KErrBadDescriptor).
+  vCPU's page tables, with the app's own (user) permissions, while the kick runs. The kick is one store to
+  the syborg-gl register page, which DisplayDriver maps for user mode (control 0x7f13; user mode may write
+  KICK only) after binding the process's address space to it: no kernel call, no copy. Fallbacks: control
+  0x7f12 (the kernel writes the kick, naming the client), control 0x7f11 (the old copy into contiguous RAM)
+  when the device cannot reach a page (KErrBadDescriptor). Authority: docs/gpu-boundary-roadmap.md.
 - Without the host GPU gcebe copies layers itself as before (no blending, no scaling).

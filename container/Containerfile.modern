@@ -31,7 +31,7 @@ FROM docker.io/library/debian:trixie-slim
 RUN apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
         build-essential pkg-config ninja-build python3 python3-venv git curl ca-certificates \
         xz-utils bzip2 flex bison patch file procps \
-        libglib2.0-dev libpixman-1-dev libsdl2-dev libgtk-3-dev libepoxy-dev libgbm-dev libdrm-dev \
+        libglib2.0-dev libpixman-1-dev libsdl2-dev libgtk-3-dev libepoxy-dev libslirp-dev libgbm-dev libdrm-dev \
         libavcodec-dev libavutil-dev libswresample-dev \
         libasound2-dev libpulse-dev libpipewire-0.3-dev libzstd-dev zlib1g-dev libfdt-dev \
         mtools dosfstools gdb-multiarch \

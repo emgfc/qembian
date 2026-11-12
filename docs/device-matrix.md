@@ -62,6 +62,27 @@ platform release. Higher levels (L3 telephony offline, L4 audio, L5 GL) are trac
 
 ## 2. Devices worked on
 
+### 2.0 Current status (2026-11-12)
+
+The tables in 2.1-2.3 below record the first bring-ups (2026-11-08 to 11-10) and are kept for their
+details; this table is the current state. "Idle" = the home screen after start-up; features are on
+`-audiodev`/host GPU defaults; SIM = the virtual SIM of the fake modem (`[sim] present = true` in an
+instance's `[overrides.sim]`).
+
+| Phone (profile) | Platform | Boots to | Graphics | Sound | Virtual SIM, network | Notes |
+|---|---|---|---|---|---|---|
+| N95 8GB (`nokia-n95-8gb-rm320`) | S60 3rd FP1 | idle, apps, Carousel | GLES 1.1 on the host GPU (sygl) | jingle, WAV/AAC, MP3 decoded on the host, key tones; no ROM audio patches | SIM, registration, SMS (S60 3rd "pp-routing" variant); settings message received but not stored yet | reference device |
+| N95 (`nokia-n95-rm159`) | S60 3rd FP1 | idle (bring-up notes) | sygl | ehwa path as the N95 8GB, not re-checked since the sound device | - | |
+| N73, N73 ME (`nokia-n73-rm132`, `-rm133`) | S60 3rd | idle, menu | software | DSP bridge (untested since the sound device) | - | moving memory model |
+| 5730, N79 (`nokia-5730-rm465`, `nokia-n79-rm348`) | S60 3rd FP2 | idle, menu | software | silent (RAPIDO stream format not declared) | - | |
+| 5800 (`nokia-5800-rm356`) | S60 5th | idle, menu, touch | software | silent (format not declared) | - | |
+| N8 011.012 / 013.016 / 025.007 (`nokia-n8-rm596`, `-v13`, `-v25`) | Symbian^3, Anna | idle, apps | EGL/OpenVG/GLES on the host GPU, host composition | start-up tone, WAV/MP3 (RAPIDO ring on the host), key tones; no start-up tone patch | SIM, 3G registration, packet data, settings SMS stored | |
+| N8 Belle Refresh: stock, Delight 6.7, Reborn (`nokia-n8-rm596-v111`, `-delight`, `-reborn`) | Belle Refresh | idle, apps, browser | as above | as above | as above; browser over mobile data | Delight is the daily-driver firmware |
+| 701 (`nokia-701-rm774`) | Belle FP2 | idle | as the N8 | start-up tone and playback | SIM (PN_UICC), data, settings SMS stored | |
+| 808 PureView (`nokia-808-rm807`) | Belle FP2 | idle, Settings | as the N8 | start-up tone and playback | SIM (PN_UICC), data, settings SMS (held until the phone enables reception) | NFC server answered with "not available" |
+| E52, E72, E5-00, 6720, N86, N97, N81 8GB, E71 | 3rd FP2 / 5th / FP1 | first-boot wizard or earlier (see `models/registry.toml`) | - | - | - | profile drafts |
+| N-Gage QD (separate `ngage` board, EKA1) | S60 1.x / Symbian 6.1 | idle, Menu; MMC card as E: (`-M ngage,mmc=`) | framebuffer | - | stand-in NOS | games start from the card, the first one tried (Snakes) aborts (docs/eka1-ngage.md) |
+
 Values from `models/<id>/device.toml` unless noted ([bring-up] = the device's notes under
 `docs/devices/<id>/`, [roms] = directory names under `roms/`). "-" = not known or not applicable.
 
@@ -111,15 +132,15 @@ cheapest next steps in section 3.
 
 | Axis | Covered | Not covered |
 |---|---|---|
-| Platform release | 3rd (9.1), FP1 (9.2), FP2 (9.3), 5th (9.4), ^3 PR1.0, ^3 PR1.1 | ^3 PR1.2, Anna, Belle, Belle Refresh, Belle FP1, Belle FP2 |
+| Platform release | 3rd (9.1), FP1 (9.2), FP2 (9.3), 5th (9.4), ^3 PR1.0, ^3 PR1.1, Anna, Belle Refresh, Belle FP2 | ^3 PR1.2, Belle, Belle FP1 |
 | Memory model | moving, multiple, flexible | - |
 | CPU | ARM926, ARM1136, ARM1176 | Cortex-A8 (non-Nokia S60 only; optional) |
-| SoC family | OMAP1710, OMAP2420, RAPIDO, RAPIDO + BCM2727 | BCM2763 generation (603/700/701/808), [unverified] Freescale (E71/6120c class) |
+| SoC family | OMAP1710, OMAP2420, RAPIDO, RAPIDO + BCM2727, BCM2763 (701, 808) | [unverified] Freescale (E71/6120c class) |
 | Display | 240x320 portrait, 360x640 portrait panel, 360x640 on a landscape panel | 320x240 native landscape, 352x416, 640x360 native landscape with QWERTY, 640x480, dual screen |
 | Input | keypad, keypad + QWERTY slide, resistive touch, capacitive touch | QWERTY bar, optical navi key, NaviScroll (declared, no stand-in), touch + QWERTY, 5th-edition capacitive (X6) |
-| Graphics | software, PowerVR MBX via sygl, VideoCore via khr/gcebe | BCM2763 (expected to take the N8 path), Belle's Qt/QML home screen on top of it |
-| Audio | OMAP DSP bridge (plays), RAPIDO ring (silent) | RAPIDO audio to the host |
-| RAM | 64 (N73), 128, 256 | 512 MB (701, 808) |
+| Graphics | software, PowerVR MBX via sygl, VideoCore via khr/gcebe (incl. BCM2763 and Belle's Qt/QML home screen) | - |
+| Audio | OMAP DSP bridge (plays, MP3/AAC decoded on the host), RAPIDO ring on the host (N8, 701, 808) | RAPIDO stream formats of the 9.3/9.4 phones (5730, N79, 5800, N97: silent until measured and declared) |
+| RAM | 64 (N73), 128, 256, 512 (701, 808) | - |
 
 ## 3. Recommended targets
 

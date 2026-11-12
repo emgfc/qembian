@@ -214,11 +214,22 @@ role = "second NVMemory (E:) on local drive 2 (patch qemu-baseport 0006)"
 # ---------------------------------------------------------------------------------------------
 # Fake modem (ISI over ISC). Simple replies are a table; stateful ones are code in the stand-in.
 [modem]
+# With a SIM ([sim] present), docs/research/n95-sim-present.md: NokiaDSY (channel 24) asks the SIM lock (09 C0 service
+# 01) after SEC start-up and accepts only 01/09/08/24 there (0x808c006c) [V]; 01 = no lock -> DOS state "SIM ready",
+# start-up continues. The TSY (channel 7) needs SIM_IND {0D 0B 08 00 00} (SIM ready for ETel) [V]. Without a SIM
+# the DSY never reaches the lock query.
+sim_service_status = { "0x01" = 0x01 }
+sim_home_plmn = true                       # SIM 2D {04} home PLMN read (nokiatsy 0x808ca216): GetHomeNetwork for provisioning
+sms_protocol = "pp-routing"                # S60 3rd PN_SMS: routing 06/07, incoming 08 (docs/research/n95-sms-receive.md)
+indications = [{ res = 0x09, msg = 0xEF, data = "0D 0B 08 00 00", channel = 7, after = "09 C0", sim = true }]
 
 # ---------------------------------------------------------------------------------------------
 # ROM composition (tools/romcompose.py; driven today by scripts/hybrid-boot.sh).
 [rom]
 code_patches = ["code-patches.txt"]        # (H-keysound-nommf, H-splash-behind, H-startuptone-nommf)
+# MMF works through syborg-snd (2026-11-12): key tones (the modem's, generated on the host), the start-up jingle
+# and scrolling with tones verified without the two audio byte patches
+omit_patches = ["H-keysound-nommf", "H-startuptone-nommf"]
 files = [{ rom = "Sys/Data/ESTARTCOMP.TXT", local = "ESTARTCOMP.TXT" }]   # CR LF!
 
 # Named variants of the composed ROM (scripts/compose-exp.sh): same device, different patch set.

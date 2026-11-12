@@ -12,12 +12,20 @@
 
 enum { GL2_N_BUF, GL2_N_TEX, GL2_N_RBO, GL2_N_FBO, GL2_N_PROG, GL2_N_SHADER, GL2_N_KINDS };
 
+/* a share group (S5): its name maps and counters live as long as one of its contexts does; its host
+   objects are deleted with the last one */
+typedef struct Gl2Share {
+    int refs;
+    GHashTable *names[GL2_N_KINDS];     /* guest name -> host name (all kinds but framebuffers) */
+    uint32_t next[GL2_N_KINDS];         /* guest names handed out */
+} Gl2Share;
+
 typedef struct Gl2HostCtx {
     uint64_t k;                         /* owner << 32 | guest context */
     uint32_t owner, id;
-    struct Gl2HostCtx *root;            /* the share group's first context (its name maps) */
+    Gl2Share *sg;                       /* its share group */
     EGLContext hc;
-    GHashTable *names[GL2_N_KINDS];     /* guest name -> host name (root's, except framebuffers) */
+    GHashTable *names[GL2_N_KINDS];     /* framebuffers only (a context's own) */
     GHashTable *sfbo;                   /* surface id -> this context's framebuffer for it */
     uint32_t surf, sw, sh;              /* current surface */
     GLuint surfFbo;
@@ -33,7 +41,7 @@ typedef struct Gl2HostCtx {
         uintptr_t off;                  /* buffer array: offset */
         GLuint buf;                     /* the host buffer (0: a client array) */
     } arr[16];
-    uint32_t next[GL2_N_KINDS];         /* guest names handed out (the share group's first context) */
+    uint32_t next[GL2_N_KINDS];         /* framebuffer names handed out (the rest: the share group's) */
     struct { uint32_t va, size; GLuint buf; } map[2];   /* OES_mapbuffer: ARRAY, ELEMENT_ARRAY */
     GLenum err;                         /* an error decided by the replay itself (reported first) */
 } Gl2HostCtx;
@@ -62,13 +70,13 @@ static void gl2_use(SyborgGlState *s, Gl2HostCtx *c)
 
 static Gl2HostCtx *gl2_find(SyborgGlState *s, uint32_t id)
 {
-    uint64_t k = okey(s->owner, id);
+    uint64_t k = okey(gl_ex->owner, id);
     return gl2_ctxs ? g_hash_table_lookup(gl2_ctxs, &k) : NULL;
 }
 
 static GHashTable *gl2_map(Gl2HostCtx *c, int kind)
 {
-    return kind == GL2_N_FBO ? c->names[kind] : c->root->names[kind];
+    return kind == GL2_N_FBO ? c->names[kind] : c->sg->names[kind];
 }
 
 /* the host name of a guest name; unknown names are created when `create` (binds, glGen*) */
@@ -81,6 +89,10 @@ static GLuint gl2_name(Gl2HostCtx *c, int kind, uint32_t guest, int create)
     gpointer v = g_hash_table_lookup(m, GUINT_TO_POINTER(guest));
     if (v || !create) {
         return GPOINTER_TO_UINT(v);
+    }
+    if (g_hash_table_size(m) >= (1u << 18)) {   /* S6: names of one kind per share group */
+        c->err = c->err ? c->err : GL_OUT_OF_MEMORY;
+        return 0;
     }
     GLuint h = 0;
     switch (kind) {
@@ -119,10 +131,10 @@ static void gl2_unmap(Gl2HostCtx *c, int kind, uint32_t guest)
 /* results go to the guest's output area (one call with results per batch flush) */
 static int gl2_out(SyborgGlState *s, const void *p, size_t n)
 {
-    if (n > s->outlen) {
-        n = s->outlen;
+    if (n > gl_ex->outlen) {
+        n = gl_ex->outlen;
     }
-    return gmem_rw(s, s->out, (void *)p, n, true);
+    return gmem_rw(s, gl_ex->out, (void *)p, n, true);
 }
 
 static int gl2_out_words(SyborgGlState *s, const uint32_t *w, int count)
@@ -133,84 +145,22 @@ static int gl2_out_words(SyborgGlState *s, const uint32_t *w, int count)
     return gl2_out(s, buf, (1 + MIN(count, 17)) * 4);
 }
 
-static void gl2_free_ctx(gpointer p)
+/* the last context of a share group gone: its objects (they live in the device context's share group too,
+   so destroying the contexts alone would keep them) */
+static void gl2_share_unref(SyborgGlState *s, Gl2Share *g)
 {
-    Gl2HostCtx *c = p;
-    g_free(c->g1);
-    for (int k = 0; k < GL2_N_KINDS; k++) {
-        if (c->names[k]) {
-            g_hash_table_destroy(c->names[k]);
-        }
-    }
-    g_hash_table_destroy(c->sfbo);
-    g_free(c);
-}
-
-static void gl2_new(SyborgGlState *s, uint32_t id, uint32_t share, uint32_t api)
-{
-    if (!gl2_ctxs) {
-        gl2_ctxs = g_hash_table_new_full(g_int64_hash, g_int64_equal, NULL, gl2_free_ctx);
-    }
-    Gl2HostCtx *old = gl2_find(s, id);
-    if (old) {
-        g_hash_table_remove(gl2_ctxs, &old->k);
-    }
-    /* ES 1.1 contexts share with the device's ES 3 context too (Mesa: textures, renderbuffers, buffers) */
-    const EGLint attr[] = { EGL_CONTEXT_CLIENT_VERSION, api == 1 ? 1 : s->es3 ? 3 : 2, EGL_NONE };
-    EGLContext hc = eglCreateContext(s->dpy, gl2_cfg, s->ctx, attr);
-    if (hc == EGL_NO_CONTEXT) {
-        warn_report("syborg-gl: no host context for an OpenGL ES %s context (0x%x)", api == 1 ? "1.1" : "2",
-                    eglGetError());
-        return;
-    }
-    Gl2HostCtx *c = g_new0(Gl2HostCtx, 1);
-    c->owner = s->owner;
-    c->id = id;
-    c->k = okey(s->owner, id);
-    c->hc = hc;
-    c->api = api == 1 ? 1 : 2;
-    if (c->api == 1) {
-        gl1_state_init(c);
-    }
-    Gl2HostCtx *sh = share ? gl2_find(s, share) : NULL;
-    if (sh && sh->api != c->api) {
-        sh = NULL;
-    }
-    c->root = sh ? sh->root : c;
-    for (int k = 0; k < GL2_N_KINDS; k++) {
-        if (c->root == c || k == GL2_N_FBO) {
-            c->names[k] = g_hash_table_new(g_direct_hash, g_direct_equal);
-        }
-    }
-    c->sfbo = g_hash_table_new(g_direct_hash, g_direct_equal);
-    g_hash_table_insert(gl2_ctxs, &c->k, c);
-}
-
-static void gl2_destroy(SyborgGlState *s, Gl2HostCtx *c)
-{
-    gl2_main(s);
-    eglDestroyContext(s->dpy, c->hc);
-    g_hash_table_remove(gl2_ctxs, &c->k);
-}
-
-typedef struct { SyborgGlState *s; uint32_t owner; } Gl2Drop;
-
-/* a share group's objects (the root context's names): they live in the device context's share group too,
-   so destroying the contexts alone would keep them. Framebuffers are the context's own and go with it */
-static void gl2_free_names(SyborgGlState *s, Gl2HostCtx *c)
-{
-    if (c->root != c) {
+    if (--g->refs > 0) {
         return;
     }
     gl2_main(s);
     for (int k = 0; k < GL2_N_KINDS; k++) {
         GHashTableIter it;
-        gpointer g, h;
-        if (k == GL2_N_FBO || !c->names[k]) {
+        gpointer gn, h;
+        if (!g->names[k]) {
             continue;
         }
-        g_hash_table_iter_init(&it, c->names[k]);
-        while (g_hash_table_iter_next(&it, &g, &h)) {
+        g_hash_table_iter_init(&it, g->names[k]);
+        while (g_hash_table_iter_next(&it, &gn, &h)) {
             GLuint n = GPOINTER_TO_UINT(h);
             switch (k) {
             case GL2_N_BUF: glDeleteBuffers(1, &n); break;
@@ -220,9 +170,84 @@ static void gl2_free_names(SyborgGlState *s, Gl2HostCtx *c)
             case GL2_N_SHADER: glDeleteShader(n); break;
             }
         }
-        g_hash_table_remove_all(c->names[k]);
+        g_hash_table_destroy(g->names[k]);
     }
+    g_free(g);
 }
+
+/* a context already taken out of gl2_ctxs: its host context (and with it its framebuffers), then its group */
+static void gl2_ctx_free(SyborgGlState *s, Gl2HostCtx *c)
+{
+    budget_give(s, c->owner, BUDGET_CTX);
+    gl2_main(s);
+    eglDestroyContext(s->dpy, c->hc);
+    g_free(c->g1);
+    if (c->names[GL2_N_FBO]) {
+        g_hash_table_destroy(c->names[GL2_N_FBO]);
+    }
+    g_hash_table_destroy(c->sfbo);
+    gl2_share_unref(s, c->sg);
+    g_free(c);
+}
+
+static void gl2_new(SyborgGlState *s, uint32_t id, uint32_t share, uint32_t api)
+{
+    if (!gl2_ctxs) {
+        gl2_ctxs = g_hash_table_new(g_int64_hash, g_int64_equal);
+    }
+    Gl2HostCtx *old = gl2_find(s, id);
+    if (old) {                          /* an id made again: the old context is destroyed first */
+        g_hash_table_remove(gl2_ctxs, &old->k);
+        gl2_ctx_free(s, old);
+    }
+    /* ES 1.1 contexts share with the device's ES 3 context too (Mesa: textures, renderbuffers, buffers) */
+    const EGLint attr[] = { EGL_CONTEXT_CLIENT_VERSION, api == 1 ? 1 : s->es3 ? 3 : 2, EGL_NONE };
+    if (budget_take(s, BUDGET_CTX)) {
+        return;
+    }
+    EGLContext hc = eglCreateContext(s->dpy, gl2_cfg, s->ctx, attr);
+    if (hc == EGL_NO_CONTEXT) {
+        budget_give(s, gl_ex->owner, BUDGET_CTX);
+        warn_report("syborg-gl: no host context for an OpenGL ES %s context (0x%x)", api == 1 ? "1.1" : "2",
+                    eglGetError());
+        return;
+    }
+    Gl2HostCtx *c = g_new0(Gl2HostCtx, 1);
+    c->owner = gl_ex->owner;
+    c->id = id;
+    c->k = okey(gl_ex->owner, id);
+    c->hc = hc;
+    c->api = api == 1 ? 1 : 2;
+    if (c->api == 1) {
+        gl1_state_init(c);
+    }
+    Gl2HostCtx *sh = share ? gl2_find(s, share) : NULL;
+    if (sh && sh->api != c->api) {
+        sh = NULL;
+    }
+    if (sh) {
+        c->sg = sh->sg;
+    } else {
+        c->sg = g_new0(Gl2Share, 1);
+        for (int k = 0; k < GL2_N_KINDS; k++) {
+            if (k != GL2_N_FBO) {
+                c->sg->names[k] = g_hash_table_new(g_direct_hash, g_direct_equal);
+            }
+        }
+    }
+    c->sg->refs++;
+    c->names[GL2_N_FBO] = g_hash_table_new(g_direct_hash, g_direct_equal);
+    c->sfbo = g_hash_table_new(g_direct_hash, g_direct_equal);
+    g_hash_table_insert(gl2_ctxs, &c->k, c);
+}
+
+static void gl2_destroy(SyborgGlState *s, Gl2HostCtx *c)
+{
+    g_hash_table_remove(gl2_ctxs, &c->k);
+    gl2_ctx_free(s, c);
+}
+
+typedef struct { SyborgGlState *s; uint32_t owner; } Gl2Drop;
 
 /* owner ~0: every context (a machine reset) */
 static gboolean gl2_owner_drop(gpointer k, gpointer v, gpointer p)
@@ -232,9 +257,7 @@ static gboolean gl2_owner_drop(gpointer k, gpointer v, gpointer p)
     if (d->owner != ~0u && c->owner != d->owner) {
         return FALSE;
     }
-    gl2_free_names(d->s, c);
-    gl2_main(d->s);
-    eglDestroyContext(d->s->dpy, c->hc);
+    gl2_ctx_free(d->s, c);
     return TRUE;
 }
 

@@ -1,0 +1,11 @@
+--- a/meson.build
++++ b/meson.build
+@@ -1372,7 +1372,7 @@
+ if host_os != 'windows'
+   have_shm_open = cc.has_function('shm_open')
+   if not have_shm_open
+-    rt = cc.find_library('rt', required: true)
++    rt = cc.find_library('rt', required: false)   # Android tree only: bionic has no POSIX shm
+   endif
+ endif
+ 

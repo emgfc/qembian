@@ -1,0 +1,230 @@
+--- a/accel/tcg/cpu-exec.c
++++ b/accel/tcg/cpu-exec.c
+@@ -152,6 +152,35 @@
+ }
+ #endif /* CONFIG USER ONLY */
+ 
++#include "syb-stats.h"
++
++uint64_t syb_stat[SYB_N];
++
++void syb_stat_print(void)
++{
++    static const char *const n[SYB_N] = {
++        "lookup.helper", "lookup.loop", "lookup.other", "jc.hit", "jc.empty", "jc.conflict", "jc.key",
++        "ht.hit", "ht.miss", "flush.reset", "flush.tb_flush", "flush.pcrel_inval", "flush.tlb", "flush.range",
++        "flush.domain", "pageclear.current", "pageclear.parked", "tb.gen" };
++    fprintf(stderr, "syborg-tb:");
++    for (int i = 0; i < SYB_N; i++) {
++        fprintf(stderr, " %s=%" PRIu64, n[i], syb_stat[i]);
++    }
++    fprintf(stderr, "\n");
++}
++
++static void syb_stat_lookup(int src)
++{
++    static int on = -1;
++    if (on < 0) {
++        on = getenv("SYBORG_TB_STATS") && *getenv("SYBORG_TB_STATS") == '1';
++    }
++    SYB_STAT(src);
++    if (on && !((syb_stat[SYB_LK_HELPER] + syb_stat[SYB_LK_LOOP] + syb_stat[SYB_LK_OTHER]) & 0x1ffffff)) {
++        syb_stat_print();
++    }
++}
++
+ struct tb_desc {
+     TCGTBCPUState s;
+     CPUArchState *env;
+@@ -233,12 +262,14 @@
+  *
+  * Returns: an existing translation block or NULL.
+  */
+-static inline TranslationBlock *tb_lookup(CPUState *cpu, const TCGTBCPUState *s)
++static inline TranslationBlock *tb_lookup(CPUState *cpu, const TCGTBCPUState *s, int src)
+ {
+     TranslationBlock *tb;
+     CPUJumpCache *jc;
+     uint32_t hash;
+ 
++    syb_stat_lookup(src);
++
+     /* we should never be trying to look up an INVALID tb */
+     tcg_debug_assert(!(s->cflags & CF_INVALID));
+ 
+@@ -251,10 +282,13 @@
+                tb->cs_base == s->cs_base &&
+                tb->flags == s->flags &&
+                tb_cflags(tb) == s->cflags)) {
++        SYB_STAT(SYB_JC_HIT);
+         goto hit;
+     }
++    SYB_STAT(!tb ? SYB_JC_EMPTY : jc->array[hash].pc != s->pc ? SYB_JC_CONFLICT : SYB_JC_KEY);
+ 
+     tb = tb_htable_lookup(cpu, s);
++    SYB_STAT(tb ? SYB_HT_HIT : SYB_HT_MISS);
+     if (tb == NULL) {
+         return NULL;
+     }
+@@ -401,7 +435,7 @@
+         cpu_loop_exit(cpu);
+     }
+ 
+-    tb = tb_lookup(cpu, &s);
++    tb = tb_lookup(cpu, &s, SYB_LK_HELPER);
+     if (tb == NULL) {
+         return tcg_code_gen_epilogue;
+     }
+@@ -582,7 +616,7 @@
+          * Any breakpoint for this insn will have been recognized earlier.
+          */
+ 
+-        tb = tb_lookup(cpu, &s);
++        tb = tb_lookup(cpu, &s, SYB_LK_OTHER);
+         if (tb == NULL) {
+             mmap_lock();
+             tb = tb_gen_code(cpu, s);
+@@ -972,7 +1006,7 @@
+                 break;
+             }
+ 
+-            tb = tb_lookup(cpu, &s);
++            tb = tb_lookup(cpu, &s, SYB_LK_LOOP);
+             if (tb == NULL) {
+                 CPUJumpCache *jc;
+                 uint32_t h;
+--- a/accel/tcg/tcg-accel-ops.c
++++ b/accel/tcg/tcg-accel-ops.c
+@@ -26,6 +26,7 @@
+  */
+ 
+ #include "qemu/osdep.h"
++#include "syb-stats.h"
+ #include "accel/accel-ops.h"
+ #include "accel/accel-cpu-ops.h"
+ #include "accel/tcg/cpu-loop.h"
+@@ -88,6 +89,7 @@
+ 
+ static void tcg_cpu_reset_hold(CPUState *cpu)
+ {
++    SYB_STAT(SYB_FL_RESET);
+     tcg_flush_jmp_cache(cpu);
+ 
+     tlb_flush(cpu);
+--- a/accel/tcg/tb-maint.c
++++ b/accel/tcg/tb-maint.c
+@@ -18,6 +18,7 @@
+  */
+ 
+ #include "qemu/osdep.h"
++#include "syb-stats.h"
+ #include "qemu/interval-tree.h"
+ #include "qemu/qtree.h"
+ #include "exec/cputlb.h"
+@@ -778,6 +779,7 @@
+     assert(!runstate_is_running() ||
+            (current_cpu && cpu_in_serial_context(current_cpu)));
+ 
++    SYB_STAT(SYB_FL_TBFLUSH);
+     CPU_FOREACH(cpu) {
+         tcg_flush_jmp_cache(cpu);
+     }
+@@ -899,6 +901,7 @@
+ 
+     if (tb_cflags(tb) & CF_PCREL) {
+         /* A TB may be at any virtual address */
++        SYB_STAT(SYB_FL_PCREL);
+         CPU_FOREACH(cpu) {
+             tcg_flush_jmp_cache(cpu);
+         }
+--- a/accel/tcg/cputlb.c
++++ b/accel/tcg/cputlb.c
+@@ -18,6 +18,7 @@
+  */
+ 
+ #include "qemu/osdep.h"
++#include "syb-stats.h"
+ #include "qemu/main-loop.h"
+ #include "qemu/target-info.h"
+ #include "accel/tcg/cpu-loop.h"
+@@ -156,6 +157,7 @@
+ 
+ static void tb_jmp_cache_clear_page(CPUState *cpu, vaddr page_addr)
+ {
++    SYB_STAT(SYB_PG_CLEAR);
+     CPUJumpCache *jc = cpu->tb_jmp_cache;
+     int i, i0;
+ 
+@@ -402,6 +404,7 @@
+ 
+     qemu_spin_unlock(&cpu->neg.tlb.c.lock);
+ 
++    SYB_STAT(SYB_FL_TLB);
+     tcg_flush_jmp_cache(cpu);
+ 
+     if (to_clean == ALL_MMUIDX_BITS) {
+@@ -756,6 +759,7 @@
+      * longer to clear each entry individually than it will to clear it all.
+      */
+     if (d.len >= (TARGET_PAGE_SIZE * TB_JMP_CACHE_SIZE)) {
++        SYB_STAT(SYB_FL_RANGE);
+         tcg_flush_jmp_cache(cpu);
+         return;
+     }
+@@ -1069,6 +1073,7 @@
+ 
+ static void asid_ctx_jmp_clear_page(CPUState *cpu, vaddr page_addr)
+ {
++    SYB_STAT(SYB_PG_PARKED);
+     if (cpu != asid_cpu) {
+         return;
+     }
+@@ -1174,6 +1179,7 @@
+     }
+     qemu_spin_unlock(&cpu->neg.tlb.c.lock);
+     if (code) {
++        SYB_STAT(SYB_FL_DOMAIN);
+         tcg_flush_jmp_cache(cpu);       /* no running code of a domain without access */
+     }
+ }
+--- a/accel/tcg/translate-all.c
++++ b/accel/tcg/translate-all.c
+@@ -18,6 +18,7 @@
+  */
+ 
+ #include "qemu/osdep.h"
++#include "syb-stats.h"
+ 
+ #include "trace.h"
+ #include "disas/disas.h"
+@@ -260,6 +261,7 @@
+ /* Called with mmap_lock held for user mode emulation.  */
+ TranslationBlock *tb_gen_code(CPUState *cpu, TCGTBCPUState s)
+ {
++    SYB_STAT(SYB_TB_GEN);
+     CPUArchState *env = cpu_env(cpu);
+     TranslationBlock *tb, *existing_tb;
+     tb_page_addr_t phys_pc, phys_p2;
+--- /dev/null
++++ b/accel/tcg/syb-stats.h
+@@ -0,0 +1,20 @@
++/*
++ * qembian (patches/qemu-modern/0007): counters of the TB lookup path, printed every 2^25 lookups to stderr
++ * when SYBORG_TB_STATS=1 (docs/perf.md). One vCPU: plain increments.
++ */
++#ifndef SYB_STATS_H
++#define SYB_STATS_H
++enum {
++    SYB_LK_HELPER, SYB_LK_LOOP, SYB_LK_OTHER,               /* lookups by source */
++    SYB_JC_HIT, SYB_JC_EMPTY, SYB_JC_CONFLICT, SYB_JC_KEY,   /* jump cache: hit; miss on an empty slot, another
++                                                                pc in the slot, the same pc with another key */
++    SYB_HT_HIT, SYB_HT_MISS,                                 /* hash table after a jump-cache miss */
++    SYB_FL_RESET, SYB_FL_TBFLUSH, SYB_FL_PCREL, SYB_FL_TLB, SYB_FL_RANGE, SYB_FL_DOMAIN,   /* full flushes */
++    SYB_PG_CLEAR, SYB_PG_PARKED,                             /* page clears: current, parked contexts */
++    SYB_TB_GEN,                                              /* translations */
++    SYB_N
++};
++extern uint64_t syb_stat[SYB_N];
++#define SYB_STAT(k) (syb_stat[k]++)
++void syb_stat_print(void);
++#endif

@@ -1,3 +1,5 @@
+#include <stdio.h>
+#include <stdlib.h>
 /* syvg port of src/khr/hostgl.cpp (v1, guest): the same drawing commands, run in QEMU (vghost.h). */
 /*
  * The OpenVG RI's drawables on the host GPU, in QEMU (docs/devices/nokia-n8-rm596/egl-vg-host-v2.md):
@@ -285,6 +287,91 @@ bool khrHostClear(Surface *s, const Color &c, int x, int y, int w, int h, const 
 	for (int i = k; i < (n ? n : 1); i++, q += 4)
 		q[0] = q[1] = q[2] = q[3] = 0;
 	p[2] = n ? n : 1;
+	static int trace = -1;              /* SYBORG_VG_TRACE=1: where each clear lands */
+	if (trace < 0)
+		trace = getenv("SYBORG_VG_TRACE") && *getenv("SYBORG_VG_TRACE") == '1';
+	if (trace) {
+		fprintf(stderr, "syvg: clear surface %x argb %08x %d,%d %dx%d scissors %d:", (unsigned int)(uintptr_t)s->m_host,
+		        khrHostArgb(c), x, y, w, h, n);
+		const TInt32 *rq = (const TInt32 *)p + 3;
+		for (int i = 0; i < (n ? n : 1) && i < 6; i++)
+			fprintf(stderr, " %d,%d %dx%d", rq[i * 4], rq[i * 4 + 1], rq[i * 4 + 2], rq[i * 4 + 3]);
+		fprintf(stderr, "\n");
+	}
+	return true;
+}
+
+/* Pixel copies into a host surface (RI patch 0014): vgSetPixels and vgWritePixels (an image -> the drawable) and
+   vgCopyPixels (the drawable -> itself). The RI's Surface::blit wrote them into its own CPU copy, which a host
+   surface never shows: the browser's scroll (it moves the page with vgCopyPixels and paints only the new strip)
+   showed only the strip until the next full repaint. Here: a SRC-blend image fill of the destination rectangle,
+   nearest sampling, translated by (s - d), within the scissor rectangles; for a copy the source surface first
+   becomes a temporary texture (so overlapping copies read the old pixels). False: not handled, the RI's own path. */
+static char gCopyTmp;           /* key holder of the temporary texture */
+
+bool khrHostBlit(Surface *dst, const Image *src, const Surface *srcSurf, int sx, int sy, int dx, int dy, int w,
+                 int h, const Array<Rectangle> &scissors)
+{
+	if (!khrHostOn() || !dst->m_host || (srcSurf && !srcSurf->m_host) || (!src && !srcSurf))
+		return false;
+	if (w <= 0 || h <= 0)
+		return true;
+	khrHostTargetSync(dst);
+	unsigned int key, tw, th, mode = 0;
+	if (src) {
+		key = khrHostImage(const_cast<Image *>(src));
+		if (!key)
+			return false;
+		tw = src->getWidth();
+		th = src->getHeight();
+	} else {
+		key = vgKey(&gCopyTmp);
+		unsigned int *t = khrHostEmit(SYGL_VG_SURF2TEX, 2);
+		if (!t)
+			return false;
+		t[0] = (unsigned int)(uintptr_t)srcSurf->m_host;
+		t[1] = key;
+		tw = srcSurf->getWidth();
+		th = srcSurf->getHeight();
+		mode = SYGL_VG_TEXTURE_ONLY;    /* the copy, not a live render target of that key */
+	}
+	int ns = 0;
+	for (int i = 0; i < scissors.size(); i++)
+		if (scissors[i].width > 0 && scissors[i].height > 0)
+			ns++;
+	if (!ns)
+		return true;                    /* scissoring with no rectangles: nothing visible */
+	unsigned int *p = khrHostEmit(SYGL_VG_FILL, 8 + 14 + ns * 4 + 4 * 4);
+	if (!p)
+		return false;
+	p[0] = (unsigned int)(uintptr_t)dst->m_host;
+	p[1] = 1;                           /* non-zero */
+	p[2] = VG_BLEND_SRC;
+	p[3] = 1;                           /* image draw */
+	p[4] = 0xffffffff;
+	p[5] = 14;
+	p[6] = key; p[7] = tw; p[8] = th; p[9] = 0 /* nearest */; p[10] = mode;
+	float *f = (float *)(p + 11);       /* surface -> image: a translation */
+	f[0] = 1; f[1] = 0; f[2] = (float)(sx - dx); f[3] = 0; f[4] = 1; f[5] = (float)(sy - dy); f[6] = 0; f[7] = 0; f[8] = 1;
+	p[20] = ns;
+	int *r = (int *)(p + 21);
+	for (int i = 0; i < scissors.size(); i++)
+		if (scissors[i].width > 0 && scissors[i].height > 0) {
+			r[0] = scissors[i].x; r[1] = scissors[i].y; r[2] = scissors[i].width; r[3] = scissors[i].height;
+			r += 4;
+		}
+	r[0] = 4;
+	float *e = (float *)(r + 1);
+	float q[10] = { (float)dx, (float)dy, (float)(dx + w), (float)dy, (float)(dx + w), (float)(dy + h), (float)dx,
+	                (float)(dy + h), (float)dx, (float)dy };
+	for (int i = 0; i < 4; i++) {
+		e[i * 4] = q[i * 2]; e[i * 4 + 1] = q[i * 2 + 1]; e[i * 4 + 2] = q[i * 2 + 2]; e[i * 4 + 3] = q[i * 2 + 3];
+	}
+	if (!src) {
+		unsigned int *t = khrHostEmit(SYGL_TEX_FREE, 1);
+		if (t)
+			t[0] = key;
+	}
 	return true;
 }
 

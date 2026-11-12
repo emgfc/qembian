@@ -41,7 +41,33 @@ enum {
 	EGL2_FN_WindowUpdate,           /* surface, sid0..3, width, height: the guest remade its window surface */
 	EGL2_FN_CreatePixmapSurface,    /* dpy, config, pixmap, attribs* */
 	EGL2_FN_CopyBuffers,            /* dpy, surface, pixmap */
-	EGL2_FN_GetProcAddress,         /* name* -> 1 if the host has the function */
+	EGL2_FN_GetProcAddress,         /* name* -> 1/2: an OpenGL ES function (its API), 3: an EGL extension
+	                                   function (the guest's own stub), 0: none */
+	/* EGL_NOK_resource_profiling(2) and EGL_KHR_reusable_sync (the guest's memory monitor, GOOM) */
+	EGL2_FN_QueryProfilingDataNOK,  /* dpy, query_bits, data*, data_size, data_count* */
+	EGL2_FN_CreateSyncKHR,          /* dpy, type, attribs* -> sync id (0: EGL_NO_SYNC_KHR) */
+	EGL2_FN_DestroySyncKHR,         /* dpy, sync */
+	EGL2_FN_ClientWaitSyncKHR,      /* dpy, sync, flags: never blocks; EGL_TIMEOUT_EXPIRED_KHR while unsignaled
+	                                   (the guest waits out the timeout and asks again) */
+	EGL2_FN_SignalSyncKHR,          /* dpy, sync, mode */
+	EGL2_FN_GetSyncAttribKHR,       /* dpy, sync, attribute, value* */
+	/* EGL_NOK_image_endpoint(2): endpoints on GCE surfaces, their frames as EGLImages, VGImages from those */
+	EGL2_FN_CreateEndpointNOK,      /* dpy, type, source_type, source (TSurfaceId*), attribs*, surface info: width,
+	                                   height, stride, pixel format, buffers, offset0, offset1, mapped base (the
+	                                   guest maps the surface in the calling process; 0: not mapped) */
+	EGL2_FN_DestroyEndpointNOK,     /* dpy, endpoint */
+	EGL2_FN_GetEndpointAttribNOK,   /* dpy, endpoint, attrib -> value */
+	EGL2_FN_SetEndpointAttribNOK,   /* dpy, endpoint, attrib, value */
+	EGL2_FN_EndpointBeginStreamingNOK, /* dpy, endpoint */
+	EGL2_FN_EndpointEndStreamingNOK,   /* dpy, endpoint */
+	EGL2_FN_AcquireImageNOK,        /* dpy, endpoint -> EGLImage id */
+	EGL2_FN_ReleaseImageNOK,        /* dpy, endpoint, image, api */
+	EGL2_FN_GetEndpointDirtyAreaNOK, /* dpy, endpoint, rects*, start, max, collapse -> count */
+	EGL2_FN_EndpointRequestNotificationNOK, /* dpy, endpoint: armed; the guest polls (EndpointPollNOK) */
+	EGL2_FN_EndpointCancelNotificationNOK,  /* dpy, endpoint */
+	EGL2_FN_EndpointPollNOK,        /* -> n; out[1..n] = endpoints whose armed notification is due (disarmed) */
+	EGL2_FN_DestroyImageKHR,        /* dpy, image */
+	EGL2_FN_CreateEGLImageTargetKHR, /* image -> VGImage (vgCreateEGLImageTargetKHR) */
 	EGL2_FN_COUNT
 };
 #endif

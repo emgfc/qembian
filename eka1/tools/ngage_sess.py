@@ -120,7 +120,7 @@ class Daemon:
         a, d = self.a, self.d
         s_ = socket.socket(); s_.bind(('127.0.0.1', 0)); port = s_.getsockname()[1]; s_.close()
         mach = 'ngage' + (',ppm=%s' % a.ppm if a.ppm else '') + (',isi=%s' % a.isi if a.isi else '') \
-            + (',flash=%s' % a.flash if a.flash else '')
+            + (',flash=%s' % a.flash if a.flash else '') + (',mmc=%s' % a.mmc if a.mmc else '')
         cmd = [str(nr.QEMU), '-M', mach, '-bios', a.rom, '-display', 'none',
                '-serial', 'file:%s' % (d / 'serial'), '-monitor', 'unix:%s,server,nowait' % (d / 'mon'),
                '-qmp', 'unix:%s,server,nowait' % (d / 'qmp'),
@@ -416,6 +416,7 @@ def main():
     ap.add_argument('--rom', default=str(ROOT / 'eka1/output/rom/ROM.bin'))
     ap.add_argument('--ppm', default=str(ROOT / 'eka1/extracted/RH2941.026'))
     ap.add_argument('--flash', default='', help="the phone's flash file (kept across boots, Q55); default none")
+    ap.add_argument('--mmc', default='', help='memory card image (E:), eka1/tools/ngage_card.py; default none')
     ap.add_argument('--isi', default=str(ROOT / 'src/qemu-ngage/isi-replies.txt'),
                     help='ISI reply table (Q50); "" = none')
     a = ap.parse_args()
@@ -442,7 +443,8 @@ def main():
                 f.unlink()
         args = [sys.executable, __file__, '-s', a.session, '_daemon', '--catch', a.catch,
                 '--debug', a.debug, '--rom', a.rom, '--ppm', a.ppm, '--isi', a.isi,
-                '--flash', os.path.abspath(a.flash) if a.flash else '']
+                '--flash', os.path.abspath(a.flash) if a.flash else '',
+                '--mmc', os.path.abspath(a.mmc) if a.mmc else '']
         subprocess.Popen(args, start_new_session=True, stdin=subprocess.DEVNULL,
                          stdout=open(d / 'daemon.out', 'w'), stderr=subprocess.STDOUT)
         for _ in range(100):

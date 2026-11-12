@@ -34,6 +34,7 @@
 #include "hw/core/irq.h"
 #include "hw/core/qdev-properties.h"
 #include "migration/vmstate.h"
+#include "net/net.h"
 #include "system/runstate.h"
 #include "qom/object.h"
 #include "syborg.h"
@@ -43,14 +44,15 @@ OBJECT_DECLARE_SIMPLE_TYPE(SyborgModemState, SYBORG_MODEM)
 #define MODEM_PORTS     2
 #define MODEM_CHANNELS  64          /* ISC channel numbers 0..63 */
 #define MODEM_HANDLES   64          /* guest channel objects per port (handle 0 unused) */
-#define MODEM_MAX_MSG   256         /* the guest driver's message size */
+#define MODEM_MAX_MSG   2048        /* ISI messages (the guest driver's are <= 256) and packet data frames */
 #define MODEM_FIFO      64
 #define MODEM_SUBS      128
-#define MODEM_LATE      8
+#define MODEM_LATE      16
+#define MODEM_SMS_HELD  8
 #define MODEM_BUF       0x800
 
-enum { TX_SEND = 1, TX_SUBSCRIBE = 2, TX_OPEN = 3, TX_CLOSE = 4 };
-enum { RX_DELIVER = 1, RX_LOG = 2 };
+enum { TX_SEND = 1, TX_SUBSCRIBE = 2, TX_OPEN = 3, TX_CLOSE = 4, TX_DATA = 5 };   /* 5: ISA DataSend on a data channel */
+enum { RX_DELIVER = 1, RX_LOG = 2, RX_DATA = 3 };          /* 3: for the channel's DataReceive */
 
 #define RES_MTC  0x15
 #define RES_SIM  0x09
@@ -82,6 +84,9 @@ typedef struct ModemLate {
     struct SyborgModemState *s;
     uint32_t busy, channel, res, tid, id, len;
     uint8_t data[16];
+    int snd_slot;                   /* >= 0: reply once syborg-snd slot snd_slot has played up to snd_target */
+    uint32_t snd_lead;              /* ... minus this many bytes still queued */
+    uint64_t snd_target;
 } ModemLate;
 
 typedef struct ModemPort {
@@ -108,12 +113,36 @@ struct SyborgModemState {
     ModemLate late[MODEM_LATE];
     QEMUTimer *power_timer;
     uint32_t power_what;            /* 1 switch off, 2 reset */
+    uint16_t aud_src;               /* audio parameter 5 of device 5 (0B 14): what plays next (0x80 = key tone) */
+    uint16_t aud_on;                /* parameter 8 of device 5: the output is on */
     uint8_t mtc_state;              /* MTC state the phone last asked for (MTC_STATE_REQ), 0x01 NORMAL at reset */
+    uint8_t gpds_cid, pipe_next;    /* packet data (with a SIM): last context id, last pipe handle given out */
+    uint8_t gpds_attached, gpds_detached;
+    uint8_t gpds_pdp_type;          /* the last CONTEXT_CONFIGURE's PDP type and APN sub-block (for ACTIVATING_IND) */
+    uint8_t gpds_apn[68];
+    uint8_t gpds_apn_len;
+    uint32_t chan_key[MODEM_PORTS][MODEM_CHANNELS];   /* the open channel's key per (port, channel number), 0 = none */
+    uint8_t pipe_pep_ch[256];       /* pipe handle -> the channel of its pep1 (DATAPORT), 0 = none */
+    uint32_t sms_key;               /* the channel that activated SMS reception (02 41), 0 = none yet */
+    uint8_t sms_hold[MODEM_SMS_HELD][200];   /* incoming SMS kept until reception is on (not migrated) */
+    uint8_t sms_hold_len[MODEM_SMS_HELD];
+    uint32_t sms_held;
+    QEMUTimer *sms_timer;
+    uint8_t data_ch, data_port;     /* the active context's data channel (DATAPORT) and port, 0 = none */
+    uint32_t data_tx, data_rx;      /* packets each way (log the first few) */
+    uint32_t df_drops;
+    NICState *nic;                  /* packet data on a host network (-nic user,model=syborg-modem) */
+    NICConf conf;
     char *config;
     char *replies_path;
     ModemReply *replies;
     unsigned nreplies;
 };
+
+static bool modem_sms_pp(struct SyborgModemState *s);
+static void modem_sms_flush(struct SyborgModemState *s);
+static void modem_sms_timer(void *opaque);
+static void modem_deliver_sms(struct SyborgModemState *s, const uint8_t *tpdu, int n);
 
 /* ---- board config ("key=value;...", as the guest's BoardConfig) */
 
@@ -230,6 +259,11 @@ static void modem_reply(SyborgModemState *s, uint32_t ch, uint8_t res, uint8_t t
 static void modem_late_fire(void *opaque)
 {
     ModemLate *e = opaque;
+    if (e->snd_slot >= 0 && syborg_snd_pending(e->snd_slot, e->snd_target) > e->snd_lead) {
+        timer_mod(e->timer, qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + 2);   /* still playing: look again */
+        return;
+    }
+    e->snd_slot = -1;
     e->busy = 0;
     modem_reply(e->s, e->channel, e->res, e->tid, e->id, e->data, e->len);
 }
@@ -245,11 +279,33 @@ static void modem_reply_later(SyborgModemState *s, int ms, uint32_t ch, uint8_t 
                 continue;
             }
             e->busy = 1;
+            e->snd_slot = -1;
             e->channel = ch; e->res = res; e->tid = tid; e->id = id; e->len = len;
             memcpy(e->data, data, len);
             timer_mod(e->timer, qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + ms);
             return;
         }
+    }
+    modem_reply(s, ch, res, tid, id, data, len);
+}
+
+/* reply when syborg-snd slot `slot` has played up to `target` (less `lead` bytes) */
+static void modem_reply_snd(SyborgModemState *s, int slot, uint64_t target, uint32_t lead, uint32_t ch,
+                            uint8_t res, uint8_t tid, uint8_t id, const uint8_t *data, uint32_t len)
+{
+    for (int i = 0; i < MODEM_LATE; i++) {
+        ModemLate *e = &s->late[i];
+        if (e->busy) {
+            continue;
+        }
+        e->busy = 1;
+        e->channel = ch; e->res = res; e->tid = tid; e->id = id; e->len = len;
+        memcpy(e->data, data, len);
+        e->snd_slot = slot;
+        e->snd_target = target;
+        e->snd_lead = lead;
+        timer_mod(e->timer, qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + 1);
+        return;
     }
     modem_reply(s, ch, res, tid, id, data, len);
 }
@@ -340,10 +396,783 @@ static void modem_profile_inds(SyborgModemState *s, uint32_t ch, int after_req)
     }
 }
 
+/* ---- the virtual SIM (board config sim.*, profile/instance [sim]; docs/research/n8-sim-present-mock.md):
+ * sim.present=1 turns the no-SIM answers into an inserted, ready SIM without PIN on a registered home network.
+ * Values: sim.imsi (15 digits), sim.mcc / sim.mnc, sim.rat (1 GSM, 2 UMTS), sim.lac, sim.ci. Absent: every
+ * no-SIM answer below stays as it was. */
+static bool sim_present(SyborgModemState *s)
+{
+    return modem_config_int(s, "sim.present", 0) != 0;
+}
+
+/* 3GPP PLMN BCD (MCC 001, MNC 01 -> 00 F1 10) */
+static void sim_plmn(SyborgModemState *s, uint8_t out[3])
+{
+    char mcc[8] = "001", mnc[8] = "01";
+    if (modem_config(s, "sim.mcc", mcc, sizeof(mcc)) != 3) {
+        strcpy(mcc, "001");
+    }
+    int nl = modem_config(s, "sim.mnc", mnc, sizeof(mnc));
+    if (nl != 2 && nl != 3) {
+        strcpy(mnc, "01");
+        nl = 2;
+    }
+    out[0] = (mcc[1] - '0') << 4 | (mcc[0] - '0');
+    out[1] = (nl == 3 ? mnc[2] - '0' : 0xf) << 4 | (mcc[2] - '0');
+    out[2] = (mnc[1] - '0') << 4 | (mnc[0] - '0');
+}
+
+/* NET_MODEM_REG_STATUS payload: cause OK, 2 sub-blocks: NET_REG_INFO_COMMON (status 0 = HOME) and the GSM/WCDMA
+ * registration info (sub-block 0x09, 24 bytes: u16 LAC @2, u32 CI @4, PLMN @8, then fields up to @0x16 that
+ * nokiatsy reads (0x80e97ffc: @0x0d..0x12, 0x80e83820: @0x0c, 0x14..0x16); a 12-byte block panicked the TSY with
+ * "IsiMessage OFFSET Invalid -9") [V reads, I the meaning of those fields, left 0] */
+static int net_reg_payload(SyborgModemState *s, uint8_t *d)
+{
+    int lac = modem_config_int(s, "sim.lac", 1), ci = modem_config_int(s, "sim.ci", 1);
+    uint8_t p[3];
+    sim_plmn(s, p);
+    /* NET_REG_INFO_COMMON {status 0 HOME, selection mode 2 AUTOMATIC} (0 showed "Operator selection: Manual");
+       sub-block 0x09 @0x0d = 1, @0x0e = 1, @0x0f = 1: the cell has packet service (nokiatsy 0x80e97ec2 turned 0/0
+       into capability 5: MPM saw no packet data for destinations, the browser failed, "Network unavailable") [V
+       reads, I meanings] */
+    uint8_t b[30] = { 0x00, 0x02, 0x00, 0x04, 0x00, 0x02,
+                      0x09, 0x18, lac >> 8, lac & 0xff, ci >> 24, (ci >> 16) & 0xff, (ci >> 8) & 0xff, ci & 0xff,
+                      p[0], p[1], p[2] };
+    b[6 + 0x0d] = 1;
+    b[6 + 0x0e] = 1;
+    b[6 + 0x0f] = 1;
+    memcpy(d, b, sizeof(b));
+    return sizeof(b);
+}
+
+/* PN_SIM with a SIM: true when answered */
+static bool sim_request(SyborgModemState *s, uint32_t ch, const uint8_t *m, uint32_t len, uint8_t tid, uint8_t id)
+{
+    uint8_t svc = len > 10 ? m[10] : 0;
+    switch (id) {
+    case 0xc0:                      /* SIM_STATUS: service 0 -> 01 OK in the real modem's 6-byte layout; SIM lock
+                                       service 01 -> 01 (no lock); others as configured below (modem.simst) */
+        if (svc == 0x00) {
+            const uint8_t d[6] = { 0x00, 0x01, 0x00, 0xff, 0x00, 0x00 };
+            modem_reply(s, ch, RES_SIM, tid, 0xc1, d, 6);
+            return true;
+        }
+        return false;
+    case 0x1d: {                    /* READ_IMSI {2D 00} -> 1E {2D, 01 OK, 3GPP EF_IMSI: len 8, digit 1 + parity 9,
+                                       then BCD low nibble first} (nokiatsy 0x80e7ce4a) [V] */
+        char imsi[20] = "001010123456789";
+        int n = modem_config(s, "sim.imsi", imsi, sizeof(imsi));
+        if (n < 6 || n > 15) {
+            strcpy(imsi, "001010123456789");
+            n = 15;
+        }
+        uint8_t d[11] = { svc, 0x01, 0x08 };
+        memset(d + 3, 0xff, 8);
+        d[3] = (imsi[0] - '0') << 4 | (n & 1 ? 0x9 : 0x1);
+        for (int i = 1; i < n; i += 2) {
+            uint8_t lo = imsi[i] - '0', hi = i + 1 < n ? imsi[i + 1] - '0' : 0xf;
+            d[3 + (i + 1) / 2] = hi << 4 | lo;
+        }
+        modem_reply(s, ch, RES_SIM, tid, 0x1e, d, sizeof(d));
+        return true;
+    }
+    case 0x33: {                    /* {3E 00} at start-up -> 34 {3E, 01 OK, 50-byte name (UCS-2?), empty}: nokiatsy
+                                       0x80e85720 reads [11] == 1, then 0x32 bytes from [12] [V reads, I meaning].
+                                       Unanswered, the TSY waited 60 s and start-up with it (161 s instead of ~100) */
+        uint8_t d[52] = { svc, 0x01 };
+        modem_reply(s, ch, RES_SIM, tid, 0x34, d, sizeof(d));
+        return true;
+    }
+    case 0x2d:                      /* SIM_NETWORK_INFO {04 00} = home PLMN (S60 3rd nokiatsy 0x808ca216 [V]) -> 2E {04,
+                                       01 OK, 00 00 00, 01, sb 01A7 (id16 len16) {[4] 01, [6..8] PLMN, [0xb] name length
+                                       0}}: the TSY's home-network cache; without it RMobilePhone::GetHomeNetwork
+                                       gave -1 and the N95's provisioning engine left (docs/research/n95-oma-cp.md) */
+        if (svc == 0x04 && modem_config_int(s, "modem.hplmn", 0)) {   /* declared: [modem] sim_home_plmn */
+            uint8_t d[6 + 16] = { 0x04, 0x01, 0x00, 0x00, 0x00, 0x01, 0x01, 0xa7, 0x00, 0x10, 0x01 };
+            sim_plmn(s, d + 6 + 6);
+            modem_reply(s, ch, RES_SIM, tid, 0x2e, d, sizeof(d));
+            return true;
+        }
+        return false;
+    case 0xbc: {                    /* SMS parameters (SMSP) read {svc, 0} for ETel 22028 GetSmspListPhase1 ->
+                                       BD {svc, 24 not available}: nokiatsy 0x80e903da completes the request with
+                                       -2 and reads nothing past [11]; {01 01 00} would start a service-52 read
+                                       (GPT Astra review of the decompile). Unanswered, the SMS stack waited 30 s */
+        const uint8_t d[2] = { svc, 0x24 };
+        modem_reply(s, ch, RES_SIM, tid, 0xbd, d, 2);
+        return true;
+    }
+    case 0x29:                      /* mode flags: svc 35 -> 01 OK, [12] 0; svc 36 (set) -> 01 OK [V parse] */
+        if (svc == 0x35) {
+            const uint8_t d[6] = { 0x35, 0x01, 0x00, 0x00, 0x00, 0x00 };
+            modem_reply(s, ch, RES_SIM, tid, 0x2a, d, 6);
+            return true;
+        }
+        if (svc == 0x36) {
+            const uint8_t d[2] = { 0x36, 0x01 };
+            modem_reply(s, ch, RES_SIM, tid, 0x2a, d, 2);
+            return true;
+        }
+        return false;
+    }
+    return false;
+}
+
+/* ---- packet data with a SIM (docs/research/n8-packet-data-mock.md 1): PN_PIPE (D9) and PN_GPDS (31), control
+ * plane only. Layouts from the reference names and the TSY's requests [I where marked]. Address/DNS from
+ * sim.ip / sim.dns (dotted IPv4, default slirp's 10.0.2.15 / 10.0.2.3). */
+static void ip4(SyborgModemState *s, const char *key, const char *dflt, uint8_t out[4])
+{
+    char b[20];
+    unsigned a[4];
+    if (modem_config(s, key, b, sizeof(b)) <= 0 || sscanf(b, "%u.%u.%u.%u", &a[0], &a[1], &a[2], &a[3]) != 4) {
+        sscanf(dflt, "%u.%u.%u.%u", &a[0], &a[1], &a[2], &a[3]);
+    }
+    for (int i = 0; i < 4; i++) {
+        out[i] = a[i];
+    }
+}
+
+/* ---- packet data, data plane: the active context's IP packets go through its DATAPORT channel as ISA data
+ * (raw IPv4, rawip.nif, docs/research/n8-packet-data-mock.md 2) and to the host network as Ethernet frames:
+ * to slirp's gateway, from a MAC of our own; the modem answers slirp's ARP for the context's address. */
+static const uint8_t data_mac[6] = { 0x52, 0x54, 0x00, 0x12, 0x34, 0x99 };
+static const uint8_t gw_mac[6] = { 0x52, 0x55, 0x0a, 0x00, 0x02, 0x02 };
+
+/* The phone's packet-data receive buffer is 1402 bytes (iscpeer DataReceive; a 1428-byte packet from the host gave
+ * KErrOverflow and the browser's TCP stalled, n8-delight 2026-11-12): MTU sim.mtu (default 1400). Outgoing SYNs get
+ * their MSS clamped to MTU - 40 so the host never sends bigger TCP segments; other incoming IPv4 packets over the
+ * MTU are fragmented here (the phone reassembles). */
+static int data_mtu(SyborgModemState *s)
+{
+    int mtu = modem_config_int(s, "sim.mtu", 1400);
+    return mtu < 576 ? 576 : mtu > 1402 ? 1402 : mtu;      /* the guest's DataReceive buffer is 1402 bytes */
+}
+
+static uint32_t csum_add(uint32_t sum, const uint8_t *p, uint32_t n)
+{
+    for (uint32_t i = 0; i + 1 < n; i += 2) {
+        sum += p[i] << 8 | p[i + 1];
+    }
+    if (n & 1) {
+        sum += p[n - 1] << 8;
+    }
+    return sum;
+}
+
+static uint16_t csum_fold(uint32_t sum)
+{
+    while (sum >> 16) {
+        sum = (sum & 0xffff) + (sum >> 16);
+    }
+    return ~sum;
+}
+
+/* the TCP checksum of an IPv4 packet d (IP header ihl bytes, total len), pseudo-header included */
+static void tcp_checksum(uint8_t *d, uint32_t ihl, uint32_t len)
+{
+    uint8_t *t = d + ihl;
+    uint32_t tl = len - ihl;
+    uint32_t sum = csum_add(0, d + 12, 8) + 6 + tl;
+    t[16] = t[17] = 0;
+    uint16_t c = csum_fold(csum_add(sum, t, tl));
+    t[16] = c >> 8;
+    t[17] = c & 0xff;
+}
+
+static void data_clamp_mss(SyborgModemState *s, uint8_t *d, uint32_t len)
+{
+    uint32_t ihl = (d[0] & 15) * 4, tot = d[2] << 8 | d[3];
+    if (ihl < 20 || tot != len || len < ihl + 20 || d[9] != 6 || (d[6] & 0x3f) || d[7]) {
+        return;                     /* not TCP, or a fragment */
+    }
+    uint8_t *t = d + ihl;
+    uint32_t doff = (t[12] >> 4) * 4;
+    if (!(t[13] & 0x02) || doff < 20 || ihl + doff > len) {
+        return;                     /* not a SYN */
+    }
+    uint16_t want = data_mtu(s) - 40;
+    for (uint32_t o = 20; o + 1 < doff;) {
+        uint8_t kind = t[o];
+        if (kind == 0) {
+            break;
+        }
+        if (kind == 1) {
+            o++;
+            continue;
+        }
+        uint8_t ol = t[o + 1];
+        if (ol < 2 || o + ol > doff) {
+            break;
+        }
+        if (kind == 2 && ol == 4) {
+            uint16_t mss = t[o + 2] << 8 | t[o + 3];
+            if (mss > want) {
+                t[o + 2] = want >> 8;
+                t[o + 3] = want & 0xff;
+                tcp_checksum(d, ihl, len);     /* whole recompute: the option may sit at an odd offset */
+            }
+            return;
+        }
+        o += ol;
+    }
+}
+
+static uint16_t ip_csum(const uint8_t *h, uint32_t n)
+{
+    return csum_fold(csum_add(0, h, n));
+}
+
+static void data_from_guest(SyborgModemState *s, uint32_t ch, const uint8_t *d, uint32_t len)
+{
+    if (s->data_tx++ < 4) {
+        modem_log(s, ch, "ch %u GPDS: data out %u bytes %02x %02x %02x %02x", CH_NUM(ch), len,
+                  len > 0 ? d[0] : 0, len > 1 ? d[1] : 0, len > 2 ? d[2] : 0, len > 3 ? d[3] : 0);
+    }
+    if (!s->nic || len == 0 || len > 1500 || (d[0] >> 4) != 4) {
+        return;                     /* not IPv4 (framing to be learnt from the log above) */
+    }
+    uint8_t f[1514];
+    memcpy(f, gw_mac, 6);
+    memcpy(f + 6, data_mac, 6);
+    f[12] = 0x08;
+    f[13] = 0x00;
+    memcpy(f + 14, d, len);
+    data_clamp_mss(s, f + 14, len);
+    qemu_send_packet(qemu_get_queue(s->nic), f, 14 + len);
+}
+
+static bool data_can_receive(NetClientState *nc)
+{
+    SyborgModemState *s = qemu_get_nic_opaque(nc);
+    return s->port[s->data_port].count < MODEM_FIFO - 4;
+}
+
+static ssize_t data_receive(NetClientState *nc, const uint8_t *buf, size_t size)
+{
+    SyborgModemState *s = qemu_get_nic_opaque(nc);
+    uint8_t ip[4];
+    ip4(s, "sim.ip", "10.0.2.15", ip);
+    if (size >= 42 && buf[12] == 0x08 && buf[13] == 0x06 && buf[21] == 1 && !memcmp(buf + 38, ip, 4)) {
+        uint8_t r[42];              /* ARP request for the context's address -> reply from our MAC */
+        memcpy(r, buf + 6, 6);
+        memcpy(r + 6, data_mac, 6);
+        memcpy(r + 12, buf + 12, 8);
+        r[21] = 2;
+        memcpy(r + 22, data_mac, 6);
+        memcpy(r + 28, ip, 4);
+        memcpy(r + 32, buf + 22, 10);
+        qemu_send_packet(nc, r, 42);
+        return size;
+    }
+    if (size < 34 || buf[12] != 0x08 || buf[13] != 0x00 || !s->data_ch) {
+        return size;                /* not IPv4, or no active context: dropped */
+    }
+    uint32_t key = s->chan_key[s->data_port][s->data_ch];
+    if (!key) {
+        return size;
+    }
+    if (s->data_rx++ < 4) {
+        modem_log(s, key, "ch %u GPDS: data in %u bytes", s->data_ch, (unsigned)size - 14);
+    }
+    const uint8_t *ipp = buf + 14;
+    uint32_t n = size - 14, ihl = (ipp[0] & 15) * 4, mtu = data_mtu(s);
+    uint32_t tot = ipp[2] << 8 | ipp[3];
+    if ((ipp[0] >> 4) != 4 || ihl < 20 || tot < ihl || tot > n) {
+        return size;                /* not a well-formed IPv4 packet: dropped */
+    }
+    if (tot <= mtu) {
+        modem_push(s, RX_DATA, key, ipp, tot);     /* the IP length: Ethernet padding is not part of it */
+        return size;
+    }
+    if (ipp[6] & 0x40) {            /* DF set and too big (TCP is clamped, so rare): dropped */
+        if (s->df_drops++ < 4) {
+            modem_log(s, key, "ch %u GPDS: %u-byte packet with DF over MTU %u dropped", s->data_ch, tot, mtu);
+        }
+        return size;
+    }
+    /* IPv4 fragmentation: payload in multiples of 8 bytes, offsets added to the packet's own; options without the
+       copy bit only in the first fragment */
+    uint32_t payload = tot - ihl;
+    uint32_t off0 = ((ipp[6] & 0x1f) << 8 | ipp[7]) * 8;
+    bool more0 = ipp[6] & 0x20;
+    uint8_t opts[40];
+    uint32_t nopt = 0;
+    for (uint32_t o = 20; o < ihl;) {
+        uint8_t ty = ipp[o];
+        uint32_t ol = ty == 0 || ty == 1 ? 1 : (o + 1 < ihl ? ipp[o + 1] : 0);
+        if (ty == 0 || ol < 1 || o + ol > ihl) {
+            break;
+        }
+        if (ty & 0x80) {
+            memcpy(opts + nopt, ipp + o, ol);
+            nopt += ol;
+        }
+        o += ol;
+    }
+    while (nopt & 3) {
+        opts[nopt++] = 0;           /* end of options padding */
+    }
+    uint32_t ihl2 = 20 + nopt;
+    uint32_t nfrag = 0;
+    for (uint32_t o = 0, h = ihl; o < payload; nfrag++, h = ihl2) {
+        o += MIN((mtu - h) & ~7u, payload - o);
+    }
+    if (off0 + payload > 0xffff || nfrag > MODEM_FIFO / 2) {
+        return size;                /* impossible geometry */
+    }
+    if (s->port[s->data_port].count + nfrag + 1 > MODEM_FIFO) {
+        return 0;                   /* no room for the whole batch: QEMU keeps it, retried when the guest reads */
+    }
+    uint8_t fr[1500];
+    for (uint32_t o = 0, first = 1; o < payload; first = 0) {
+        uint32_t h = first ? ihl : ihl2;
+        uint32_t m = MIN((mtu - h) & ~7u, payload - o);
+        bool more = more0 || o + m < payload;
+        uint32_t fo = (off0 + o) / 8;
+        memcpy(fr, ipp, 20);
+        if (first) {
+            memcpy(fr + 20, ipp + 20, ihl - 20);
+        } else {
+            memcpy(fr + 20, opts, nopt);
+        }
+        fr[0] = 0x40 | (h / 4);
+        memcpy(fr + h, ipp + ihl + o, m);
+        fr[2] = (h + m) >> 8;
+        fr[3] = (h + m) & 0xff;
+        fr[6] = (more ? 0x20 : 0) | ((fo >> 8) & 0x1f);
+        fr[7] = fo & 0xff;
+        fr[10] = fr[11] = 0;
+        uint16_t c = ip_csum(fr, h);
+        fr[10] = c >> 8;
+        fr[11] = c & 0xff;
+        modem_push(s, RX_DATA, key, fr, h + m);
+        o += m;
+    }
+    return size;
+}
+
+static NetClientInfo data_net_info = {
+    .type = NET_CLIENT_DRIVER_NIC,
+    .size = sizeof(NICState),
+    .can_receive = data_can_receive,
+    .receive = data_receive,
+};
+
+static bool pipe_request(SyborgModemState *s, uint32_t ch, const uint8_t *m, uint32_t len, uint8_t tid, uint8_t id)
+{
+    uint8_t h = len > 10 ? m[10] : 0;
+    switch (id) {
+    case 0x00: {                    /* PIPE_CREATE {state_after, prio, pep1 dev obj type, fill, pep2 dev obj type,
+                                       fill} -> 01 {handle, 00 ok, 00, 00} (handle 01.., never FF) [I] */
+        if (++s->pipe_next == 0xff || s->pipe_next == 0) {
+            s->pipe_next = 1;
+        }
+        const uint8_t d[4] = { s->pipe_next, 0x00, 0x00, 0x00 };
+        modem_reply(s, ch, 0xd9, tid, 0x01, d, 4);
+        /* the pipe controller connects each PEP: PEP_CONNECT_REQ to pep1 (a guest object, dev 6C: DATAPORT's channel,
+           object = channel number) {handle, state_after, other pep type, fill, nsb 0} [I layout] */
+        uint8_t obj = len > 13 ? m[13] : 0;
+        uint32_t pk = len > 13 && m[12] == 0x6c && obj < MODEM_CHANNELS ? s->chan_key[CH_PORT(ch)][obj] : 0;
+        s->pipe_pep_ch[s->pipe_next] = pk ? obj : 0;
+        if (pk) {
+            const uint8_t c[6] = { s->pipe_next, len > 10 ? m[10] : 0, len > 18 ? m[18] : 0x04, 0x00, 0x00, 0x00 };
+            modem_reply(s, pk, 0xd9, 0x00, 0x40, c, 6);
+            modem_log(s, pk, "ch %u GPDS: PEP_CONNECT pipe %u", obj, s->pipe_next);
+        }
+        modem_log(s, ch, "ch %u GPDS: pipe %u created (pep1 %02x/%02x, pep2 %02x/%02x)", CH_NUM(ch), s->pipe_next,
+                  len > 13 ? m[12] : 0, len > 13 ? m[13] : 0, len > 17 ? m[16] : 0, len > 17 ? m[17] : 0);
+        return true;
+    }
+    case 0x02: case 0x04: case 0x06: case 0x0a: {   /* REMOVE / RESET / ENABLE / DISABLE {handle} -> id+1 {handle, 00} */
+        const uint8_t d[2] = { h, 0x00 };
+        modem_reply(s, ch, 0xd9, tid, id + 1, d, 2);
+        uint8_t obj = s->pipe_pep_ch[h];
+        uint32_t pk = obj ? s->chan_key[CH_PORT(ch)][obj] : 0;
+        if (pk && (id == 0x06 || id == 0x0a || id == 0x02)) {   /* PEP_ENABLE 46 / PEP_DISABLE 4A / PEP_DISCONNECT 42 */
+            const uint8_t e[2] = { h, 0x00 };
+            uint8_t pid = id == 0x06 ? 0x46 : id == 0x0a ? 0x4a : 0x42;
+            modem_reply(s, pk, 0xd9, 0x00, pid, e, 2);
+            modem_log(s, pk, "ch %u GPDS: PEP %02x pipe %u", obj, pid, h);
+            if (id == 0x02) {
+                s->pipe_pep_ch[h] = 0;
+            }
+        }
+        return true;
+    }
+    case 0x41: case 0x43: case 0x47: case 0x4b:      /* the guest PEP's answers to ours */
+        modem_log(s, ch, "ch %u GPDS: PEP answer %02x {%02x %02x}", CH_NUM(ch), id, h, len > 11 ? m[11] : 0);
+        return true;
+    }
+    return false;
+}
+
+static bool gpds_request(SyborgModemState *s, uint32_t ch, const uint8_t *m, uint32_t len, uint8_t tid, uint8_t id)
+{
+    uint8_t cid = len > 10 ? m[10] : 0;
+    switch (id) {
+    case 0x02: {                    /* CONTEXT_ID_CREATE -> 03 {cid, 01 OK} + 04 IND {cid} */
+        if (++s->gpds_cid == 0 || s->gpds_cid >= 0xfe) {
+            s->gpds_cid = 1;
+        }
+        const uint8_t d[2] = { s->gpds_cid, 0x01 };
+        modem_reply(s, ch, 0x31, tid, 0x03, d, 2);
+        modem_reply(s, ch, 0x31, 0x00, 0x04, d, 1);
+        modem_log(s, ch, "ch %u GPDS: context %u", CH_NUM(ch), s->gpds_cid);
+        return true;
+    }
+    case 0x00: case 0x20: case 0x06: {   /* LL_CONFIGURE {cid, pipe, type} / LL_BIND / CONTEXT_CONFIGURE {cid, pdp
+                                       type, ...sub-blocks incl. APN} -> id+1 {cid, 01 OK} */
+        const uint8_t d[2] = { cid, 0x01 };
+        modem_reply(s, ch, 0x31, tid, id + 1, d, 2);
+        if (id == 0x06 && cid != 0xfe && len > 16) {   /* {cid, pdp type, ..., [15] nsb, sub-blocks from 16} */
+            s->gpds_pdp_type = m[11];
+            for (uint32_t o = 16; o + 2 <= len && m[o + 1] >= 2; o += m[o + 1]) {
+                if (m[o] == 0x05 && m[o + 1] <= sizeof(s->gpds_apn) && o + m[o + 1] <= len) {
+                    memcpy(s->gpds_apn, m + o, m[o + 1]);
+                    s->gpds_apn_len = m[o + 1];
+                }
+            }
+        }
+        if (id == 0x06 && cid != 0xfe) {
+            modem_log(s, ch, "ch %u GPDS: context %u configured (pdp type %02x)", CH_NUM(ch), cid, len > 11 ? m[11] : 0);
+        }
+        return true;
+    }
+    case 0x08: {                    /* CONTEXT_ACTIVATE {cid, ...} -> 09 {cid, 01, 00}; ACTIVATING_IND 25 (below);
+                                       CONTEXT_ACTIVATE_IND 0A {cid, nsb 3: PDP address 04, primary DNS 0D,
+                                       secondary DNS 0E (id, len 8, fill, addr len 4, IPv4)}; TRANSFER_STATUS_IND
+                                       1E {01, 00} [I layouts] */
+        const uint8_t r[3] = { cid, 0x01, 0x00 };
+        modem_reply(s, ch, 0x31, tid, 0x09, r, 3);
+        /* ACTIVATING_IND completes RPacketContext::Activate (nokiatsy 0x80e99b7a): {cid, fill, pdp type, fill,
+           fill, nsb, APN sub-block of the configure request} (docs/research/n8-activate-completion.md) [V] */
+        uint8_t a[6 + sizeof(s->gpds_apn)] = { cid, 0x00, s->gpds_pdp_type ? s->gpds_pdp_type : 0x21, 0x00, 0x00,
+                                               s->gpds_apn_len ? 0x01 : 0x00 };
+        memcpy(a + 6, s->gpds_apn, s->gpds_apn_len);
+        modem_reply(s, ch, 0x31, 0x00, 0x25, a, 6 + s->gpds_apn_len);
+        uint8_t ip[4], dns[4];
+        ip4(s, "sim.ip", "10.0.2.15", ip);
+        ip4(s, "sim.dns", "10.0.2.3", dns);
+        const uint8_t ind[26] = { cid, 0x03,
+                                  0x04, 0x08, 0x00, 0x04, ip[0], ip[1], ip[2], ip[3],
+                                  0x0d, 0x08, 0x00, 0x04, dns[0], dns[1], dns[2], dns[3],
+                                  0x0e, 0x08, 0x00, 0x04, dns[0], dns[1], dns[2], dns[3] };
+        modem_reply(s, ch, 0x31, 0x00, 0x0a, ind, sizeof(ind));
+        const uint8_t t[2] = { 0x01, 0x02 };   /* TRANSFER_STATUS_IND {01 available, cause 02 attached}: the 701's
+                                                  TSY (0x80f74bca) panics TSY_GPDS 0x20D0000+cause outside 2..11 */
+        modem_reply(s, ch, 0x31, 0x00, 0x1e, t, 2);
+        for (int p = 255; p > 0; p--) {     /* the newest pipe with a guest PEP carries this context's data [I] */
+            if (s->pipe_pep_ch[p]) {
+                s->data_ch = s->pipe_pep_ch[p];
+                s->data_port = CH_PORT(ch);
+                break;
+            }
+        }
+        modem_log(s, ch, "ch %u GPDS: context %u active, %u.%u.%u.%u, data on channel %u", CH_NUM(ch), cid, ip[0],
+                  ip[1], ip[2], ip[3], s->data_ch);
+        if (s->nic) {
+            qemu_flush_queued_packets(qemu_get_queue(s->nic));
+        }
+        return true;
+    }
+    case 0x0b: {                    /* CONTEXT_DEACTIVATE {cid} -> 0C {cid, 01} + 0D IND {cid, 00} */
+        const uint8_t d[2] = { cid, 0x01 }, i[2] = { cid, 0x00 };
+        s->data_ch = 0;
+        modem_reply(s, ch, 0x31, tid, 0x0c, d, 2);
+        modem_reply(s, ch, 0x31, 0x00, 0x0d, i, 2);
+        return true;
+    }
+    case 0x13: {                    /* ATTACH -> 14 {01 OK, 01 attached, 00} + 15 IND {01} */
+        s->gpds_attached = 1;
+        s->gpds_detached = 0;
+        const uint8_t d[3] = { 0x01, 0x01, 0x00 }, i[2] = { 0x01, 0x00 };
+        modem_reply(s, ch, 0x31, tid, 0x14, d, 3);
+        modem_reply(s, ch, 0x31, 0x00, 0x15, i, 2);
+        return true;
+    }
+    case 0x16: {                    /* DETACH -> 17 {01, 00} + 18 IND {00} */
+        s->gpds_attached = 0;
+        s->gpds_detached = 1;
+        s->data_ch = 0;                 /* no packet data while detached */
+        const uint8_t d[2] = { 0x01, 0x00 }, i[2] = { 0x00, 0x00 };
+        modem_reply(s, ch, 0x31, tid, 0x17, d, 2);
+        modem_reply(s, ch, 0x31, 0x00, 0x18, i, 2);
+        return true;
+    }
+    case 0x19: {                    /* STATUS -> 1A: nokiatsy 0x80e97b14 reads [10] (attach status) and [0x14]
+                                       (left 0) [V reads]: 12 bytes (a 6-byte reply panicked the TSY, OFFS -9) */
+        const uint8_t d[12] = { s->gpds_attached || (!s->gpds_detached && modem_config_int(s, "sim.attached", 1)) };   /* attached unless the phone detached: the network
+                                                           attaches at registration, as most do; MPM's availability
+                                                           check for a destination wants an attached packet service */
+        modem_reply(s, ch, 0x31, tid, 0x1a, d, 12);
+        return true;
+    }
+    case 0x54: {                    /* Belle FP2 (701) at start-up {02 01, sb A5 {00 00 00 01 00 00}} -> 55 {02, 01 OK,
+                                       ...} [I: unknown request, answered as accepted; unanswered, the 701's TSY refused
+                                       packet contexts (-4180) without asking the modem] */
+        uint8_t d[8] = { len > 10 ? m[10] : 0, 0x01 };
+        modem_reply(s, ch, 0x31, tid, 0x55, d, sizeof(d));
+        return true;
+    }
+    case 0x3a: {                    /* CONTEXTS_CLEAR -> 3B {01} */
+        s->data_ch = 0;
+        const uint8_t d[2] = { 0x01, 0x00 };
+        modem_reply(s, ch, 0x31, tid, 0x3b, d, 2);
+        return true;
+    }
+    }
+    return false;
+}
+
+/* ---- PN_UICC (0x8C) with a SIM, Belle FP2 (701, 808): a UICC card with one active USIM, PIN disabled, and the
+ * elementary files the TSY reads. Layouts from the public references (docs/research/isi-external-references.md
+ * sections 1-2: oFono uicc.h/uicc.c as naming/layout reference) and the 701's own requests [I where marked].
+ * Responses: {svc, status (00 OK, 01 FAIL), details, fill, fill/card type, nsb, id16/len16 sub-blocks}. */
+static const uint8_t usim_aid[16] = { 0xa0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02, 0xff,
+                                      0xff, 0xff, 0xff, 0x89, 0x06, 0x03, 0x00, 0x00 };
+
+/* the contents of an elementary file of the virtual SIM, NULL if absent */
+static int uicc_file(SyborgModemState *s, uint16_t ef, uint8_t *out, int max)
+{
+    char v[24];
+    int n;
+    switch (ef) {
+    case 0x2f05: case 0x6f05:       /* EF_PL / EF_LI: language "en" */
+        memset(out, 0xff, max);
+        out[0] = 'e';
+        out[1] = 'n';
+        return max;
+    case 0x6f38:                    /* EF_UST: no optional USIM services (FDN, ACL, ... off: nothing more to check) */
+        memset(out, 0x00, 8);
+        return 8;
+    case 0x6fad: {                  /* EF_AD: normal operation, MNC length (2 or 3) */
+        const uint8_t ad[4] = { 0x00, 0x00, 0x00, (uint8_t)(modem_config(s, "sim.mnc", v, sizeof(v)) == 3 ? 3 : 2) };
+        memcpy(out, ad, 4);
+        return 4;
+    }
+    case 0x6f07: {                  /* EF_IMSI: length 8, digit 1 + parity, BCD low nibble first */
+        n = modem_config(s, "sim.imsi", v, sizeof(v));
+        if (n < 6 || n > 15) {
+            strcpy(v, "001010123456789");
+            n = 15;
+        }
+        memset(out, 0xff, 9);
+        out[0] = 0x08;
+        out[1] = (v[0] - '0') << 4 | (n & 1 ? 0x9 : 0x1);
+        for (int i = 1; i < n; i += 2) {
+            out[1 + (i + 1) / 2] = (i + 1 < n ? v[i + 1] - '0' : 0xf) << 4 | (v[i] - '0');
+        }
+        return 9;
+    }
+    case 0x2fe2: {                  /* EF_ICCID: 10 bytes, BCD low nibble first (test value) */
+        const uint8_t iccid[10] = { 0x98, 0x00, 0x10, 0x10, 0x32, 0x54, 0x76, 0x98, 0x10, 0xf2 };
+        memcpy(out, iccid, 10);
+        return 10;
+    }
+    case 0x6f46: {                  /* EF_SPN: display condition, name (GSM default alphabet ~ ASCII), FF fill */
+        memset(out, 0xff, 17);
+        out[0] = 0x00;
+        n = modem_config(s, "sim.spn", v, sizeof(v));
+        if (n <= 0) {
+            strcpy(v, "qembian");
+            n = 7;
+        }
+        memcpy(out + 1, v, MIN(n, 16));
+        return 17;
+    }
+    }
+    return -1;
+}
+
+static void uicc_resp(SyborgModemState *s, uint32_t ch, uint8_t tid, uint8_t rid, uint8_t svc, uint8_t status,
+                      uint8_t b14, const uint8_t *sbs, int sbs_len, int nsb)
+{
+    uint8_t d[600];
+    if (sbs_len > (int)sizeof(d) - 6) {
+        return;
+    }
+    d[0] = svc; d[1] = status; d[2] = 0x00; d[3] = 0x00; d[4] = b14; d[5] = nsb;
+    memcpy(d + 6, sbs, sbs_len);
+    modem_reply(s, ch, 0x8c, tid, rid, d, 6 + sbs_len);
+}
+
+static bool uicc_request(SyborgModemState *s, uint32_t ch, const uint8_t *m, uint32_t len, uint8_t tid, uint8_t id)
+{
+    uint8_t svc = len > 10 ? m[10] : 0;
+    switch (id) {
+    case 0x21: {                    /* 808 NFC server (SWP/connector request {F7}) -> 22 {svc, 01 FAIL, 00 00 00, nsb 0}, the
+                                       generic UICC failure the TSY already handles: unanswered, the NFC server's
+                                       ETel requests (36000/36003) stayed pending, its rendezvous never came and
+                                       Settings (which starts it synchronously) hung (review of the 808 trace,
+                                       2026-11-12) [I meaning; layout as every UICC response] */
+        uint8_t d[6] = { len > 10 ? m[10] : 0, 0x01, 0, 0, 0, 0 };
+        modem_reply(s, ch, 0x8c, tid, 0x22, d, sizeof(d));
+        return true;
+    }
+    case 0x03:                      /* CARD: C5 status get -> type 02 UICC, CARD_STATUS sb {.., type 02, 21 READY} */
+        if (svc == 0xc5) {
+            const uint8_t sb[8] = { 0x00, 0x01, 0x00, 0x08, 0x00, 0x00, 0x02, 0x21 };
+            uicc_resp(s, ch, tid, 0x04, svc, 0x00, 0x02, sb, 8, 1);
+            return true;
+        }
+        return false;
+    case 0x06:                      /* APPLICATION */
+        if (svc == 0x01) {          /* APPL_LIST: one USIM {.., type 02, appl id 01, status 30 ACTIVE, AID} */
+            uint8_t sb[28] = { 0x00, 0x02, 0x00, 0x1c, 0x00, 0x00, 0x02, 0x01, 0x30, 0x10 };
+            memcpy(sb + 10, usim_aid, 16);
+            uicc_resp(s, ch, tid, 0x07, svc, 0x00, 0x00, sb, 28, 1);
+        } else if (svc == 0x03) {   /* HOST_ACTIVATE -> OK, CLIENT sb (client id 01) */
+            const uint8_t sb[8] = { 0x00, 0x1f, 0x00, 0x08, 0x00, 0x00, 0x00, 0x01 };
+            uicc_resp(s, ch, tid, 0x07, svc, 0x00, 0x00, sb, 8, 1);
+        } else if (svc == 0x07) {   /* APPL_STATUS_GET -> type 02, status 30 active [I sb layout] */
+            const uint8_t sb[8] = { 0x00, 0x05, 0x00, 0x08, 0x00, 0x00, 0x02, 0x30 };
+            uicc_resp(s, ch, tid, 0x07, svc, 0x00, 0x00, sb, 8, 1);
+        } else {
+            uicc_resp(s, ch, tid, 0x07, svc, 0x00, 0x00, NULL, 0, 0);
+        }
+        return true;
+    case 0x09: {                    /* PIN: PIN_INFO (17) -> status 00 OK, PIN_INFO sb {41 PIN disabled, 3 PIN / 10 PUK
+                                       tries}; the 701's nokiatsy maps a status byte of 41 to an error (0x80f7ea40)
+                                       and reads 3E/40/41 as the PIN state (0x80f6c352); others OK */
+        const uint8_t sb[8] = { 0x00, 0x0c, 0x00, 0x08, 0x41, 0x03, 0x0a, 0x00 };
+        if (svc == 0x17) {
+            uicc_resp(s, ch, tid, 0x0a, svc, 0x00, 0x00, sb, 8, 1);
+        } else {
+            uicc_resp(s, ch, tid, 0x0a, svc, 0x00, 0x00, NULL, 0, 0);
+        }
+        return true;
+    }
+    case 0x0c: {                    /* APPL_CMD: 21 READ_TRANSPARENT / 23 READ_LINEAR_FIXED / 25 FILE_INFO; the
+                                       request's sub-blocks from [16]: 0012 {offset u16, amount u16}, 0013 {record},
+                                       000D APPL_PATH {EF id u16 @4} [V 701 requests] */
+        uint16_t ef = 0, off = 0, amount = 0;
+        for (uint32_t o = 16; o + 4 <= len;) {
+            uint16_t sid = m[o] << 8 | m[o + 1], sl = m[o + 2] << 8 | m[o + 3];
+            if (sl < 4 || o + sl > len) {
+                break;
+            }
+            if (sid == 0x000d && sl >= 6) {
+                ef = m[o + 4] << 8 | m[o + 5];
+            } else if (sid == 0x0012 && sl >= 8) {
+                off = m[o + 4] << 8 | m[o + 5];
+                amount = m[o + 6] << 8 | m[o + 7];
+            }
+            o += sl;
+        }
+        uint8_t data[256];
+        int n = (svc == 0x21 || svc == 0x23) ? uicc_file(s, ef, data, sizeof(data)) : -1;
+        if (n < 0 || off >= n) {    /* not on the card: FAIL (as with no card) */
+            uicc_resp(s, ch, tid, 0x0d, svc, 0x01, 0x00, NULL, 0, 0);
+            return true;
+        }
+        n -= off;
+        if (amount && amount < n) {
+            n = amount;
+        }
+        uint8_t sb[8 + 256 + 4] = { 0x00, 0x0f };   /* FILE_DATA {id, len, u32 data length, data, pad to 4} */
+        int sl = (8 + n + 3) & ~3;
+        sb[2] = sl >> 8; sb[3] = sl & 0xff;
+        sb[4] = 0; sb[5] = 0; sb[6] = n >> 8; sb[7] = n & 0xff;
+        memcpy(sb + 8, data + off, n);
+        memset(sb + 8 + n, 0, sl - 8 - n);
+        uicc_resp(s, ch, tid, 0x0d, svc, 0x00, 0x00, sb, sl, 1);
+        modem_log(s, ch, "ch %u SIM: UICC read EF %04x: %d bytes", CH_NUM(ch), ef, n);
+        return true;
+    }
+    }
+    return false;
+}
+
+/* PN_MODEM_NETWORK with a SIM: registered on the home network */
+static bool net_request(SyborgModemState *s, uint32_t ch, uint8_t tid, uint8_t id)
+{
+    uint8_t d[32];
+    switch (id) {
+    case 0x00:                      /* NET_MODEM_REG_STATUS_GET -> RESP 02 */
+        modem_reply(s, ch, 0xc8, tid, 0x02, d, net_reg_payload(s, d));
+        return true;
+    case 0x1a: {                    /* {05} (sent after every registration status; the TSY's packet-service
+                                       registration waits on it) -> 1B {00 OK, ...} [I layout: being probed] */
+        const uint8_t r[8] = { 0x00 };
+        modem_reply(s, ch, 0xc8, tid, 0x1b, r, sizeof(r));
+        return true;
+    }
+    case 0x36: {                    /* NET_RAT -> 37 {OK, 1 sb: 2C {rat}} (1 GSM, 2 UMTS) [V] */
+        const uint8_t r[6] = { 0x00, 0x01, 0x2c, 0x04, modem_config_int(s, "sim.rat", 2), 0x00 };
+        modem_reply(s, ch, 0xc8, tid, 0x37, r, 6);
+        return true;
+    }
+    }
+    return false;
+}
+
+/* indications that follow a reply when a SIM is present: NET_MODEM_REG_STATUS_IND (C8 01) after every
+ * registration status GET: nokiatsy's packet module (0x80e97ffc) completes RPacketService::GetNtwkRegStatus
+ * (ETel 40013) on the indication and its change notification (40018) on the GET response; sent once, every later
+ * GetNtwkRegStatus timed out (-33) and ConnMon reported no packet IAP available (the browser: -1) [V] */
+static void sim_inds(SyborgModemState *s, uint32_t ch, int after_req)
+{
+    ModemChannel *c = modem_chan(s, ch);
+    /* UICC (701/808): CARD_IND {C4 card ready, .., card type 02 UICC, nsb 0} after a channel's first card-status
+       request: the 701's sastartupservice decides "SIM present" on the last card indication (0x80f40be2: C4
+       ready, C1 removed, C2 not present, C8 rejected; 0x80f40cda) and reset the phone without one (bit 30) */
+    if (sim_present(s) && after_req == (0x8c << 8 | 0x03) && !(c->ind_sent & (1u << 30))
+        && modem_subscribed(c, 0x8c, 0x05)) {
+        const uint8_t d[6] = { 0xc4, 0x00, 0x00, 0x00, 0x02, 0x00 };
+        c->ind_sent |= 1u << 30;
+        modem_reply(s, ch, 0x8c, 0x00, 0x05, d, 6);
+        modem_log(s, ch, "ch %u SIM: UICC card ready indication", CH_NUM(ch));
+    }
+    if (!sim_present(s) || after_req != (0xc8 << 8 | 0x00)) {   /* to the asking channel, subscribed or not:
+                                       the N8 TSY does not subscribe to C8 01 but handles it */
+        return;
+    }
+    uint8_t d[32];
+    c->ind_sent |= 1u << 31;
+    modem_reply(s, ch, 0xc8, 0x00, 0x01, d, net_reg_payload(s, d));
+    modem_log(s, ch, "ch %u SIM: registration indication", CH_NUM(ch));
+}
+
+/* PN_AUDIO 0B 14 "set parameters" {01, device, 00 00 00, count, blocks 03 08 <param> <sub> <value16> 00 00}
+ * (Aamm_ord5). On BB5 the cellular modem makes the key tones: the audio server sets device 5 parameter 5 (source)
+ * to 0x80 and then parameter 8 (output on) to 1 for a key tone, with no PCM to the DSP (a WAV sets 0x10 and
+ * plays through the DSP) [V: N95 and N8 logs 2026-11-12; meaning of 0x80 I]. So the fake modem beeps on the
+ * host when the output goes on for source 0x80: [board.audio] keytone = "HZ/MS/GAIN" (audio.keytone). */
+static void modem_audio_params(SyborgModemState *s, const uint8_t *m, uint32_t len)
+{
+    if (len < 16 || m[11] != 5) {
+        return;
+    }
+    uint16_t src = s->aud_src, on = s->aud_on;
+    for (uint32_t o = 16; o + 8 <= len && m[o] == 0x03 && m[o + 1] == 0x08; o += 8) {
+        uint16_t v = m[o + 4] << 8 | m[o + 5];
+        if (m[o + 2] == 0x05) {
+            src = v;
+        } else if (m[o + 2] == 0x08) {
+            on = v;
+        }
+    }
+    if (on && !s->aud_on && src == 0x80) {        /* output switched on for a key tone (whole update read first) */
+        char c[32];
+        unsigned hz = 1100, ms = 70, gain = 80;
+        if (modem_config(s, "audio.keytone", c, sizeof(c)) > 0) {
+            sscanf(c, "%u/%u/%u", &hz, &ms, &gain);
+        }
+        syborg_snd_beep(hz, ms, gain);
+    }
+    s->aud_src = src;
+    s->aud_on = on;
+}
+
 static void modem_request(SyborgModemState *s, uint32_t ch, const uint8_t *m, uint32_t len)
 {
     uint8_t res = m[3], tid = m[8], id = m[9];
     static const uint8_t z[6];
+
+    if (res == 0x0b && id == 0x14) {
+        modem_audio_params(s, m, len);      /* side effect only: the reply comes from the table */
+    }
 
     if (res == RES_MTC) {
         switch (id) {
@@ -379,6 +1208,9 @@ static void modem_request(SyborgModemState *s, uint32_t ch, const uint8_t *m, ui
             return;
         }
     } else if (res == RES_SIM) {
+        if (sim_present(s) && sim_request(s, ch, m, len, tid, id)) {
+            return;
+        }
         switch (id) {
         case 0x13: case 0x23: case 0x2d: case 0x60: case 0xba: case 0xdc: {
             /* SIM reads with no SIM: the real N8 modem answers id + 1 {first request byte, 0xFB}
@@ -413,6 +1245,16 @@ static void modem_request(SyborgModemState *s, uint32_t ch, const uint8_t *m, ui
          * to play half the ring, so a client writes at most twice real time
          * (docs/devices/nokia-n8-rm596/rapido-audio.md) */
         int units = modem_config_int(s, "audio.ring_units", 0);
+        uint64_t target;
+        int type = m[10] << 8 | m[11];             /* ISI fields are big-endian */
+        if (units > 0 && syborg_snd_ring_written(type, ldl_be_p(m + 12), &target)) {
+            /* the ring is a syborg-snd slot (aamdaifdriver, stream type = slot): answer when the host has
+               played it, minus audio.lead_pct of the ring still queued */
+            int lead = modem_config_int(s, "audio.lead_pct", 0);
+            modem_reply_snd(s, type, target, syborg_snd_ring_size(type) / 100 * lead, ch, res, tid, 0x35,
+                            m + 10, 6);
+            return;
+        }
         modem_reply_later(s, units > 0 ? units * 5 : 0, ch, res, tid, 0x35, m + 10, 6);
         return;
     } else if (res == RES_SEC && id == 0x11) {
@@ -457,11 +1299,91 @@ static void modem_request(SyborgModemState *s, uint32_t ch, const uint8_t *m, ui
         modem_reply(s, ch, res, tid, id + 1, d, 2);
         return;
     }
+    if (res == 0x53 && sim_present(s) && id == 0x00) {
+        /* Belle FP2 SAServer (701 sastartupservice 0x80f4015e) at the security check with a card: {00} -> 01 {state}
+           read at [10] [V read; I value: 00] */
+        const uint8_t d[2] = { 0x00, 0x00 };
+        modem_reply(s, ch, res, tid, 0x01, d, 2);
+        return;
+    }
+    if (res == 0x8c && sim_present(s) && uicc_request(s, ch, m, len, tid, id)) {
+        return;
+    }
     if (res == 0x8c && id == 0x0c) {
         /* PN_UICC application command (Belle FP1 701: EF reads): {service echoed, 01 failed, no sub-blocks},
          * there is no card; unanswered, start-up waited 40 s for the language */
         uint8_t d[6] = { len > 10 ? m[10] : 0, 0x01, 0x00, 0x00, 0x00, 0x00 };
         modem_reply(s, ch, res, tid, 0x0d, d, 6);
+        return;
+    }
+    if (res == 0xc8 && sim_present(s) && net_request(s, ch, tid, id)) {
+        return;
+    }
+    if (res == 0x0a && sim_present(s) && (id == 0x00 || id == 0x36)) {
+        /* PN_NETWORK (S60 3rd/5th, N95): the same registration as PN_MODEM_NETWORK, in the old numbering:
+           REG_STATUS_GET 00 -> 01 + REG_STATUS_IND 02 (the N95's NOKIATSY 0x808dd3c0 reads the same sub-blocks
+           and offsets as the N8's); NET_RAT 36 -> 37 */
+        uint8_t d[32];
+        if (id == 0x00) {
+            int n = net_reg_payload(s, d);
+            modem_reply(s, ch, res, tid, 0x01, d, n);
+            modem_reply(s, ch, res, 0x00, 0x02, d, n);
+        } else {
+            const uint8_t r[6] = { 0x00, 0x01, 0x2c, 0x04, (uint8_t)modem_config_int(s, "sim.rat", 2), 0x00 };
+            modem_reply(s, ch, res, tid, 0x37, r, 6);
+        }
+        return;
+    }
+    if (res == 0x02 && sim_present(s) && modem_sms_pp(s) && (id == 0x06 || id == 0x18 || id == 0x09)) {
+        /* S60 3rd (N95) "PP routing" SMS (modem.sms = pp-routing, docs/research/n95-sms-receive.md): ROUTING 06 ->
+           07, 18 -> 19, RECEIVED_PP_REPORT 09 -> 0A; handlers read [10] = cause (00 OK) [V]. The channel that sets
+           routing (the TSY) gets incoming SMS (02 08) */
+        if (id == 0x06) {
+            s->sms_key = ch;
+        }
+        const uint8_t d[6] = { 0 };
+        modem_reply(s, ch, res, tid, id + 1, d, 6);
+        if (id == 0x06 && s->sms_held) {
+            timer_mod(s->sms_timer, qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + 2000);   /* held SMS, shortly */
+        }
+        return;
+    }
+    if (res == 0x02 && sim_present(s) && id == 0x3b) {
+        /* SMS_RECEIVED_MSG_REPORT (the phone's ack/nack of a delivered SMS) -> 3C {00 OK} with its tid: nokiatsy
+           0x80e907c2 reads [8] and [10] (docs/research/n8-sms-receive.md) */
+        const uint8_t d[6] = { 0 };
+        modem_reply(s, ch, res, tid, 0x3c, d, 6);
+        return;
+    }
+    if (res == 0x02 && sim_present(s) && (id == 0x34 || id == 0x45)) {
+        /* Belle FP2 (701/808) SMS start-up: 34 {01 00 01 00..} and 45 {02 01, sb 002B {00 00 00 01}} -> 35 / 46 {first
+           byte echoed, cause 0 at [0x10]/[0x11]} [I layouts]: unanswered, the 701 activated SMS reception (41) only
+           after a 60 s timeout and the 808 not at all, so incoming SMS had nowhere to go */
+        uint8_t d[8] = { len > 10 ? m[10] : 0 };
+        modem_reply(s, ch, res, tid, id + 1, d, 8);
+        return;
+    }
+    if (res == 0x02 && sim_present(s) && (id == 0x30 || id == 0x41)) {
+        /* PN_SMS with a SIM: SMS_SETTINGS_UPDATE 30 -> 31 {cause 00 OK}, SMS_RECEIVE_MESSAGE 41 {subject} ->
+           42 {subject, cause 00} (reception on) [I layouts, reference names]; unanswered they held the SMS stack */
+        if (id == 0x41) {
+            s->sms_key = ch;        /* incoming SMS go to the channel that asked for reception */
+        }
+        uint8_t d[8] = { 0 };       /* nokiatsy 0x80e90e6e reads the cause type/cause at [0x10]/[0x11]: 8 bytes
+                                       (4 panicked the TSY, OFFS -9); 0/0 = OK */
+        if (id == 0x41) {
+            d[0] = len > 10 ? m[10] : 0;
+        }
+        modem_reply(s, ch, res, tid, id + 1, d, 8);
+        if (id == 0x41 && s->sms_held) {
+            timer_mod(s->sms_timer, qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + 2000);   /* held SMS, shortly */
+        }
+        return;
+    }
+    if (res == 0xd9 && sim_present(s) && pipe_request(s, ch, m, len, tid, id)) {
+        return;
+    }
+    if (res == 0x31 && sim_present(s) && gpds_request(s, ch, m, len, tid, id)) {
         return;
     }
     for (unsigned i = 0; i < s->nreplies; i++) {
@@ -473,6 +1395,8 @@ static void modem_request(SyborgModemState *s, uint32_t ch, const uint8_t *m, ui
     }
     modem_log(s, ch, "ch %u no reply for resource %02x msg %02x", CH_NUM(ch), res, id);
 }
+
+static void modem_forget_channel(SyborgModemState *s, uint32_t chn);
 
 static void modem_tx(SyborgModemState *s, unsigned port, uint32_t kind)
 {
@@ -490,7 +1414,11 @@ static void modem_tx(SyborgModemState *s, unsigned port, uint32_t kind)
         if (len >= 10) {
             modem_request(s, chn, p->tx, len);
             modem_profile_inds(s, chn, p->tx[3] << 8 | p->tx[9]);  /* indications that follow this reply */
+            sim_inds(s, chn, p->tx[3] << 8 | p->tx[9]);
         }
+        break;
+    case TX_DATA:
+        data_from_guest(s, chn, p->tx, len);
         break;
     case TX_SUBSCRIBE:
         c->subs_len = MIN(len, MODEM_SUBS);
@@ -503,13 +1431,54 @@ static void modem_tx(SyborgModemState *s, unsigned port, uint32_t kind)
         break;
     case TX_OPEN:
     case TX_CLOSE:
+        /* a channel object opened or closed: nothing addressed to its earlier life reaches it (the guest reuses
+           handles): delayed replies cancelled, queued frames purged, SMS registration and data route dropped */
         memset(c, 0, sizeof(*c));
-        /* replies still queued for a closed channel are delivered to nobody (the guest drops them) */
+        modem_forget_channel(s, chn);
+        if (kind == TX_OPEN) {
+            s->chan_key[port][CH_NUM(v)] = chn;
+        } else if (s->chan_key[port][CH_NUM(v)] == chn) {
+            s->chan_key[port][CH_NUM(v)] = 0;
+        }
         break;
     default:
         qemu_log_mask(LOG_GUEST_ERROR, "syborg-modem: port %u bad kind %u\n", port, kind);
     }
     p->in_tx = 0;
+}
+
+/* everything pending for channel object chn: delayed replies, queued frames, SMS and data routing */
+static void modem_forget_channel(SyborgModemState *s, uint32_t chn)
+{
+    for (int i = 0; i < MODEM_LATE; i++) {
+        if (s->late[i].busy && s->late[i].channel == chn) {
+            timer_del(s->late[i].timer);
+            s->late[i].busy = 0;
+            s->late[i].snd_slot = -1;
+        }
+    }
+    ModemPort *p = &s->port[CH_PORT(chn)];
+    uint32_t kept = 0, hold = 0;
+    for (uint32_t i = 0; i < p->count; i++) {
+        ModemFrame *f = &p->fifo[(p->head + i) % MODEM_FIFO];
+        if (f->channel == chn) {
+            continue;
+        }
+        if (kept != i) {
+            p->fifo[(p->head + kept) % MODEM_FIFO] = *f;
+        }
+        hold += i >= p->count - p->hold;    /* still in the held tail (frames of the guest's own send) */
+        kept++;
+    }
+    p->count = kept;
+    p->hold = MIN(hold, kept);
+    modem_update_irq(p);
+    if (s->sms_key == chn) {
+        s->sms_key = 0;
+    }
+    if (s->data_ch && s->chan_key[s->data_port][s->data_ch] == chn) {
+        s->data_ch = 0;
+    }
 }
 
 /* ---- MMIO */
@@ -558,6 +1527,9 @@ static void modem_write(void *opaque, hwaddr off, uint64_t value, unsigned size)
             p->head = (p->head + 1) % MODEM_FIFO;
             p->count--;
             p->hold = MIN(p->hold, p->count);   /* frames queued before the send come first */
+            if (p->s->nic && p - p->s->port == p->s->data_port && p->count <= MODEM_FIFO / 2) {
+                qemu_flush_queued_packets(qemu_get_queue(p->s->nic));   /* packets held back for room */
+            }
         }
         modem_update_irq(p);
         return;
@@ -628,8 +1600,15 @@ static void modem_realize(DeviceState *dev, Error **errp)
     for (int i = 0; i < MODEM_LATE; i++) {
         s->late[i].s = s;
         s->late[i].timer = timer_new_ms(QEMU_CLOCK_VIRTUAL, modem_late_fire, &s->late[i]);
+        s->late[i].snd_slot = -1;
     }
     s->power_timer = timer_new_ms(QEMU_CLOCK_VIRTUAL, modem_power_fire, s);
+    s->sms_timer = timer_new_ms(QEMU_CLOCK_VIRTUAL, modem_sms_timer, s);
+    if (s->conf.peers.ncs[0]) {     /* packet data needs a backend: -nic user,model=syborg-modem */
+        qemu_macaddr_default_if_unset(&s->conf.macaddr);
+        s->nic = qemu_new_nic(&data_net_info, &s->conf, object_get_typename(OBJECT(dev)), dev->id,
+                              &dev->mem_reentrancy_guard, s);
+    }
     modem_load_replies(s, errp);
 }
 
@@ -648,11 +1627,28 @@ static void modem_reset(DeviceState *dev)
     timer_del(s->power_timer);
     s->power_what = 0;
     s->mtc_state = 0x01;
+    for (int i = 0; i < MODEM_PORTS; i++) {
+        s->port[i].hold = 0;
+    }
+    for (int i = 0; i < MODEM_LATE; i++) {
+        s->late[i].snd_slot = -1;
+    }
+    memset(s->chan_key, 0, sizeof(s->chan_key));
+    memset(s->pipe_pep_ch, 0, sizeof(s->pipe_pep_ch));
+    s->sms_key = 0;
+    s->sms_held = 0;
+    timer_del(s->sms_timer);
+    s->data_ch = s->data_port = 0;
+    s->gpds_cid = s->pipe_next = 0;
+    s->gpds_attached = s->gpds_detached = 0;
+    s->gpds_pdp_type = s->gpds_apn_len = 0;
+    s->aud_src = s->aud_on = 0;
 }
 
 static const VMStateDescription vmstate_modem_frame = {
     .name = "syborg-modem/frame",
-    .version_id = 1,
+    .version_id = 2,                /* 2: whole 2 KB frames (data) */
+    .minimum_version_id = 2,
     .fields = (const VMStateField[]) {
         VMSTATE_UINT32(kind, ModemFrame),
         VMSTATE_UINT32(channel, ModemFrame),
@@ -673,7 +1669,7 @@ static const VMStateDescription vmstate_modem_port = {
         VMSTATE_UINT32(head, ModemPort),
         VMSTATE_UINT32(count, ModemPort),
         VMSTATE_UINT32_V(hold, ModemPort, 2),
-        VMSTATE_STRUCT_ARRAY(fifo, ModemPort, MODEM_FIFO, 1, vmstate_modem_frame, ModemFrame),
+        VMSTATE_STRUCT_ARRAY(fifo, ModemPort, MODEM_FIFO, 2, vmstate_modem_frame, ModemFrame),
         VMSTATE_END_OF_LIST()
     }
 };
@@ -703,6 +1699,9 @@ static const VMStateDescription vmstate_modem_late = {
         VMSTATE_UINT32(id, ModemLate),
         VMSTATE_UINT32(len, ModemLate),
         VMSTATE_UINT8_ARRAY(data, ModemLate, 16),
+        VMSTATE_INT32(snd_slot, ModemLate),
+        VMSTATE_UINT32(snd_lead, ModemLate),
+        VMSTATE_UINT64(snd_target, ModemLate),
         VMSTATE_END_OF_LIST()
     }
 };
@@ -714,22 +1713,64 @@ static int modem_post_load(void *opaque, int version_id)
         if (s->port[i].head >= MODEM_FIFO || s->port[i].count > MODEM_FIFO) {
             return -EINVAL;
         }
+        for (int k = 0; k < MODEM_FIFO; k++) {
+            if (s->port[i].fifo[k].len > MODEM_MAX_MSG) {
+                return -EINVAL;
+            }
+        }
+        if (s->port[i].hold > s->port[i].count) {
+            return -EINVAL;
+        }
         modem_update_irq(&s->port[i]);
+    }
+    if (s->data_port >= MODEM_PORTS || s->data_ch >= MODEM_CHANNELS || s->gpds_apn_len > sizeof(s->gpds_apn)) {
+        return -EINVAL;
+    }
+    for (int i = 0; i < MODEM_PORTS * MODEM_HANDLES; i++) {
+        if (s->ch[i].subs_len > MODEM_SUBS) {
+            return -EINVAL;
+        }
+    }
+    for (int i = 0; i < 256; i++) {
+        if (s->pipe_pep_ch[i] >= MODEM_CHANNELS) {
+            return -EINVAL;
+        }
+    }
+    for (int i = 0; i < MODEM_LATE; i++) {
+        if (s->late[i].len > sizeof(s->late[i].data) || s->late[i].snd_slot < -1 || s->late[i].snd_slot >= 16) {
+            return -EINVAL;
+        }
     }
     return 0;
 }
 
 static const VMStateDescription vmstate_syborg_modem = {
     .name = "syborg-modem",
-    .version_id = 2,                /* 2: channel state per guest channel object (handle), not per number */
-    .minimum_version_id = 2,
+    .version_id = 4,                /* 4: sound-paced replies, audio/RF state (3: 2 KB frames, packet data; 2: channel
+                                       state per object). Older layouts are refused */
+    .minimum_version_id = 4,
     .post_load = modem_post_load,
     .fields = (const VMStateField[]) {
         VMSTATE_STRUCT_ARRAY(port, SyborgModemState, MODEM_PORTS, 1, vmstate_modem_port, ModemPort),
+        VMSTATE_UINT8(gpds_cid, SyborgModemState),
+        VMSTATE_UINT8(pipe_next, SyborgModemState),
+        VMSTATE_UINT8(gpds_attached, SyborgModemState),
+        VMSTATE_UINT8(gpds_detached, SyborgModemState),
+        VMSTATE_UINT8(gpds_pdp_type, SyborgModemState),
+        VMSTATE_UINT8_ARRAY(gpds_apn, SyborgModemState, 68),
+        VMSTATE_UINT8(gpds_apn_len, SyborgModemState),
+        VMSTATE_UINT8_ARRAY(pipe_pep_ch, SyborgModemState, 256),
+        VMSTATE_UINT8(data_ch, SyborgModemState),
+        VMSTATE_UINT8(data_port, SyborgModemState),
+        VMSTATE_UINT32(sms_key, SyborgModemState),
+        VMSTATE_UINT32_2DARRAY(chan_key, SyborgModemState, MODEM_PORTS, MODEM_CHANNELS),
         VMSTATE_STRUCT_ARRAY(ch, SyborgModemState, MODEM_PORTS * MODEM_HANDLES, 2, vmstate_modem_channel, ModemChannel),
         VMSTATE_STRUCT_ARRAY(late, SyborgModemState, MODEM_LATE, 1, vmstate_modem_late, ModemLate),
         VMSTATE_TIMER_PTR(power_timer, SyborgModemState),
         VMSTATE_UINT32(power_what, SyborgModemState),
+        VMSTATE_UINT8(mtc_state, SyborgModemState),
+        VMSTATE_UINT16(aud_src, SyborgModemState),
+        VMSTATE_UINT16(aud_on, SyborgModemState),
         VMSTATE_END_OF_LIST()
     }
 };
@@ -737,7 +1778,104 @@ static const VMStateDescription vmstate_syborg_modem = {
 static const Property syborg_modem_properties[] = {
     DEFINE_PROP_STRING("config", SyborgModemState, config),
     DEFINE_PROP_STRING("replies", SyborgModemState, replies_path),
+    DEFINE_NIC_PROPERTIES(SyborgModemState, conf),
 };
+
+/* QOM property "sms" (write: an SMS-DELIVER TPDU in hex): delivered as an incoming SMS, SMS_RECEIVED_MSG_IND
+ * (02 43) {00, 02 sub-blocks: 0082 SMSC address, 001C TPDU} to the channel that activated reception (nokiatsy
+ * 0x80e90e0e; docs/research/n8-sms-receive.md). tools/sms_provision.py builds the operator settings message. */
+/* the declared SMS protocol variant: "pp-routing" (S60 3rd: 06/07, 08 incoming) or the default (^3/Belle: 41/43) */
+static bool modem_sms_pp(SyborgModemState *s)
+{
+    char v[16];
+    return modem_config(s, "modem.sms", v, sizeof(v)) > 0 && v[0] == 'p';
+}
+
+static void modem_set_sms(Object *obj, const char *value, Error **errp)
+{
+    SyborgModemState *s = SYBORG_MODEM(obj);
+    uint8_t tpdu[200];
+    int n = 0;
+    size_t hl = strlen(value);
+    if (hl & 1 || hl / 2 > sizeof(tpdu)) {
+        error_setg(errp, "syborg-modem: sms: %s", hl & 1 ? "odd number of hex digits" : "TPDU over 200 bytes");
+        return;
+    }
+    for (const char *p = value; p[0] && p[1] && n < (int)sizeof(tpdu); p += 2) {
+        int hi = hex_nibble(p[0]), lo = hex_nibble(p[1]);
+        if (hi < 0 || lo < 0) {
+            error_setg(errp, "syborg-modem: sms: not hex");
+            return;
+        }
+        tpdu[n++] = hi << 4 | lo;
+    }
+    if (!sim_present(s) || n < 2 || (tpdu[0] & 3) != 0) {
+        error_setg(errp, "syborg-modem: sms: no SIM, or not an SMS-DELIVER");
+        return;
+    }
+    if (!s->sms_key) {
+        /* the phone has not switched SMS reception on yet (the 808's messaging stack does that ~60 s after
+           boot): kept, delivered when it does (as a network holds a message for a phone that is not ready) */
+        if (s->sms_held >= MODEM_SMS_HELD) {
+            error_setg(errp, "syborg-modem: sms: reception not active yet and %d messages already waiting",
+                       MODEM_SMS_HELD);
+            return;
+        }
+        memcpy(s->sms_hold[s->sms_held], tpdu, n);
+        s->sms_hold_len[s->sms_held++] = n;
+        return;
+    }
+    modem_deliver_sms(s, tpdu, n);
+}
+
+
+/* SMS kept while reception was off: delivered once the phone switches it on */
+static void modem_sms_flush(SyborgModemState *s)
+{
+    for (uint32_t i = 0; i < s->sms_held && s->sms_key; i++) {
+        modem_deliver_sms(s, s->sms_hold[i], s->sms_hold_len[i]);
+    }
+    s->sms_held = 0;
+}
+
+static void modem_sms_timer(void *opaque)
+{
+    modem_sms_flush(opaque);
+}
+
+static void modem_deliver_sms(SyborgModemState *s, const uint8_t *tpdu, int n)
+{
+    if (modem_sms_pp(s)) {
+        /* 02 08 PP_ROUTING_NTF {00 01, sb 11 container, sb 82 SMSC (04.11 form), sb 80 {N, 0, TPDU}}: 8-bit sub-block
+           ids and lengths (N95 nokiatsy 0x808d7a0c) [V] */
+        uint8_t d[4 + 4 + 12 + 4 + 200 + 4];
+        int l2 = (4 + n + 3) & ~3, o = 0;
+        d[o++] = 0x00; d[o++] = 0x01;
+        d[o++] = 0x11; d[o++] = 4 + 12 + l2; d[o++] = 0x00; d[o++] = 0x00;
+        const uint8_t sc[12] = { 0x82, 0x0c, 0x02, 0x08, 0x07, 0x91, 0x01, 0x00, 0x00, 0x00, 0x00, 0xf0 };
+        memcpy(d + o, sc, 12);
+        o += 12;
+        d[o++] = 0x80; d[o++] = l2; d[o++] = n; d[o++] = 0x00;
+        memcpy(d + o, tpdu, n);
+        memset(d + o + n, 0, l2 - 4 - n);
+        o += l2 - 4;
+        modem_reply(s, s->sms_key, 0x02, 0x00, 0x08, d, o);
+        modem_log(s, s->sms_key, "ch %u SIM: incoming SMS (pp-routing), %d-byte TPDU", CH_NUM(s->sms_key), n);
+        return;
+    }
+    uint8_t d[8 + 16 + 8 + 200];
+    int o = 0, tl = (6 + n + 3) & ~3;
+    d[o++] = 0x00; d[o++] = 0x02;
+    const uint8_t sc[16] = { 0x00, 0x82, 0x00, 0x10, 0x02, 0x08, 0x07, 0x91, 0x01, 0x00, 0x00, 0x00, 0x00, 0xf0 };
+    memcpy(d + o, sc, 16);
+    o += 16;
+    d[o++] = 0x00; d[o++] = 0x1c; d[o++] = tl >> 8; d[o++] = tl & 0xff; d[o++] = n; d[o++] = 0x00;
+    memcpy(d + o, tpdu, n);
+    memset(d + o + n, 0, tl - 6 - n);
+    o += tl - 6;
+    modem_reply(s, s->sms_key, 0x02, 0x00, 0x43, d, o);
+    modem_log(s, s->sms_key, "ch %u SIM: incoming SMS, %d-byte TPDU", CH_NUM(s->sms_key), n);
+}
 
 static void syborg_modem_class_init(ObjectClass *oc, const void *data)
 {
@@ -746,6 +1884,8 @@ static void syborg_modem_class_init(ObjectClass *oc, const void *data)
     device_class_set_legacy_reset(dc, modem_reset);
     dc->vmsd = &vmstate_syborg_modem;
     device_class_set_props(dc, syborg_modem_properties);
+    object_class_property_add_str(oc, "sms", NULL, modem_set_sms);
+    object_class_property_set_description(oc, "sms", "deliver an incoming SMS: SMS-DELIVER TPDU in hex");
 }
 
 static const TypeInfo syborg_modem_info = {

@@ -1,3 +1,4 @@
+#include <array>
 /*
  * syvg: the phone's EGL, on the host (docs/devices/nokia-n8-rm596/gles-host.md, egl-vg-host-v2.md; protocol
  * src/syvg/egl2_fn.h). The guest only forwards its EGL calls. Here: the device's configs (the real phone's,
@@ -141,7 +142,36 @@ struct Thread {
 	uint32_t ctx[2] = { 0, 0 }, draw[2] = { 0, 0 }, read[2] = { 0, 0 };     /* [0] OpenGL ES, [1] OpenVG */
 	EGLint err = EGL_SUCCESS;
 };
+/* an EGL sync object (EGL_KHR_reusable_sync; EGL_NOK_resource_profiling's memory-usage syncs) */
+struct Sync {
+	EGLenum type = 0;
+	EGLint status = 0x30F3;             /* EGL_UNSIGNALED_KHR */
+	EGLint condition = 0;               /* profiling: EGL_PROF_TOTAL_MEMORY_USAGE_GT/LT_NOK */
+	uint64_t threshold = 0;             /* profiling: bytes */
+};
+/* EGL_NOK_image_endpoint: a consumer endpoint on a GCE surface. The producer's frames are known from the
+   window server's backend (gcebe: SYGL_SURF_UPDATED, guest-drawn surfaces) and from host presents (syborg-gl
+   vg_present); an acquire snapshots the current frame into a host texture (the EGLImage) */
+struct Endpoint {
+	uint32_t sid[4] = { 0, 0, 0, 0 };
+	int w = 0, h = 0, stride = 0, nbuf = 1;
+	uint32_t format = 0, off[2] = { 0, 0 }, base = 0;   /* the surface as mapped in the owner process (0: not) */
+	int buffer = 0;                     /* the producer's current buffer (-1: a host image) */
+	bool host = false;                  /* the last frame was presented on the host */
+	int updates = 0;                    /* frames since the last acquire (EGL_ENDPOINT_READY_NOK) */
+	EGLint delay = 0;                   /* EGL_DELAY_NOK */
+	bool streaming = false, armed = false, due = false;
+	std::vector<std::array<int, 4> > dirty;     /* rectangles since the last acquire */
+	uint32_t acquired = 0;              /* the image handed out and not released */
+};
+struct EglImage {
+	uint32_t key;                       /* its host texture (this owner's) */
+	int w, h;
+};
 struct Proc {
+	std::unordered_map<uint32_t, Endpoint> endpoints;
+	std::unordered_map<uint32_t, EglImage> images;
+	std::unordered_map<uint32_t, Sync> syncs;
 	std::unordered_map<uint32_t, Surf> surfs;
 	std::unordered_map<uint32_t, Ctx> ctxs;
 	std::unordered_map<uint32_t, Thread> threads;
@@ -149,6 +179,16 @@ struct Proc {
 	int initialized = 0;
 };
 static std::unordered_map<uint32_t, Proc> gProc;
+static uint32_t gImageKey = 0xE0000000u;    /* EGLImage textures: a key range of their own (even, as vgKey) */
+static const char *const KEglNames[] = { "GetError", "GetDisplay", "Initialize", "Terminate", "QueryString", "GetConfigs", "ChooseConfig", "GetConfigAttrib", "CreateWindowSurface", "CreatePbufferSurface", "CreatePbufferFromClientBuffer", "DestroySurface", "QuerySurface", "BindAPI", "QueryAPI", "WaitClient", "ReleaseThread", "SurfaceAttrib", "BindTexImage", "ReleaseTexImage", "SwapInterval", "CreateContext", "DestroyContext", "MakeCurrent", "GetCurrentContext", "GetCurrentSurface", "GetCurrentDisplay", "QueryContext", "WaitGL", "WaitNative", "SwapBuffers", "WindowUpdate", "CreatePixmapSurface", "CopyBuffers", "GetProcAddress", "QueryProfilingDataNOK", "CreateSyncKHR", "DestroySyncKHR", "ClientWaitSyncKHR", "SignalSyncKHR", "GetSyncAttribKHR", "CreateEndpointNOK", "DestroyEndpointNOK", "GetEndpointAttribNOK", "SetEndpointAttribNOK", "EndpointBeginStreamingNOK", "EndpointEndStreamingNOK", "AcquireImageNOK", "ReleaseImageNOK", "GetEndpointDirtyAreaNOK", "EndpointRequestNotificationNOK", "EndpointCancelNotificationNOK", "EndpointPollNOK", "DestroyImageKHR", "CreateEGLImageTargetKHR", "COUNT" };
+static bool EglTrace()
+{
+	static int on = -1;
+	if (on < 0)
+		on = getenv("SYBORG_EGL_TRACE") && *getenv("SYBORG_EGL_TRACE") == '1';
+	return on;
+}
+static const size_t KMaxThreads = 512, KMaxObjects = 4096;    /* per process (S6, S10) */
 static uint32_t gOwnerNow, gThreadNow;
 
 static Proc &P() { return gProc[gOwnerNow]; }
@@ -160,6 +200,76 @@ static uint32_t fail(EGLint e) { T().err = e; return 0; }
 /* the syborg-gl ids of GL objects: surfaces share the device's table with OpenVG's (even keys from 0x10) */
 static uint32_t glSurfId(uint32_t id) { return 0x80000000u | id; }
 static uint32_t glCtxId(uint32_t id) { return 0x40000000u | id; }
+
+/* a producer's new frame of GCE surface sid (syborg-gl: gcebe's SYGL_SURF_UPDATED with the buffer, or a host
+   present with buffer -1): every endpoint on it gets the update and its dirty rectangle */
+extern "C" uint32_t syvg_vg_image_from_texture(uint32_t owner, int w, int h, uint32_t srcKey);   /* vg2.cpp */
+/* The last update of every surface, endpoint or not: a consumer often makes its endpoint after the producer's
+   first frame (the 808 browser: the web process swaps once, then waits for the browser to take that frame).
+   A new endpoint starts with that frame waiting, as the surface's current content [I: the extension's
+   "content submitted before creation" case; without it the browser page stayed white until a full redraw]. */
+struct SurfLast { uint32_t sid[4]; bool host; int32_t buffer; };
+static SurfLast gSurfLast[256];         /* recent surfaces; the least recently added slot is reused */
+static unsigned gSurfLastNext;
+
+static SurfLast *surf_last(const uint32_t *sid, bool add)
+{
+	for (auto &l : gSurfLast)
+		if (!memcmp(l.sid, sid, 16))
+			return &l;
+	if (!add)
+		return NULL;
+	SurfLast *l = &gSurfLast[gSurfLastNext++ % 256];
+	memcpy(l->sid, sid, 16);
+	l->host = false;
+	l->buffer = 0;
+	return l;
+}
+
+extern "C" void syvg_endpoint_updated(const uint32_t *sid, int32_t buffer, uint32_t x, uint32_t y, uint32_t w, uint32_t h)
+{
+	{
+		SurfLast *it = surf_last(sid, true);
+		if (buffer < 0)
+			it->host = true;
+		else
+			it->buffer = buffer;
+	}
+	for (auto &pp : gProc)
+		for (auto &ep : pp.second.endpoints) {
+			Endpoint &e = ep.second;
+			if (memcmp(e.sid, sid, 16))
+				continue;
+			if (buffer < 0)
+				e.host = true;          /* presented on the host: its frames stay there (the producer's
+				                           SubmitUpdate that follows reports buffer 0 of an unused buffer) */
+			else
+				e.buffer = buffer;
+			e.updates++;
+			if (e.dirty.size() < 64)        /* w 0: the whole surface */
+				e.dirty.push_back({ (int)x, (int)y, w ? (int)w : e.w, w ? (int)h : e.h });
+			if (e.armed)
+				e.due = true;
+		}
+}
+
+/* SYBORG_VG_TRACE: the OpenVG draw surface current in a guest thread, as text ("none", "win 360x640 id 5", ...) */
+extern "C" const char *syvg_vg_target(uint32_t owner, uint32_t thread, char *buf, size_t n)
+{
+	auto p = gProc.find(owner);
+	if (p == gProc.end())
+		return "no-egl";
+	auto t = p->second.threads.find(thread);
+	if (t == p->second.threads.end() || !t->second.draw[1])
+		return "none";
+	auto sf = p->second.surfs.find(t->second.draw[1]);
+	if (sf == p->second.surfs.end())
+		return "gone";
+	static const char *const kind[] = { "?", "window", "pbuffer", "pixmap", "image" };
+	snprintf(buf, n, "%s %dx%d id %u vgimage %u", kind[sf->second.kind < 5 ? sf->second.kind : 0], sf->second.w,
+	         sf->second.h, t->second.draw[1], sf->second.vgImage);
+	return buf;
+}
 
 extern "C" uint32_t syvg_gl_current(uint32_t owner, uint32_t thread)
 {
@@ -479,9 +589,29 @@ extern "C" int syvg_egl_call(uint32_t owner, const uint32_t *w, size_t n, uint32
 	uint32_t r = 0;
 	std::vector<EGLint> at;
 	Proc &p = P();
+	/* S10: thread ids come from the caller; idle records (no context or surface, no pending error) go when
+	   a process has many, and a process with thousands of busy ones gets no more */
+	if (!p.threads.count(gThreadNow) && p.threads.size() >= KMaxThreads) {
+		for (auto it = p.threads.begin(); it != p.threads.end();) {
+			const Thread &x = it->second;
+			bool idle = !x.ctx[0] && !x.ctx[1] && !x.draw[0] && !x.draw[1] && !x.read[0] && !x.read[1] &&
+			            x.err == EGL_SUCCESS;
+			it = idle ? p.threads.erase(it) : std::next(it);
+		}
+		if (p.threads.size() >= KMaxThreads * 8)
+			return -1;
+	}
 	Thread &t = T();
 	if (w[0] != EGL2_FN_GetError)
 		t.err = EGL_SUCCESS;
+	switch (w[0]) {                     /* S6: a budget of EGL objects per process */
+	case EGL2_FN_CreateWindowSurface: case EGL2_FN_CreatePbufferSurface:
+	case EGL2_FN_CreatePbufferFromClientBuffer: case EGL2_FN_CreatePixmapSurface: case EGL2_FN_CreateContext:
+		if (p.surfs.size() + p.ctxs.size() >= KMaxObjects) {
+			out[0] = fail(EGL_BAD_ALLOC);
+			return 0;
+		}
+	}
 #define NEED(k) do { if (na < (k)) return -1; } while (0)
 #define DPY(d) do { if ((d) != 1) { r = fail(EGL_BAD_DISPLAY); goto done; } } while (0)
 #define INIT() do { if (!p.initialized) { r = fail(EGL_NOT_INITIALIZED); goto done; } } while (0)
@@ -502,6 +632,13 @@ extern "C" int syvg_egl_call(uint32_t owner, const uint32_t *w, size_t n, uint32
 		NEED(1);
 		DPY(a[0]);
 		p.initialized = 0;          /* objects stay until released (current) or the process goes */
+		p.syncs.clear();            /* sync handles end with the display (EGL_KHR_reusable_sync) */
+		for (auto &im : p.images) { /* so do endpoints and EGLImages */
+			uint32_t k = im.second.key;
+			hostCmd(SYGL_TEX_FREE, &k, 1);
+		}
+		p.images.clear();
+		p.endpoints.clear();
 		r = 1;
 		break;
 	case EGL2_FN_QueryString: {
@@ -559,6 +696,13 @@ extern "C" int syvg_egl_call(uint32_t owner, const uint32_t *w, size_t n, uint32
 		}
 		if (!putInt(b[3], num))
 			return -1;
+		if (EglTrace()) {
+			fprintf(stderr, "syvg: EGL owner %u %sConfig: %d matched of %zu, attribs", owner, choose ? "Choose" : "Get",
+			        (int)ids.size(), gCfg.size());
+			for (size_t k = 0; k + 1 < at.size(); k += 2)
+				fprintf(stderr, " %x=%x", at[k], at[k + 1]);
+			fprintf(stderr, "\n");
+		}
 		r = 1;
 		break;
 	}
@@ -828,9 +972,11 @@ extern "C" int syvg_egl_call(uint32_t owner, const uint32_t *w, size_t n, uint32
 			if (T().ctx[slot(api)])
 				makeCurrent(0, 0, 0);
 		}
-		T().api = EGL_OPENGL_ES_API_;
+		p.threads.erase(gThreadNow);    /* S10: nothing of the thread is left (t is not used after this) */
 		r = 1;
-		break;
+		out[0] = r;
+		khrHostFlush(0);
+		return 0;
 	case EGL2_FN_BindTexImage: case EGL2_FN_ReleaseTexImage: {
 		NEED(3);
 		DPY(a[0]);
@@ -1024,12 +1170,436 @@ extern "C" int syvg_egl_call(uint32_t owner, const uint32_t *w, size_t n, uint32
 			if (syvg_guest_read(a[0] + i, &name[i], 1) || !name[i])
 				break;
 		name[i] = 0;
+		/* the EGL extension functions the host implements: the guest's own stubs (3) */
+		static const char *const kEglExt[] = { "eglQueryProfilingDataNOK", "eglCreateSyncKHR", "eglDestroySyncKHR",
+		                                       "eglClientWaitSyncKHR", "eglSignalSyncKHR", "eglGetSyncAttribKHR",
+		                                       "eglCreateEndpointNOK", "eglDestroyEndpointNOK", "eglGetEndpointAttribNOK",
+		                                       "eglSetEndpointAttribNOK", "eglEndpointBeginStreamingNOK",
+		                                       "eglEndpointEndStreamingNOK", "eglAcquireImageNOK", "eglReleaseImageNOK",
+		                                       "eglGetEndpointDirtyAreaNOK", "eglEndpointRequestNotificationNOK",
+		                                       "eglEndpointCancelNotificationNOK", "eglDestroyImageKHR",
+		                                       "vgCreateEGLImageTargetKHR" };
+		bool egl = false;
+		for (const char *e : kEglExt)
+			egl = egl || !strcmp(e, name);
+		if (egl) {
+			r = 3;
+			break;
+		}
 		/* which API's stub: the current OpenGL ES context's when it has the function, else the one that has it */
 		int has = syborg_gl_has_proc(name), cur = 0;
 		auto c = p.ctxs.find(t.ctx[0]);
 		if (t.ctx[0] && c != p.ctxs.end())
 			cur = c->second.version;
 		r = (has & 2) && cur == 2 ? 2 : (has & 1) ? 1 : (has & 2) ? 2 : 0;
+		break;
+	}
+	case EGL2_FN_QueryProfilingDataNOK: {   /* dpy, query_bits, data*, data_size, data_count* */
+		NEED(5);
+		DPY(a[0]);
+		INIT();
+		if (!a[4]) {
+			r = fail(EGL_BAD_PARAMETER);
+			break;
+		}
+		/* the layout the guest's memory monitor (GOOM) parses: TOTAL, USED (global bit); per process
+		   PROCESS_ID (64 bits as two words, low first), PRIVATE and SHARED bytes (memory-usage bit) */
+		std::vector<EGLint> v;
+		uint32_t owners[256];
+		uint64_t bytes[256], used = 0;
+		int np = syborg_gl_mem_usage(owners, bytes, 256, &used);
+		if (a[1] & 0x0001) {
+			v.push_back(0x3070); v.push_back((EGLint)syborg_gl_mem_total());
+			v.push_back(0x3071); v.push_back((EGLint)used);
+		}
+		if (a[1] & 0x0002)
+			for (int k = 0; k < np && k < 256; k++) {
+				v.push_back(0x3072); v.push_back((EGLint)owners[k]); v.push_back(0);
+				v.push_back(0x3073); v.push_back((EGLint)bytes[k]);
+				v.push_back(0x3074); v.push_back(0);
+			}
+		EGLint n = (EGLint)v.size();
+		if (a[2]) {
+			n = (EGLint)a[3] < n ? (EGLint)a[3] : n;
+			if (n < 0)
+				n = 0;
+			for (EGLint k = 0; k < n; k++)
+				if (!putInt(a[2] + k * 4, v[k]))
+					return -1;
+		}
+		if (!putInt(a[4], n))
+			return -1;
+		r = 1;
+		break;
+	}
+	case EGL2_FN_CreateSyncKHR: {           /* dpy, type, attribs* */
+		NEED(3);
+		DPY(a[0]);
+		INIT();
+		if (!attribs(a[2], at))
+			return -1;
+		Sync y;
+		y.type = a[1];
+		if (y.type == 0x30FA) {             /* EGL_SYNC_REUSABLE_KHR: no attributes */
+			if (!at.empty()) {
+				r = fail(EGL_BAD_ATTRIBUTE);
+				break;
+			}
+		} else if (y.type == 0x3078) {      /* EGL_SYNC_RESOURCE_PROFILING_NOK */
+			bool haveCond = false, haveThr = false;
+			for (size_t k = 0; k + 1 < at.size(); k += 2) {
+				if (at[k] == 0x30F8 && (at[k + 1] == 0x3075 || at[k + 1] == 0x3076)) {   /* EGL_SYNC_CONDITION_KHR */
+					y.condition = at[k + 1]; haveCond = true;
+				} else if (at[k] == 0x3077) {                                           /* threshold */
+					y.threshold = (uint32_t)at[k + 1]; haveThr = true;
+				} else {
+					haveCond = false;
+					break;
+				}
+			}
+			if (!haveCond || !haveThr) {
+				r = fail(EGL_BAD_ATTRIBUTE);
+				break;
+			}
+		} else {
+			r = fail(EGL_BAD_ATTRIBUTE);
+			break;
+		}
+		uint32_t id = p.next++;
+		p.syncs[id] = y;
+		r = id;
+		break;
+	}
+	case EGL2_FN_DestroySyncKHR: {          /* dpy, sync */
+		NEED(2);
+		DPY(a[0]);
+		INIT();
+		if (!p.syncs.erase(a[1]))
+			r = fail(EGL_BAD_PARAMETER);
+		else
+			r = 1;
+		break;
+	}
+	case EGL2_FN_ClientWaitSyncKHR:         /* dpy, sync, flags */
+	case EGL2_FN_GetSyncAttribKHR: {        /* dpy, sync, attribute, value* */
+		NEED(w[0] == EGL2_FN_ClientWaitSyncKHR ? 3 : 4);
+		DPY(a[0]);
+		INIT();
+		auto it = p.syncs.find(a[1]);
+		if (it == p.syncs.end()) {
+			r = w[0] == EGL2_FN_ClientWaitSyncKHR ? (uint32_t)fail(EGL_BAD_PARAMETER) : fail(EGL_BAD_PARAMETER);
+			break;
+		}
+		Sync &y = it->second;
+		if (y.type == 0x3078) {             /* a memory-usage condition: true now? */
+			uint64_t used = 0;
+			syborg_gl_mem_usage(NULL, NULL, 0, &used);
+			bool met = y.condition == 0x3075 ? used > y.threshold : used < y.threshold;
+			if (met)
+				y.status = 0x30F2;          /* EGL_SIGNALED_KHR (stays signaled) */
+		}
+		if (w[0] == EGL2_FN_ClientWaitSyncKHR) {
+			/* never blocks the vCPU: unsignaled answers EGL_TIMEOUT_EXPIRED_KHR and the guest stub sleeps and
+			   asks again until its timeout ran out */
+			r = y.status == 0x30F2 ? 0x30F6 : 0x30F5;
+			break;
+		}
+		EGLint val;
+		switch ((EGLint)a[2]) {
+		case 0x30F7: val = (EGLint)y.type; break;                       /* EGL_SYNC_TYPE_KHR */
+		case 0x30F1: val = y.status; break;                              /* EGL_SYNC_STATUS_KHR */
+		case 0x30F8: if (y.type != 0x3078) { r = fail(EGL_BAD_ATTRIBUTE); goto done; } val = y.condition; break;
+		case 0x3077: if (y.type != 0x3078) { r = fail(EGL_BAD_ATTRIBUTE); goto done; } val = (EGLint)y.threshold; break;
+		default: r = fail(EGL_BAD_ATTRIBUTE); goto done;
+		}
+		if (!a[3]) {
+			r = fail(EGL_BAD_PARAMETER);
+			break;
+		}
+		if (!putInt(a[3], val))
+			return -1;
+		r = 1;
+		break;
+	}
+	case EGL2_FN_CreateEndpointNOK: {   /* dpy, type, source_type, source*, attribs*, w, h, stride, fmt, nbuf, off0, off1, base */
+		NEED(13);
+		DPY(a[0]);
+		INIT();
+		if (a[1] != 0x30D5 || a[2] != 0x30D3) {     /* EGL_ENDPOINT_TYPE_CONSUMER_NOK, EGL_TSURFACEID_NOK */
+			r = fail(EGL_BAD_PARAMETER);
+			break;
+		}
+		Endpoint e;
+		if (!a[3] || syvg_guest_read(a[3], e.sid, 16) || !(e.sid[0] | e.sid[1] | e.sid[2] | e.sid[3])) {
+			r = fail(EGL_BAD_PARAMETER);
+			break;
+		}
+		if (!attribs(a[4], at))
+			return -1;
+		for (size_t k = 0; k + 1 < at.size(); k += 2) {
+			if (at[k] == 0x30D7)                    /* EGL_DELAY_NOK */
+				e.delay = at[k + 1];
+			else {
+				r = fail(EGL_BAD_ATTRIBUTE);
+				goto done;
+			}
+		}
+		e.w = (int)a[5]; e.h = (int)a[6]; e.stride = (int)a[7]; e.format = a[8];
+		e.nbuf = a[9] ? (int)a[9] : 1; e.off[0] = a[10]; e.off[1] = a[11]; e.base = a[12];
+		if (e.w <= 0 || e.h <= 0 || e.w > 4096 || e.h > 4096) {
+			r = fail(EGL_BAD_PARAMETER);        /* the guest could not open the surface */
+			break;
+		}
+		{
+			const SurfLast *last = surf_last(e.sid, false);
+			if (last) {
+				e.host = last->host;
+				e.buffer = last->buffer;
+				e.updates = 1;
+				e.dirty.push_back({ 0, 0, e.w, e.h });
+			}
+		}
+		uint32_t id = p.next++;
+		p.endpoints[id] = e;
+		r = id;
+		break;
+	}
+	case EGL2_FN_DestroyEndpointNOK:
+	case EGL2_FN_GetEndpointAttribNOK:
+	case EGL2_FN_SetEndpointAttribNOK:
+	case EGL2_FN_EndpointBeginStreamingNOK:
+	case EGL2_FN_EndpointEndStreamingNOK:
+	case EGL2_FN_AcquireImageNOK:
+	case EGL2_FN_ReleaseImageNOK:
+	case EGL2_FN_GetEndpointDirtyAreaNOK:
+	case EGL2_FN_EndpointRequestNotificationNOK:
+	case EGL2_FN_EndpointCancelNotificationNOK: {
+		NEED(2);
+		DPY(a[0]);
+		INIT();
+		auto it = p.endpoints.find(a[1]);
+		if (it == p.endpoints.end()) {
+			r = w[0] == EGL2_FN_GetEndpointAttribNOK ? (fail(0x30D4), 0u) : fail(0x30D4);   /* EGL_BAD_ENDPOINT_NOK */
+			break;
+		}
+		Endpoint &e = it->second;
+		switch (w[0]) {
+		case EGL2_FN_DestroyEndpointNOK:
+			if (e.acquired) {                   /* its image goes with it */
+				auto im = p.images.find(e.acquired);
+				if (im != p.images.end()) {
+					uint32_t k = im->second.key;
+					hostCmd(SYGL_TEX_FREE, &k, 1);
+					p.images.erase(im);
+				}
+			}
+			p.endpoints.erase(it);
+			r = 1;
+			break;
+		case EGL2_FN_GetEndpointAttribNOK:
+			NEED(3);
+			if (a[2] == 0x30D6)                 /* EGL_ENDPOINT_READY_NOK: a frame not acquired yet */
+				r = e.updates > 0 ? 1 : 0;
+			else if (a[2] == 0x30D7)
+				r = (uint32_t)e.delay;
+			else
+				r = fail(EGL_BAD_ATTRIBUTE);
+			break;
+		case EGL2_FN_SetEndpointAttribNOK:
+			NEED(4);
+			if (a[2] == 0x30D7) {
+				e.delay = (EGLint)a[3];
+				r = 1;
+			} else
+				r = fail(EGL_BAD_ATTRIBUTE);
+			break;
+		case EGL2_FN_EndpointBeginStreamingNOK:
+		case EGL2_FN_EndpointEndStreamingNOK:
+			e.streaming = w[0] == EGL2_FN_EndpointBeginStreamingNOK;
+			r = 1;
+			break;
+		case EGL2_FN_AcquireImageNOK: {
+			if (e.acquired) {                   /* one image at a time: released first */
+				r = fail(EGL_BAD_ACCESS);
+				break;
+			}
+			uint32_t key = gImageKey;
+			gImageKey += 2;
+			if (gImageKey < 0xE0000000u)
+				gImageKey = 0xE0000000u;
+			bool ok = false;
+			if (e.host) {                       /* the producer presented on the host: a GPU copy */
+				uint32_t c[5] = { key, e.sid[0], e.sid[1], e.sid[2], e.sid[3] };
+				unsigned int *q = khrHostEmit(SYGL_TEX_FROM_SCAN, 5);
+				if (q) {
+					memcpy(q, c, sizeof(c));
+					ok = khrHostFlush(0) == 0;
+				}
+			}
+			if (!ok && e.base) {                /* drawn in guest memory: the current buffer, read in this
+			                                       process (the guest mapped it), rows bottom up as VG's */
+				uint32_t buf = e.base + e.off[e.nbuf > 1 ? (e.buffer & 1) : 0];
+				int bpp = e.format == 0x1027549Eu ? 2 : 4;
+				std::vector<uint8_t> row((size_t)e.w * bpp);
+				int band = std::max(1, std::min(e.h, (128 * 1024 - 16) / e.w));     /* a host batch is 256K words */
+				ok = true;
+				for (int y0 = 0; y0 < e.h && ok; y0 += band) {
+					int rows = std::min(band, e.h - y0);
+					unsigned int *q = khrHostEmit(SYGL_TEX, 6 + e.w * rows);
+					if (!q) {
+						ok = false;
+						break;
+					}
+					q[0] = key; q[1] = 1; q[2] = e.w; q[3] = e.h; q[4] = y0; q[5] = rows;
+					for (int y = 0; y < rows && ok; y++) {
+						uint32_t src = buf + (uint32_t)(e.h - 1 - (y0 + y)) * e.stride;
+						if (syvg_guest_read(src, row.data(), row.size())) {
+							ok = false;
+							break;
+						}
+						unsigned int *o = q + 6 + y * e.w;
+						for (int x = 0; x < e.w; x++) {
+							unsigned int c, al, rr, gg, bb;
+							if (bpp == 2) {
+								c = row[x * 2] | row[x * 2 + 1] << 8;
+								rr = (c >> 11) & 31; gg = (c >> 5) & 63; bb = c & 31;
+								o[x] = 0xff000000u | (bb << 3 | bb >> 2) << 16 | (gg << 2 | gg >> 4) << 8 | (rr << 3 | rr >> 2);
+								continue;
+							}
+							memcpy(&c, &row[x * 4], 4);
+							al = c >> 24; rr = (c >> 16) & 255; gg = (c >> 8) & 255; bb = c & 255;
+							if (e.format == 0x10275496u)
+								al = 255;
+							else if (e.format == 0x10275498u && al != 255) {
+								rr = (rr * al + 127) / 255; gg = (gg * al + 127) / 255; bb = (bb * al + 127) / 255;
+							}
+							o[x] = al << 24 | bb << 16 | gg << 8 | rr;
+						}
+					}
+					if (ok)
+						ok = khrHostFlush(0) == 0;
+				}
+			}
+			if (!ok) {
+				r = fail(EGL_BAD_ACCESS);       /* no frame yet (nothing presented, not mapped) */
+				break;
+			}
+			uint32_t id = p.next++;
+			p.images[id] = EglImage{ key, e.w, e.h };
+			e.acquired = id;
+			e.updates = 0;
+			e.dirty.clear();
+			r = id;
+			break;
+		}
+		case EGL2_FN_ReleaseImageNOK:
+			NEED(4);
+			if (!a[2] || a[2] != e.acquired) {
+				r = fail(EGL_BAD_PARAMETER);
+				break;
+			}
+			e.acquired = 0;                     /* the image stays until eglDestroyImageKHR */
+			r = 1;
+			break;
+		case EGL2_FN_GetEndpointDirtyAreaNOK: {     /* rects*, start, max, collapse */
+			NEED(6);
+			int n = (int)e.dirty.size(), start = (int)a[3], max = (int)a[4];
+			if (start < 0 || max < 0) {
+				r = fail(EGL_BAD_PARAMETER);
+				break;
+			}
+			std::vector<std::array<int, 4> > v = e.dirty;
+			if (n == 0)                         /* no rectangles known: the whole surface */
+				v.push_back({ 0, 0, e.w, e.h });
+			if (a[5] && v.size() > 1) {         /* collapse: the bounding rectangle */
+				int x0 = v[0][0], y0 = v[0][1], x1 = v[0][0] + v[0][2], y1 = v[0][1] + v[0][3];
+				for (auto &q : v) {
+					x0 = std::min(x0, q[0]); y0 = std::min(y0, q[1]);
+					x1 = std::max(x1, q[0] + q[2]); y1 = std::max(y1, q[1] + q[3]);
+				}
+				v.assign(1, { x0, y0, x1 - x0, y1 - y0 });
+			}
+			if (!a[2]) {                        /* no array: the number of rectangles */
+				r = (uint32_t)v.size();
+				break;
+			}
+			int k = 0;
+			for (int i2 = start; i2 < (int)v.size() && k < max; i2++, k++)
+				for (int j = 0; j < 4; j++)     /* x0, y0, x1, y1 */
+					if (!putInt(a[2] + (k * 4 + j) * 4, j < 2 ? v[i2][j] : v[i2][j - 2] + v[i2][j]))
+						return -1;
+			r = (uint32_t)k;
+			break;
+		}
+		case EGL2_FN_EndpointRequestNotificationNOK:
+			e.armed = true;
+			e.due = e.updates > 0;               /* a frame already waiting: completes at once */
+			r = 1;
+			break;
+		case EGL2_FN_EndpointCancelNotificationNOK:
+			e.armed = e.due = false;
+			r = 1;
+			break;
+		}
+		break;
+	}
+	case EGL2_FN_EndpointPollNOK: {         /* -> n; out[1..] = endpoints whose notification is due (disarmed) */
+		uint32_t n = 0;
+		for (auto &ep : p.endpoints)
+			if (ep.second.armed && ep.second.due && n + 1 < outWords) {
+				out[1 + n++] = ep.first;
+				ep.second.armed = ep.second.due = false;
+			}
+		r = n;
+		break;
+	}
+	case EGL2_FN_DestroyImageKHR: {         /* dpy, image */
+		NEED(2);
+		DPY(a[0]);
+		INIT();
+		auto im = p.images.find(a[1]);
+		if (im == p.images.end()) {
+			r = fail(EGL_BAD_PARAMETER);
+			break;
+		}
+		for (auto &ep : p.endpoints)
+			if (ep.second.acquired == a[1])
+				ep.second.acquired = 0;
+		uint32_t k = im->second.key;
+		hostCmd(SYGL_TEX_FREE, &k, 1);
+		p.images.erase(im);
+		r = 1;
+		break;
+	}
+	case EGL2_FN_CreateEGLImageTargetKHR: { /* image -> VGImage (the caller's current OpenVG context) */
+		NEED(1);
+		auto im = p.images.find(a[0]);
+		if (im == p.images.end()) {
+			r = 0;                              /* VG_ILLEGAL_ARGUMENT_ERROR is the VG context's to set */
+			break;
+		}
+		r = syvg_vg_image_from_texture(owner, im->second.w, im->second.h, im->second.key);
+		break;
+	}
+	case EGL2_FN_SignalSyncKHR: {           /* dpy, sync, mode */
+		NEED(3);
+		DPY(a[0]);
+		INIT();
+		auto it = p.syncs.find(a[1]);
+		if (it == p.syncs.end()) {
+			r = fail(EGL_BAD_PARAMETER);
+			break;
+		}
+		if (it->second.type != 0x30FA) {   /* only reusable syncs are signalled by the application */
+			r = fail(EGL_BAD_MATCH);
+			break;
+		}
+		if (a[2] != 0x30F2 && a[2] != 0x30F3) {
+			r = fail(EGL_BAD_PARAMETER);
+			break;
+		}
+		it->second.status = (EGLint)a[2];
+		r = 1;
 		break;
 	}
 	default:
@@ -1039,6 +1609,10 @@ done:
 #undef NEED
 #undef DPY
 #undef INIT
+	if (EglTrace())                     /* SYBORG_EGL_TRACE=1: every call, its arguments, result and error */
+		fprintf(stderr, "syvg: EGL owner %u thread %u %s(%x %x %x %x %x) = %x err %x\n", owner, w[1],
+		        w[0] < sizeof(KEglNames) / sizeof(KEglNames[0]) ? KEglNames[w[0]] : "?", na > 0 ? a[0] : 0,
+		        na > 1 ? a[1] : 0, na > 2 ? a[2] : 0, na > 3 ? a[3] : 0, na > 4 ? a[4] : 0, r, T().err);
 	out[0] = r;
 	khrHostFlush(0);
 	return 0;

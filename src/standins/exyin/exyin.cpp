@@ -7,12 +7,19 @@
 // DDigitiser (kernel/eka/drivers/xyin/d_xyin.cpp); this file is the hardware part, shaped after the
 // EPL bsptemplate xyin.cpp.
 //
-// The device reports absolute positions 0..0x7fff and the button state on every host mouse event.
-// The interrupt only latches them; while the button is down a 10 ms timer feeds samples to DDigitiser
-// (it issues pen-down only after a short delay line, so a click without movement still needs samples).
+// v2 (docs/research/touch-driver-design.md): forwarding only. The device (syborg-pointer v2) queues one
+// typed entry per host sample {x, y, DOWN/UP/MOVE, time}; the interrupt drains them into a ring in order
+// and a DFC issues each as a raw event (EButton1Down / EPointerMove / EButton1Up) with Kern::AddEvent:
+// no 10 ms resampling, no delay line, the release at the release point. The kernel's raw-event queue
+// holds 40 events and AddEvent answers KErrOverflow when it is full (the generic DDigitiser ignored that,
+// so long swipes lost their pen-up: a "pressed" state that stuck, a next swipe that joined the old
+// drag); here a down or an up that does not fit waits and is retried every 2 ms, in order, and only a
+// move that a newer move follows may be dropped. DDigitiser stays the base for the HAL (calibration,
+// power, info); its sampling state machine is never fed.
 // Raw digitiser units are 12 bit (0..4095); the default calibration maps them onto the display size
 // the LCD HAL reports, so no calibration is needed. Board config (docs/devices.md [[standins]] config):
 //   exyin.rotate = 0|90|180|270   turn host coordinates before calibration (panel vs UI orientation)
+//   exyin.trace = 1               every issued event: SYBSTUB: exyin ev D|M|U x,y ts
 
 #include <drivers/xyin.h>
 #include <kernel/kern_priv.h>
@@ -20,25 +27,31 @@
 #include "syborg.h"
 #include "boardconfig.h"
 
-enum { KRegId = 0, KRegLatch = 1, KRegFifoCount = 2, KRegX = 3, KRegY = 4, KRegZ = 5, KRegButtons = 6, KRegIntEnable = 7 };
+enum { KRegId = 0, KRegLatch = 1, KRegFifoCount = 2, KRegX = 3, KRegY = 4, KRegZ = 5, KRegButtons = 6,
+	   KRegIntEnable = 7, KRegFifoSize = 8, KRegVersion = 9, KRegCaps = 10, KRegSlot = 11, KRegTsLo = 12,
+	   KRegTsHi = 13, KRegFlags = 14, KRegStats = 15 };
+enum { KFlagDown = 1, KFlagUp = 2, KFlagMove = 4, KFlagCoalesced = 8, KFlagCancel = 16 };
 const TInt KRawBits = 12;
 const TInt KRawMax = (1 << KRawBits) - 1;
-const TInt KSampleMs = 10;
+const TInt KRing = 256;
+const TInt KRetryMs = 2;
 
 static inline TUint32 Reg(TInt aReg) { return ReadReg(KHwBaseKmiPointer, aReg); }
+
+struct TSample { TInt iX, iY; TUint32 iTs; TUint8 iSlot, iFlags; };
 
 NONSHARABLE_CLASS(DSybDigitiser) : public DDigitiser
 	{
 public:
 	DSybDigitiser();
 	virtual TInt DoCreate();
-	virtual void WaitForPenDown();
-	virtual void WaitForPenUp();
-	virtual void WaitForPenUpDebounce();
+	virtual void WaitForPenDown() {}
+	virtual void WaitForPenUp() {}
+	virtual void WaitForPenUpDebounce() {}
 	virtual void DigitiserOn();
 	virtual void DigitiserOff();
-	virtual void FilterPenMove(const TPoint& aPoint);
-	virtual void ResetPenMoveFilter();
+	virtual void FilterPenMove(const TPoint&) {}
+	virtual void ResetPenMoveFilter() {}
 	virtual TInt DigitiserToScreen(const TPoint& aDigitiserPoint, TPoint& aScreenPoint);
 	virtual void ScreenToDigitiser(TInt& aX, TInt& aY);
 	virtual TInt SetXYInputCalibration(const TDigitizerCalibration& aCalibration);
@@ -49,22 +62,26 @@ public:
 	virtual void PowerDown(TPowerState);
 	virtual void PowerUp();
 	static void Isr(TAny* aPtr);
-	static void TimerExpired(TAny* aPtr);
-	static void SampleDfcFn(TAny* aPtr);
-	void Sample();
+	static void DeliverDfcFn(TAny* aPtr);
+	static void RetryExpired(TAny* aPtr);
+	void Push(const TSample& aS);
+	TBool Pop(TSample& aS);
+	void Deliver();
+	TInt Issue(const TSample& aS);
 	TSize ScreenSize();
 	void DefaultCalibration(TDigitizerCalibration& aCal, TSize aSize);
 	struct TCal { TInt iR11, iR12, iR21, iR22, iTx, iTy; };
 public:
-	NTimer iTimer;
-	TDfc iSampleTimerDfc;
-	TInt iCurX, iCurY;			// latched raw position (KRawBits)
-	TBool iDown;				// button 1 held
-	TBool iSampling;			// timer running while the pen is down
-	TInt iPressSamples;			// samples still owed to a press (a click shorter than the delay line)
-	TInt iPressStart;			// NKern::TickCount() at the first sample of this press
-	TInt iPressCount;			// samples delivered in this press
-	TInt iRotate;
+	TDfc iDeliverDfc;
+	NTimer iRetry;
+	TSample iRing[KRing];
+	TInt iHead, iCount;						// ring: the ISR appends, the DFC pops under NKern::Lock
+	TSample iParked;						// a down/up (or the last move) the window server had no room for
+	TBool iHaveParked;
+	TPoint iLast;							// the last issued screen point
+	TBool iDown;							// a press issued and not yet released
+	TInt iRotate, iTrace;
+	TInt iOverflows, iPressEvents, iPressStart, iDropped;
 	TCal iCal, iCalSaved, iCalFactory;
 	};
 
@@ -74,7 +91,7 @@ DDigitiser* DDigitiser::New()
 	}
 
 DSybDigitiser::DSybDigitiser()
-	: iTimer(TimerExpired, this), iSampleTimerDfc(SampleDfcFn, this, 5)
+	: iDeliverDfc(DeliverDfcFn, this, 5), iRetry(RetryExpired, this)
 	{
 	}
 
@@ -91,15 +108,15 @@ TSize DSybDigitiser::ScreenSize()
 
 TInt DSybDigitiser::DoCreate()
 	{
-	// own DFC thread: on the shared DfcQue0 other drivers' work delayed the 10 ms samples so much that
-	// clicks shorter than ~150 ms reached the UI as nothing (5800, sydb phone)
+	// own DFC thread: on the shared DfcQue0 other drivers' work delayed touch events
 	TDynamicDfcQue* q;
 	TInt e = Kern::DynamicDfcQCreate(q, 27, _L8("ExyinDfc"));
 	if (e != KErrNone)
 		return e;
 	iDfcQ = q;
-	iSampleTimerDfc.SetDfcQ(iDfcQ);
+	iDeliverDfc.SetDfcQ(iDfcQ);
 	iRotate = BoardConfigInt("exyin.rotate", 0);
+	iTrace = BoardConfigInt("exyin.trace", 0);
 	TSize s = ScreenSize();
 	TInt w = s.iWidth, h = s.iHeight;
 	iCal.iR11 = (w << 16) / (KRawMax + 1); iCal.iR12 = 0;
@@ -107,7 +124,7 @@ TInt DSybDigitiser::DoCreate()
 	iCal.iTx = 0; iCal.iTy = 0;
 	iCalSaved = iCalFactory = iCal;
 	iCfg.iPenDownDiscard = 0;
-	iCfg.iPenUpDiscard = 1;			// >= 1: DDigitiser::Create allocates the delay line with it
+	iCfg.iPenUpDiscard = 1;			// >= 1: DDigitiser::Create allocates its (unused) delay line
 	iCfg.iDriveXRise = 0;
 	iCfg.iDriveYRise = 0;
 	iCfg.iMinX = 0;
@@ -118,7 +135,7 @@ TInt DSybDigitiser::DoCreate()
 	iCfg.iSpreadY = KRawMax + 1;
 	iCfg.iMaxJumpX = 0;
 	iCfg.iMaxJumpY = 0;
-	iCfg.iAccThresholdX = 1;			// every pixel of movement is a move event (finger scrolling)
+	iCfg.iAccThresholdX = 1;
 	iCfg.iAccThresholdY = 1;
 	iCfg.iNumXYSamples = 1;
 	iCfg.iDisregardMinMax = EFalse;
@@ -128,111 +145,193 @@ TInt DSybDigitiser::DoCreate()
 		return r;
 	Interrupt::Enable(EIntPointer);
 	WriteReg(KHwBaseKmiPointer, KRegIntEnable, 1);
-	Kern::Printf("SYBSTUB: exyin digitiser %dx%d, raw %d bit, rotate %d, pointer id %08x", w, h, KRawBits, iRotate, Reg(KRegId));
+	Kern::Printf("SYBSTUB: exyin digitiser %dx%d, raw %d bit, rotate %d, pointer id %08x v%d", w, h, KRawBits, iRotate,
+				 Reg(KRegId), Reg(KRegVersion));
 	return KErrNone;
 	}
 
-// interrupt: drain the device FIFO, keep the last position and button state
+// interrupt: every queued entry into the ring, in order
 void DSybDigitiser::Isr(TAny* aPtr)
 	{
 	DSybDigitiser& d = *(DSybDigitiser*)aPtr;
+	TBool v2 = Reg(KRegVersion) >= 2;
 	while (Reg(KRegFifoCount))
 		{
 		WriteReg(KHwBaseKmiPointer, KRegLatch, 1);
-		TInt x = (TInt)Reg(KRegX) >> (15 - KRawBits), y = (TInt)Reg(KRegY) >> (15 - KRawBits);
-		TInt t;
-		switch (d.iRotate)
-			{
-		case 90:  t = x; x = KRawMax - y; y = t; break;
-		case 180: x = KRawMax - x; y = KRawMax - y; break;
-		case 270: t = x; x = y; y = KRawMax - t; break;
+		TSample s;
+		s.iX = (TInt)Reg(KRegX) >> (15 - KRawBits);
+		s.iY = (TInt)Reg(KRegY) >> (15 - KRawBits);
+		s.iSlot = v2 ? (TUint8)Reg(KRegSlot) : 0;
+		s.iTs = v2 ? Reg(KRegTsLo) : 0;
+		if (v2)
+			s.iFlags = (TUint8)Reg(KRegFlags);
+		else
+			{							// a v1 device: flags from the button edges
+			TBool down = Reg(KRegButtons) & 1;
+			s.iFlags = down && !d.iDown ? KFlagDown : !down && d.iDown ? KFlagUp : KFlagMove;
 			}
-		d.iCurX = x < 0 ? 0 : x > KRawMax ? KRawMax : x;
-		d.iCurY = y < 0 ? 0 : y > KRawMax ? KRawMax : y;
-		TBool down = Reg(KRegButtons) & 1;
-		if (down && !d.iDown)
-			d.iPressSamples = 2;		// DDigitiser issues pen-down on the 2nd sample (iPenUpDiscard 1)
-		d.iDown = down;
+		d.Push(s);
 		}
 	Interrupt::Clear(EIntPointer);
-	if ((d.iDown || d.iPressSamples) && !d.iSampling)
+	d.iDeliverDfc.Add();
+	}
+
+// ISR side. A full ring: a move replaces the newest queued move; a down/up replaces the newest move
+// anywhere behind it (the finger's path loses a point, never a press or a release)
+void DSybDigitiser::Push(const TSample& aS)
+	{
+	if (iCount == KRing)
 		{
-		d.iSampling = ETrue;
-		d.iSampleTimerDfc.Add();
+		TSample& last = iRing[(iHead + iCount - 1) % KRing];
+		if ((aS.iFlags & KFlagMove) && (last.iFlags & KFlagMove))
+			{
+			last = aS;
+			return;
+			}
+		for (TInt k = iCount - 1; k >= 0; --k)
+			{
+			TSample& t = iRing[(iHead + k) % KRing];
+			if (t.iFlags & KFlagMove)
+				{						// close the gap: the entries after it move down one
+				for (TInt j = k; j < iCount - 1; ++j)
+					iRing[(iHead + j) % KRing] = iRing[(iHead + j + 1) % KRing];
+				--iCount;
+				break;
+				}
+			}
+		if (iCount == KRing)
+			{
+			++iDropped;
+			return;
+			}
+		}
+	iRing[(iHead + iCount) % KRing] = aS;
+	++iCount;
+	}
+
+TBool DSybDigitiser::Pop(TSample& aS)
+	{
+	NKern::Lock();
+	TInt irq = NKern::DisableAllInterrupts();
+	TBool r = iCount > 0;
+	if (r)
+		{
+		aS = iRing[iHead];
+		iHead = (iHead + 1) % KRing;
+		--iCount;
+		}
+	NKern::RestoreInterrupts(irq);
+	NKern::Unlock();
+	return r;
+	}
+
+void DSybDigitiser::DeliverDfcFn(TAny* aPtr)
+	{
+	((DSybDigitiser*)aPtr)->Deliver();
+	}
+
+void DSybDigitiser::RetryExpired(TAny* aPtr)
+	{
+	((DSybDigitiser*)aPtr)->iDeliverDfc.Add();
+	}
+
+// DFC: issue in order; a down or an up that does not fit waits (nothing behind it goes first)
+void DSybDigitiser::Deliver()
+	{
+	if (iHaveParked)
+		{
+		if (Issue(iParked) != KErrNone)
+			{
+			iRetry.OneShot(NKern::TimerTicks(KRetryMs));
+			return;
+			}
+		iHaveParked = EFalse;
+		}
+	TSample s;
+	while (Pop(s))
+		{
+		if (s.iSlot != 0)
+			continue;					// one pointer (multitouch: later)
+		if (Issue(s) == KErrNone)
+			continue;
+		++iOverflows;
+		if ((s.iFlags & KFlagMove) && iCount)
+			continue;					// a newer move follows: this one is expendable
+		iParked = s;
+		iHaveParked = ETrue;
+		iRetry.OneShot(NKern::TimerTicks(KRetryMs));
+		return;
 		}
 	}
 
-void DSybDigitiser::TimerExpired(TAny* aPtr)
+TInt DSybDigitiser::Issue(const TSample& aS)
 	{
-	((DSybDigitiser*)aPtr)->iSampleTimerDfc.Add();
-	}
-
-void DSybDigitiser::SampleDfcFn(TAny* aPtr)
-	{
-	((DSybDigitiser*)aPtr)->Sample();
-	}
-
-void DSybDigitiser::Sample()
-	{
-	if (iDown || iPressSamples)
+	TInt x = aS.iX, y = aS.iY, t;
+	switch (iRotate)
 		{
-		if (iPressSamples)
-			--iPressSamples;			// a quick click still reaches pen-down before its pen-up
-		if (!iPressCount++)
-			iPressStart = NKern::TickCount();
-		iX[0] = iCurX;
-		iY[0] = iCurY;
-		// DDigitiser processes it and calls WaitForPenUp() for the next one. RawSampleValid/PenUp
-		// queue a DFC (TDfc::Add): legal from an ISR, an IDFC or a thread with the kernel locked;
-		// Sample() runs in our DFC thread (the udeb kernel's precondition check faulted on the N8)
-		NKern::Lock();
-		RawSampleValid();
-		NKern::Unlock();
+	case 90:  t = x; x = KRawMax - y; y = t; break;
+	case 180: x = KRawMax - x; y = KRawMax - y; break;
+	case 270: t = x; x = y; y = KRawMax - t; break;
+		}
+	TPoint raw, p;
+	raw.iX = Min(Max(x, 0), KRawMax);
+	raw.iY = Min(Max(y, 0), KRawMax);
+	DigitiserToScreen(raw, p);
+	TRawEvent e;
+	char kind;
+	if (aS.iFlags & KFlagDown)
+		{
+		if (iDown)						// a release lost upstream: close the old press first
+			{
+			e.Set(TRawEvent::EButton1Up, iLast.iX, iLast.iY);
+			if (Kern::AddEvent(e) != KErrNone)
+				return KErrOverflow;
+			iDown = EFalse;
+			}
+		e.Set(TRawEvent::EButton1Down, p.iX, p.iY);
+		kind = 'D';
+		}
+	else if (aS.iFlags & (KFlagUp | KFlagCancel))
+		{
+		if (!iDown)
+			return KErrNone;
+		e.Set(TRawEvent::EButton1Up, p.iX, p.iY);
+		kind = 'U';
 		}
 	else
 		{
-		iSampling = EFalse;
-		__KTRACE_OPT(KEXTENSION, Kern::Printf("SYBSTUB: exyin press %d samples, %d ms", iPressCount,
-			(NKern::TickCount() - iPressStart) * NKern::TickPeriod() / 1000));
-		Kern::Printf("SYBSTUB: exyin press %d samples %d ms at %d,%d", iPressCount,
-			(NKern::TickCount() - iPressStart) * NKern::TickPeriod() / 1000, iCurX, iCurY);
-		iPressCount = 0;
-		NKern::Lock();
-		PenUp();
-		NKern::Unlock();
+		if (!iDown || (p.iX == iLast.iX && p.iY == iLast.iY))
+			return KErrNone;			// hover, or no pixel change
+		e.Set(TRawEvent::EPointerMove, p.iX, p.iY);
+		kind = 'M';
 		}
-	}
-
-void DSybDigitiser::WaitForPenDown()
-	{
-	iSampling = EFalse;					// the interrupt starts sampling on the next press
-	}
-
-void DSybDigitiser::WaitForPenUp()
-	{
-	iTimer.OneShot(NKern::TimerTicks(KSampleMs));
-	}
-
-void DSybDigitiser::WaitForPenUpDebounce()
-	{
-	iTimer.OneShot(NKern::TimerTicks(KSampleMs));
+	TInt r = Kern::AddEvent(e);
+	if (r != KErrNone)
+		return r;
+	iLast = p;
+	if (kind == 'D')
+		{
+		iDown = ETrue;
+		iPressEvents = 0;
+		iOverflows = 0;
+		iPressStart = NKern::TickCount();
+		}
+	++iPressEvents;
+	if (iTrace)
+		Kern::Printf("SYBSTUB: exyin ev %c %d,%d ts %u", kind, p.iX, p.iY, aS.iTs);
+	if (kind == 'U')
+		{
+		iDown = EFalse;
+		Kern::Printf("SYBSTUB: exyin press %d events %d ms, %d overflows, at %d,%d", iPressEvents,
+			(NKern::TickCount() - iPressStart) * NKern::TickPeriod() / 1000, iOverflows, p.iX, p.iY);
+		}
+	return KErrNone;
 	}
 
 void DSybDigitiser::DigitiserOn() {}
 void DSybDigitiser::DigitiserOff() {}
 void DSybDigitiser::PowerUp() { PowerUpDone(); }
 void DSybDigitiser::PowerDown(TPowerState) { PowerDownDone(); }
-
-void DSybDigitiser::FilterPenMove(const TPoint& aPoint)
-	{
-	if (Abs(aPoint.iX - iLastPos.iX) >= iCfg.iAccThresholdX || Abs(aPoint.iY - iLastPos.iY) >= iCfg.iAccThresholdY)
-		{
-		iLastPos = aPoint;
-		IssuePenMoveEvent(aPoint);
-		}
-	}
-
-void DSybDigitiser::ResetPenMoveFilter() {}
 
 TInt DSybDigitiser::DigitiserToScreen(const TPoint& aD, TPoint& aS)
 	{

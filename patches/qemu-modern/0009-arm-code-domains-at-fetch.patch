@@ -1,0 +1,32 @@
+--- a/accel/tcg/cputlb.c
++++ b/accel/tcg/cputlb.c
+@@ -1497,11 +1497,7 @@
+     if (full->extra.arm.domain_plus1) {     /* qembian: tlb_flush_domains */
+         uint32_t bit = 1u << (full->extra.arm.domain_plus1 - 1);
+         asid_cur_domains |= bit;
+-        if (full->prot & PAGE_EXEC) {
+-            /* code from this domain may sit in the jump cache long after this
+-               entry is evicted: remembered until a full flush */
+-            asid_cur_code_domains |= bit;
+-        }
++        /* (code domains: marked where code is fetched, get_page_addr_code_hostp; qembian 0009) */
+     }
+     full->xlat_offset = iotlb - addr_page;
+     full->section = section;
+@@ -1892,6 +1888,16 @@
+     (void)probe_access_internal(env_cpu(env), addr, 1, MMU_INST_FETCH,
+                                 cpu_mmu_index(env_cpu(env), true), false,
+                                 hostp, &full, 0, false);
++    /*
++     * qembian 0009: every TB that reaches a jump cache came through here in that context (translation,
++     * hash-table lookup), so this is where a domain gets "code ran from it" (tlb_flush_domains then
++     * empties the jump cache when its access falls). Marked at TLB fill for any PAGE_EXEC entry, it
++     * also counted data pages the kernel maps executable (the IPC alias domain), and every alias
++     * lock flushed the whole jump cache: ~61k full flushes per N8 boot, 80 % of the misses.
++     */
++    if (full->extra.arm.domain_plus1) {
++        asid_cur_code_domains |= 1u << (full->extra.arm.domain_plus1 - 1);
++    }
+ 
+     p = *hostp;
+     if (p == NULL) {

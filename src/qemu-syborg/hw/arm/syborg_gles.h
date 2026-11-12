@@ -13,22 +13,35 @@
 
 /* ---- the caller's memory */
 
+/* the caller's input bytes (phase 4): straight from guest RAM when the app may read them and they are one
+   run of host memory (the guest does not run during the kick), else a copy in the call's scratch arena.
+   Valid until the end of the GL call (gles_call releases the arena): never freed by the caller. */
 static void *gles_in(SyborgGlState *s, uint32_t va, size_t n)
 {
     if (!va || n > (64u << 20)) {
         return NULL;
     }
-    void *h = g_malloc(n ? n : 1);
-    if (n && gmem_rw(s, va, h, n, false)) {
-        g_free(h);
+    void *d = (void *)user_map_read(s, va, n);
+    if (d) {
+        s->st_in_direct += n;
+        return d;
+    }
+    void *h = gl_tmp(s, n);
+    if (!h || (n && gmem_rw(s, va, h, n, false))) {
         return NULL;
     }
+    s->st_in_copied += n;
     return h;
 }
 
-static void *gles_room(size_t n)
+/* room for a call's output (zeroed), in the call's scratch arena; NULL when it cannot be (S6) */
+static void *gles_room(SyborgGlState *s, size_t n)
 {
-    return g_malloc0(n ? n : 1);
+    void *h = gl_tmp(s, n);
+    if (h) {
+        memset(h, 0, n);
+    }
+    return h;
 }
 
 static void gles_put(SyborgGlState *s, uint32_t va, const void *h, size_t n)
@@ -67,6 +80,14 @@ static char *gles_string(SyborgGlState *s, uint32_t va)
 static int gles_ret(SyborgGlState *s, uint32_t v)
 {
     return gl2_out(s, &v, 4) ? 1 : 0;
+}
+
+/* a host allocation for the call failed (S6): GL_OUT_OF_MEMORY for the calling context */
+static void gles_oom(Gl2HostCtx *c)
+{
+    if (c && !c->err) {
+        c->err = GL_OUT_OF_MEMORY;
+    }
 }
 
 static void gles_bad(SyborgGlState *s, const char *fn)
@@ -116,7 +137,10 @@ static size_t gles_pix_bytes(GLint w, GLint h, GLint d, GLenum fmt, GLenum type,
 /* bytes [off, off + len) of the buffer bound to `target` in an ES 2 guest context (the host's ES 3) */
 static uint8_t *gl2_read_bound(GLenum target, size_t off, size_t len)
 {
-    uint8_t *r = g_malloc0(len ? len : 1);
+    uint8_t *r = gl_try_alloc0(len);
+    if (!r) {
+        return NULL;
+    }
     GLint size = 0;
     glGetBufferParameteriv(target, GL_BUFFER_SIZE, &size);
     if (off < (size_t)size && len) {
@@ -215,10 +239,10 @@ static int gles_get_string(SyborgGlState *s, Gl2HostCtx *c, GLenum name)
 static uint32_t gles_new_name(Gl2HostCtx *c, int kind)
 {
     int k = kind == GL2_N_SHADER ? GL2_N_PROG : kind;
-    Gl2HostCtx *r = kind == GL2_N_FBO ? c : c->root;
+    uint32_t *next = kind == GL2_N_FBO ? c->next : c->sg->next;
     uint32_t n;
     do {
-        n = ++r->next[k];
+        n = ++next[k];
     } while (g_hash_table_lookup(gl2_map(c, kind), GUINT_TO_POINTER(n)));
     return n;
 }
@@ -283,7 +307,6 @@ static void gles_delete(SyborgGlState *s, Gl2HostCtx *c, int kind, const uint32_
         }
         gl2_unmap(c, kind, names[i]);
     }
-    g_free(names);
 }
 
 /* ---- vertex arrays and draws */
@@ -320,9 +343,36 @@ typedef struct GlesDraw {
     void *copy[16];
 } GlesDraw;
 
+static void gles_draw_done(GlesDraw *g);
+
+/* -1: an enabled client array cannot be read; nothing was set in host GL and the draw must not run (S4: the
+   previous draw's freed copies are still the host's client pointers) */
 static int gles_draw_arrays(SyborgGlState *s, Gl2HostCtx *c, int lo, int hi, GlesDraw *g)
 {
     memset(g, 0, sizeof(*g));
+    if (lo < 0 || hi < lo) {
+        return -1;
+    }
+    for (int i = 0; i < 16; i++) {      /* every copy first */
+        struct GlesArray *r = &c->arr[i];
+        if (r->enabled && !r->va && !r->buf) {  /* review M9: GL would read a NULL or stale pointer */
+            c->err = c->err ? c->err : GL_INVALID_OPERATION;
+            return -1;
+        }
+        if (!r->enabled || !r->va) {
+            continue;
+        }
+        size_t elem = (size_t)r->size * gl1_type_size(r->type);
+        size_t stride = r->stride ? (size_t)r->stride : elem;
+        size_t bytes = (size_t)(hi - lo) * stride + elem;
+        uint64_t start = (uint64_t)r->va + (uint64_t)lo * stride;
+        g->copy[i] = start + bytes <= 0x100000000ull ? gles_in(s, (uint32_t)start, bytes) : NULL;
+        if (!g->copy[i]) {
+            gles_bad(s, "draw (a client array)");
+            memset(g, 0, sizeof(*g));
+            return -1;
+        }
+    }
     GLint ab = 0;
     glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &ab);
     int bound = 0;
@@ -333,13 +383,7 @@ static int gles_draw_arrays(SyborgGlState *s, Gl2HostCtx *c, int lo, int hi, Gle
         }
         int elem = r->size * gl1_type_size(r->type);
         int stride = r->stride ? r->stride : elem;
-        size_t bytes = (size_t)(hi - lo) * stride + elem;
-        uint8_t *h = gles_in(s, r->va + (uint32_t)lo * stride, bytes);
-        if (!h) {
-            gles_bad(s, "draw (a client array)");
-            continue;
-        }
-        g->copy[i] = h;
+        uint8_t *h = g->copy[i];
         const uint8_t *base = h - (size_t)lo * stride;
         g->d.base[i] = base; g->d.size[i] = r->size; g->d.type[i] = r->type; g->d.stride[i] = stride;
         if (!bound) {
@@ -360,9 +404,7 @@ static int gles_draw_arrays(SyborgGlState *s, Gl2HostCtx *c, int lo, int hi, Gle
 
 static void gles_draw_done(GlesDraw *g)
 {
-    for (int i = 0; i < 16; i++) {
-        g_free(g->copy[i]);
-    }
+    (void)g;                            /* the copies are the call's arena (or guest RAM): nothing to free */
 }
 
 static int gles_has_client(Gl2HostCtx *c)
@@ -384,8 +426,10 @@ static void gles_draw(SyborgGlState *s, Gl2HostCtx *c, int elements, const uint3
         if (n < 3 || (int32_t)a[1] < 0 || (int32_t)a[2] <= 0) {
             return;
         }
-        int lo = a[1], hi = a[1] + a[2] - 1;
-        gles_draw_arrays(s, c, lo, hi, &g);
+        int lo = a[1], hi = (int)((int64_t)a[1] + a[2] - 1);
+        if (hi < lo || gles_draw_arrays(s, c, lo, hi, &g)) {
+            return;
+        }
         if (c->api == 1 && c->g1->palEnabled) {
             skin = !gl1_skin(c, &g.d, lo, hi, &k);
         }
@@ -411,17 +455,21 @@ static void gles_draw(SyborgGlState *s, Gl2HostCtx *c, int elements, const uint3
         if (need) {
             uint8_t *ix = idx ? idx : (c->api == 1 ? gl1_read_bound(GL_ELEMENT_ARRAY_BUFFER, a[3], ib)
                                                    : gl2_read_bound(GL_ELEMENT_ARRAY_BUFFER, a[3], ib));
+            if (!ix) {
+                return;
+            }
             gl1_index_range(ix, a[2], a[1], &lo, &hi);
             if (ix != idx) {
                 g_free(ix);
             }
         }
-        gles_draw_arrays(s, c, lo, hi, &g);
+        if (gles_draw_arrays(s, c, lo, hi, &g)) {
+            return;
+        }
         if (c->api == 1 && c->g1->palEnabled) {
             skin = !gl1_skin(c, &g.d, lo, hi, &k);
         }
         glDrawElements(a[0], a[1], a[2], idx ? (const void *)idx : (const void *)(uintptr_t)a[3]);
-        g_free(idx);
     }
     if (skin) {
         gl1_unskin(c, &k);
@@ -485,7 +533,7 @@ static void gles_put_values(SyborgGlState *s, uint32_t va, const uint32_t *v, in
     }
 }
 
-static void gles_read_pixels(SyborgGlState *s, const uint32_t *a, size_t n)
+static void gles_read_pixels(SyborgGlState *s, Gl2HostCtx *c, const uint32_t *a, size_t n)
 {
     if (n < 7) {
         return;
@@ -498,7 +546,12 @@ static void gles_read_pixels(SyborgGlState *s, const uint32_t *a, size_t n)
     GLint align = 4;
     glGetIntegerv(GL_PACK_ALIGNMENT, &align);
     size_t row = ((size_t)a[2] * gles_bpp(a[4], a[5]) + align - 1) / align * align;
-    uint8_t *px = g_malloc0(row * a[3]);
+    uint8_t *px = (int32_t)a[3] > 0 && row <= GL_ALLOC_MAX / a[3] ? gl_try_alloc0(row * a[3]) : NULL;
+    if (!px) {
+        glReadPixels(a[0], a[1], 0, 0, a[4], a[5], NULL);
+        gles_oom(c);
+        return;
+    }
     GLint rf = 0, rt = 0;
     if (a[4] != GL_RGBA || a[5] != GL_UNSIGNED_BYTE) {
         glGetIntegerv(GL_IMPLEMENTATION_COLOR_READ_FORMAT, &rf);
@@ -508,7 +561,12 @@ static void gles_read_pixels(SyborgGlState *s, const uint32_t *a, size_t n)
         glReadPixels(a[0], a[1], a[2], a[3], a[4], a[5], px);
     } else {
         /* the host reads only RGBA (and its own format): read that and pack the guest's (H-gl2-readformat) */
-        uint8_t *rgba = g_malloc((size_t)a[2] * 4 * a[3]);
+        uint8_t *rgba = gl_try_alloc0((size_t)a[2] * 4 * a[3]);
+        if (!rgba) {
+            g_free(px);
+            gles_oom(c);
+            return;
+        }
         glPixelStorei(GL_PACK_ALIGNMENT, 4);
         glReadPixels(a[0], a[1], a[2], a[3], GL_RGBA, GL_UNSIGNED_BYTE, rgba);
         glPixelStorei(GL_PACK_ALIGNMENT, align);
@@ -546,7 +604,6 @@ static int gles_map(SyborgGlState *s, Gl2HostCtx *c, int unmap, const uint32_t *
             void *h = gles_in(s, c->map[k].va, c->map[k].size);
             if (h) {
                 glBufferSubData(a[0], 0, c->map[k].size, h);
-                g_free(h);
             }
             r[0] = 1;
             r[1] = c->map[k].va;
@@ -562,6 +619,10 @@ static int gles_map(SyborgGlState *s, Gl2HostCtx *c, int unmap, const uint32_t *
         return gles_ret(s, size);
     }
     uint8_t *d = c->api == 1 ? gl1_read_bound(a[0], 0, size) : gl2_read_bound(a[0], 0, size);
+    if (!d) {
+        c->err = c->err ? c->err : GL_OUT_OF_MEMORY;
+        return gles_ret(s, 0);
+    }
     gles_put(s, a[2], d, size);
     g_free(d);
     c->map[k].va = a[2];
@@ -622,29 +683,36 @@ static void gles2_shader_source(SyborgGlState *s, Gl2HostCtx *c, const uint32_t 
     uint32_t *strs = gles_in(s, a[2], cnt * 4);
     int32_t *lens = a[3] ? gles_in(s, a[3], cnt * 4) : NULL;
     if (!strs || (a[3] && !lens)) {
-        g_free(strs);
-        g_free(lens);
         gles_bad(s, "glShaderSource");
         return;
     }
     GString *src = g_string_new(NULL);
+    const size_t max_src = 1u << 20;    /* review H2: a shader's whole source, not each string */
     for (uint32_t i = 0; i < cnt; i++) {
         if (lens && lens[i] >= 0) {
+            if ((size_t)lens[i] > max_src - MIN(src->len, max_src)) {
+                break;
+            }
             void *h = gles_in(s, strs[i], lens[i]);
             if (h) {
                 g_string_append_len(src, h, lens[i]);
             }
-            g_free(h);
         } else {
             char *z = gles_string(s, strs[i]);
-            if (z) {
+            if (z && strlen(z) <= max_src - MIN(src->len, max_src)) {
                 g_string_append(src, z);
+            } else if (z) {
+                g_free(z);
+                break;
             }
             g_free(z);
         }
     }
-    g_free(strs);
-    g_free(lens);
+    if (src->len >= max_src) {
+        g_string_free(src, TRUE);
+        gles_oom(c);
+        return;
+    }
     GLuint shader = gl2_name(c, GL2_N_SHADER, a[0], 0);
     const char *policy = getenv("SYBORG_GL2_HIGHP");
     if (!policy || strcmp(policy, "0")) {
@@ -822,7 +890,7 @@ static int gl2_call_1(SyborgGlState *s, Gl2HostCtx *c, uint32_t fn, const uint32
         break;
     case GL2_FN_glDrawArrays: gles_draw(s, c, 0, a, n); break;
     case GL2_FN_glDrawElements: gles_draw(s, c, 1, a, n); break;
-    case GL2_FN_glReadPixels: gles_read_pixels(s, a, n); break;
+    case GL2_FN_glReadPixels: gles_read_pixels(s, c, a, n); break;
     case GL2_FN_glShaderSource: gles2_shader_source(s, c, a, n); break;
     case GL2_FN_glShaderBinary:         /* no binary formats (GL_NUM_SHADER_BINARY_FORMATS 0) */
         c->err = c->err ? c->err : GL_INVALID_ENUM;
@@ -1041,7 +1109,7 @@ static int gl1_call_1(SyborgGlState *s, Gl2HostCtx *c, uint32_t fn, const uint32
         break;
     case GL1_FN_glDrawArrays: gles_draw(s, c, 0, a, n); break;
     case GL1_FN_glDrawElements: gles_draw(s, c, 1, a, n); break;
-    case GL1_FN_glReadPixels: gles_read_pixels(s, a, n); break;
+    case GL1_FN_glReadPixels: gles_read_pixels(s, c, a, n); break;
     /* ---- matrices (the palette's on the host CPU) */
     case GL1_FN_glMatrixMode:
         if (n >= 1) {
@@ -1066,7 +1134,6 @@ static int gl1_call_1(SyborgGlState *s, Gl2HostCtx *c, uint32_t fn, const uint32
             for (int i = 0; i < 16; i++) {
                 m[i] = fx ? fx2f(w[i]) : u2f(w[i]);
             }
-            g_free(w);
             int load = fn == GL1_FN_glLoadMatrixf || fn == GL1_FN_glLoadMatrixx;
             if (g->palMode) {
                 if (load) {
@@ -1184,7 +1251,7 @@ static int gles_call(SyborgGlState *s, int api, const uint32_t *w, size_t words)
         return 1;
     }
     /* w[0]: the calling guest thread; its current OpenGL ES context is the host EGL's to say */
-    Gl2HostCtx *c = gl2_find(s, syvg_gl_current(s->owner, w[0]));
+    Gl2HostCtx *c = gl2_find(s, syvg_gl_current(gl_ex->owner, w[0]));
     if (!c || c->api != api) {
         /* no context of that API current: the call does nothing, but a caller waiting for a result gets
            one (glGetString: the device's strings, as the old guest library answered without a context) */
@@ -1193,11 +1260,13 @@ static int gles_call(SyborgGlState *s, int api, const uint32_t *w, size_t words)
             return gles_get_string(s, &tmp, w[2]);
         }
         uint32_t z[2] = { 0, 0 };
-        gl2_out(s, z, MIN(s->outlen, 8u));
+        gl2_out(s, z, MIN(gl_ex->outlen, 8u));
         return 0;
     }
     gl2_use(s, c);
+    size_t mark = gl_tmp_mark(s);       /* the call's inputs and outputs live until it returns */
     int r = api == 1 ? gl1_call_1(s, c, w[1], w + 2, words - 2) : gl2_call_1(s, c, w[1], w + 2, words - 2);
+    gl_tmp_release(s, mark);
     if (check < 0) {
         check = getenv("SYBORG_GL2_CHECK") && *getenv("SYBORG_GL2_CHECK") == '1';
     }

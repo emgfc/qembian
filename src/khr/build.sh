@@ -53,6 +53,10 @@ python3 -I "$HERE/gen_khr.py" "$DEFS" "$OBJ" - "$OBJ/sygl/gles_alias.txt"
 # headers for the SF surface update client (not in the SDK): <graphics/surfaceupdateclient.h>, <graphics/suerror.h>
 SU="$ROOT/external/oss.FCL.sf.os.graphics/graphicscomposition/surfaceupdate"
 mkdir -p "$OBJ/sfinc/graphics"; for h in surfaceupdateclient.h suerror.h; do ln -sfn "$SU/inc/$h" "$OBJ/sfinc/graphics/$h"; done
+# TSurfaceConfiguration (REglWindowBase::SetBackgroundSurface; the SDK's w32std.h only declares it)
+WS="$ROOT/external/oss.FCL.sf.os.graphics/windowing/windowserver"
+ln -sfn "$WS/inc/Graphics/surfaceconfiguration.h" "$OBJ/sfinc/graphics/surfaceconfiguration.h"
+ln -sfn "$ROOT/external/oss.FCL.sf.os.graphics/windowing/windowserver/inc/Graphics/openwfc/surfaceconfiguration.inl" "$OBJ/sfinc/graphics/surfaceconfiguration.inl"
 # import library for the ROM's surfaceupdateclient.dll (UID3 from the ROM; the SDK has none), from SF's def
 "$E2E" --definput="$SU/eabi/surfaceupdateclientU.def" --dso="$OBJ/surfaceupdateclient.dso" \
   --linkas="surfaceupdateclient{000a0000}[10282ff1].dll" --targettype=IMPLIB >/dev/null 2>&1 \

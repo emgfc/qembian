@@ -296,7 +296,8 @@ class Phone(QtWidgets.QWidget):
         side.addWidget(self.turn_btn)
         QtGui.QShortcut(QtGui.QKeySequence('Ctrl+T'), self, activated=lambda: self.turn(not self.screen.turned))
         side.addSpacing(10)
-        for label, fn in (('GPU capture (30 frames)', self.gpu_capture), ('Shot', self.shot), ('Snapshot', self.snap), ('Pause', self.pause), ('Reset', self.reset)):
+        for label, fn in (('GPU capture (30 frames)', self.gpu_capture), ('Shot', self.shot), ('Snapshot', self.snap), ('Pause', self.pause), ('Reset', self.reset),
+                          ('Operator settings\n(SMS)', self.operator_settings)):
             b = QtWidgets.QPushButton(label)
             b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             b.clicked.connect(fn)
@@ -500,6 +501,26 @@ class Phone(QtWidgets.QWidget):
     def snap(self):
         self.call({'op': 'snap', 'sub': 'save', 'name': time.strftime('phone-%H%M%S')}, timeout=300)
         self.set_status(note='snapshot saved (sydb snap list)')
+
+    def operator_settings(self):
+        """the network operator's "settings over the air" message (OMA Client Provisioning by SMS) on the virtual
+        SIM: the phone offers to save an Internet access point (tools/sms_provision.py, syborg-modem "sms")"""
+        def go():
+            try:
+                sys.path.insert(0, os.path.dirname(HERE))
+                import sms_provision
+                for t in sms_provision.sms_deliver_tpdus(
+                        sms_provision.wsp_push(sms_provision.provisioning_doc('internet', 'Internet')), '12345'):
+                    r = self.c.call({'op': 'qmp', 'cmd': 'qom-set', 'args': {'path': '/machine/modem',
+                                                                              'property': 'sms', 'value': t.hex()}}, 10)
+                    if not r.get('ok'):
+                        raise RuntimeError(r.get('error', 'failed'))
+                message = 'operator settings: sent (save them on the phone)'
+            except Exception as e:
+                message = 'operator settings: %s' % e
+            QtCore.QMetaObject.invokeMethod(self, '_capture_status', Qt.ConnectionType.QueuedConnection,
+                                            QtCore.Q_ARG(str, message))
+        threading.Thread(target=go, daemon=True).start()
 
     def gpu_capture(self):
         def go():

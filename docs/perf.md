@@ -73,6 +73,29 @@ backend); gem5 / Arm Fast Models tag entries the same way the coherence rules he
 | parked tables never shrink (up to 2^20 entries per index), 16 x 22 indexes | open: report bytes; resize on park when the window expired; maybe 8 slots |
 | globals instead of per-CPU state (single vCPU only) | open (nit): move into CPUTLBCommon |
 
+## Lookup helper: the key by value (patches/qemu-modern/0006, 2026-11-11)
+
+Found by the 2026-11-11 review (docs/research/tb-lookup-advice.md): `tb_lookup`/`tb_htable_lookup` took
+the 24-byte TB key by value; GCC built the callee's copy before the jump-cache probe, one 16-byte load
+over three narrower stores just made, a store-to-load forwarding failure on every lookup. Fixed by passing
+the key by pointer and never inlining the hash-table lookup.
+Measured (808 boot, vCPU thread, 20 s, `perf stat -e ls_bad_status2.stli_other`): forwarding failures
+1.56 G -> 0.30 G (-81 %). N8 seed boot to idle, old/new binaries alternated, 4 runs each: 14.48 s -> 14.02 s
+(-3 %). Much less than the review's estimate (25-30 %): most of the stall overlapped other work.
+
+## Jump-cache misses: counted, then the domain drop made precise (0007-0009, 2026-11-11)
+
+`tools/boot_bench.py` (matched seeded boots, binaries alternated, wall and vCPU CPU time to start-up done) and
+the 0007 counters (`SYBORG_TB_STATS=1`). N8 start-up, before 0009: 470 M lookups (94 % from
+`helper_lookup_tb_ptr`), 88.6 % jump-cache hits; misses 80 % empty slots, 18 % conflicts. 0008 (a hash of the
+whole page number, cache 13-15 bits): no gain in any variant (13.99-14.32 s), left off by default. The empty
+slots came from our DACR domain drop (0005): a domain counted as "code" when any PAGE_EXEC entry of it was
+filled, and the kernel maps the IPC alias pages executable, so every alias lock emptied the whole jump cache
+(~61 k times per boot). 0009 marks a domain only where code is fetched from it (`get_page_addr_code_hostp`,
+which every TB passes in its context before it reaches a jump cache). Result: domain flushes 61 k -> 1, empty
+misses 43 M -> 6 M, hash-table lookups 53 M -> 17 M; N8 start-up 14.10 s -> 12.87 s (-8.7 %, 5 pairs, spread
+< 0.4 s). The return predictor is not pursued (owner, 2026-11-11).
+
 ## Parked levers (not now)
 
 - PGO for QEMU (`-Db_pgo=generate`, train on a boot, then `use`): the reviewer's estimate 10-20% for the

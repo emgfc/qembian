@@ -6,6 +6,7 @@ linkas			ehwa.ldd
 targettype		ldd
 sourcepath		.
 source			ehwa.cpp
+library			PlatformLib		// Interrupt::Bind (syborg-snd IRQ)
 noexportlibrary
 vendorid		0x70000001
 capability		all

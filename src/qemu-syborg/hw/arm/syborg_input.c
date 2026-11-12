@@ -27,6 +27,7 @@
 #include "migration/vmstate.h"
 #include "ui/input.h"
 #include "qapi/util.h"
+#include "qemu/timer.h"
 #include "qapi/qapi-types-ui.h"
 #include "qemu/error-report.h"
 #include "qom/object.h"
@@ -251,10 +252,20 @@ static void kbd_class_init(ObjectClass *oc, const void *data)
     device_class_set_props(dc, kbd_properties);
 }
 
-/* ---- pointer ---- */
+/* ---- pointer ----
+ * v2 (docs/research/touch-driver-design.md): typed events. Every input sync is one FIFO entry {x, y, z,
+ * buttons, slot, flags (DOWN/UP/MOVE), time}; the touch stand-in (exyin) forwards them in order as raw events.
+ * Registers 0..8 as v1 (the N95's mouse driver); 9 VERSION, 10 CAPS, 11 SLOT, 12/13 TS lo/hi (virtual clock,
+ * us), 14 FLAGS, 15 STATS (dropped | coalesced << 16) of the latched entry. A button change is never dropped:
+ * when the FIFO is nearly full a move replaces the newest queued move of its slot (COALESCED).
+ */
+#define PTR_FIFO_MAX 256
+enum { PTR_DOWN = 1, PTR_UP = 2, PTR_MOVE = 4, PTR_COALESCED = 8, PTR_CANCEL = 16 };
 
 typedef struct SyborgPointerEvent {
     uint32_t x, y, z, buttons;
+    uint32_t slot, flags;
+    uint64_t ts;
 } SyborgPointerEvent;
 
 OBJECT_DECLARE_SIMPLE_TYPE(SyborgPointerState, SYBORG_POINTER)
@@ -266,18 +277,49 @@ struct SyborgPointerState {
     uint32_t fifo_size;
     bool absolute;
     bool input;                    /* receive host mouse events (off: S60 3rd has no touch) */
+    bool trace;                    /* property "trace": every queued entry on stderr */
+    uint32_t sample_hz;            /* property "sample-hz": the panel's report rate (0: every host event) */
+    int64_t last_move;             /* virtual us of the last MOVE queued (rate limit) */
+    bool have_held;                /* a MOVE that came too soon after the last one: sent at the next sample */
+    SyborgPointerEvent held;
+    QEMUTimer *sample_timer;
     uint32_t int_enabled;
     uint32_t count, head;
+    uint32_t dropped, coalesced;
     SyborgPointerEvent cur;        /* latched into the registers */
     SyborgPointerEvent pending;    /* being assembled from input events */
+    uint32_t synced_buttons;       /* the buttons of the last queued entry: DOWN/UP edges */
     int32_t dz;
-    SyborgPointerEvent fifo[INPUT_FIFO_MAX];
+    SyborgPointerEvent fifo[PTR_FIFO_MAX];
     QemuInputHandlerState *hs;
 };
 
 static void ptr_update(SyborgPointerState *s)
 {
     qemu_set_irq(s->irq, s->count && s->int_enabled);
+}
+
+static void ptr_push(SyborgPointerState *s, const SyborgPointerEvent *e)
+{
+    SyborgPointerEvent *last = s->count ? &s->fifo[(s->head + s->count - 1) % s->fifo_size] : NULL;
+    if ((e->flags & PTR_MOVE) && last && (last->flags & PTR_MOVE) && last->slot == e->slot &&
+        s->count >= s->fifo_size - 8) {
+        uint32_t keep = last->flags & PTR_COALESCED;
+        *last = *e;
+        last->flags |= PTR_COALESCED | keep;
+        s->coalesced++;
+    } else if (s->count < s->fifo_size) {
+        s->fifo[(s->head + s->count) % s->fifo_size] = *e;
+        s->count++;
+    } else if (last) {
+        *last = *e;                 /* a FIFO full of button changes: not reachable from fingers */
+        s->dropped++;
+    }
+    if (s->trace) {
+        fprintf(stderr, "syborg-pointer: slot %u flags %02x %u,%u buttons %u ts %" PRIu64 " count %u\n",
+                e->slot, e->flags, e->x, e->y, e->buttons, e->ts, s->count);
+    }
+    ptr_update(s);
 }
 
 static void ptr_event(DeviceState *dev, QemuConsole *src, QemuInputEvent *evt)
@@ -313,18 +355,63 @@ static void ptr_event(DeviceState *dev, QemuConsole *src, QemuInputEvent *evt)
     }
 }
 
+/* The panel's report rate. A host mouse or the Android screen reports moves at up to 1000/s; a phone's touch
+   controller samples at a fixed rate (sample-hz, from the profile's [board.display] touch_rate_hz). Moves
+   between two samples are merged into the latest position, sent at the next sample time; a press or a
+   release is never delayed and first sends a merged move it overtakes, so the release ends where the finger
+   was. Without it the 808 home screen got ~400 moves/s per swipe and fell behind (late release: swipes
+   missed or taken for long presses). */
+static void ptr_flush_held(SyborgPointerState *s, int64_t now)
+{
+    if (s->have_held) {
+        s->have_held = false;
+        s->held.ts = now;
+        ptr_push(s, &s->held);
+        s->last_move = now;
+    }
+}
+
+static void ptr_sample(void *opaque)
+{
+    SyborgPointerState *s = opaque;
+    ptr_flush_held(s, qemu_clock_get_us(QEMU_CLOCK_VIRTUAL));
+}
+
+/* one entry per sync: a left-button edge is DOWN or UP (both, in order, if a tap fell inside one sync is
+   impossible here: QEMU syncs after each change), otherwise MOVE */
 static void ptr_sync(DeviceState *dev)
 {
     SyborgPointerState *s = SYBORG_POINTER(dev);
-
-    if (s->count < s->fifo_size) {
-        SyborgPointerEvent e = s->pending;
-        e.z = s->dz;
-        s->fifo[(s->head + s->count) % s->fifo_size] = e;
-        s->count++;
+    SyborgPointerEvent e = s->pending;
+    uint32_t was = s->synced_buttons & 1, now = e.buttons & 1;
+    int64_t t = qemu_clock_get_us(QEMU_CLOCK_VIRTUAL);
+    e.z = s->dz;
+    e.slot = 0;
+    e.ts = t;
+    e.flags = now && !was ? PTR_DOWN : !now && was ? PTR_UP : PTR_MOVE;
+    if (e.flags == PTR_MOVE && s->sample_hz) {
+        int64_t period = 1000000 / s->sample_hz;
+        if (!s->have_held && t - s->last_move >= period) {
+            ptr_push(s, &e);
+            s->last_move = t;
+        } else {
+            if (!s->have_held) {
+                timer_mod(s->sample_timer, s->last_move + period);
+            }
+            s->held = e;
+            s->have_held = true;
+            s->coalesced++;
+        }
+    } else {
+        if (s->have_held) {
+            timer_del(s->sample_timer);
+            ptr_flush_held(s, t);
+        }
+        ptr_push(s, &e);
+        s->last_move = t;
     }
+    s->synced_buttons = e.buttons;
     s->dz = 0;
-    ptr_update(s);
 }
 
 static const QemuInputHandler ptr_handler = {
@@ -347,6 +434,13 @@ static uint64_t ptr_read(void *opaque, hwaddr offset, unsigned size)
     case 6: return s->cur.buttons;
     case 7: return s->int_enabled;
     case 8: return s->fifo_size;
+    case 9: return 2;
+    case 10: return 3 | 1 << 8;    /* timestamps, typed events; one slot (multitouch: later) */
+    case 11: return s->cur.slot;
+    case 12: return (uint32_t)s->cur.ts;
+    case 13: return (uint32_t)(s->cur.ts >> 32);
+    case 14: return s->cur.flags;
+    case 15: return (s->dropped & 0xffff) | s->coalesced << 16;
     default: return 0;
     }
 }
@@ -385,7 +479,7 @@ static void ptr_realize(DeviceState *dev, Error **errp)
 {
     SyborgPointerState *s = SYBORG_POINTER(dev);
 
-    if (s->fifo_size == 0 || s->fifo_size > INPUT_FIFO_MAX) {
+    if (s->fifo_size == 0 || s->fifo_size > PTR_FIFO_MAX) {
         error_setg(errp, "syborg-pointer: bad fifo-size");
         return;
     }
@@ -395,38 +489,45 @@ static void ptr_realize(DeviceState *dev, Error **errp)
     if (s->input) {
         s->hs = qemu_input_handler_register(dev, &ptr_handler);
     }
+    s->sample_timer = timer_new_us(QEMU_CLOCK_VIRTUAL, ptr_sample, s);
 }
 
 static const VMStateDescription vmstate_ptr_event = {
     .name = "syborg-pointer-event",
-    .version_id = 1,
-    .minimum_version_id = 1,
+    .version_id = 2,
+    .minimum_version_id = 2,
     .fields = (const VMStateField[]) {
         VMSTATE_UINT32(x, SyborgPointerEvent),
         VMSTATE_UINT32(y, SyborgPointerEvent),
         VMSTATE_UINT32(z, SyborgPointerEvent),
         VMSTATE_UINT32(buttons, SyborgPointerEvent),
+        VMSTATE_UINT32(slot, SyborgPointerEvent),
+        VMSTATE_UINT32(flags, SyborgPointerEvent),
+        VMSTATE_UINT64(ts, SyborgPointerEvent),
         VMSTATE_END_OF_LIST()
     }
 };
 
 static const VMStateDescription vmstate_ptr = {
     .name = "syborg-pointer",
-    .version_id = 1,
-    .minimum_version_id = 1,
+    .version_id = 2,
+    .minimum_version_id = 2,
     .fields = (const VMStateField[]) {
         VMSTATE_UINT32(int_enabled, SyborgPointerState),
         VMSTATE_UINT32(count, SyborgPointerState),
         VMSTATE_UINT32(head, SyborgPointerState),
-        VMSTATE_STRUCT(cur, SyborgPointerState, 1, vmstate_ptr_event, SyborgPointerEvent),
-        VMSTATE_STRUCT_ARRAY(fifo, SyborgPointerState, INPUT_FIFO_MAX, 1,
+        VMSTATE_UINT32(synced_buttons, SyborgPointerState),
+        VMSTATE_STRUCT(cur, SyborgPointerState, 2, vmstate_ptr_event, SyborgPointerEvent),
+        VMSTATE_STRUCT_ARRAY(fifo, SyborgPointerState, PTR_FIFO_MAX, 2,
                              vmstate_ptr_event, SyborgPointerEvent),
         VMSTATE_END_OF_LIST()
     }
 };
 
 static const Property ptr_properties[] = {
-    DEFINE_PROP_UINT32("fifo-size", SyborgPointerState, fifo_size, 16),
+    DEFINE_PROP_UINT32("fifo-size", SyborgPointerState, fifo_size, PTR_FIFO_MAX),
+    DEFINE_PROP_BOOL("trace", SyborgPointerState, trace, false),
+    DEFINE_PROP_UINT32("sample-hz", SyborgPointerState, sample_hz, 0),
     DEFINE_PROP_BOOL("absolute", SyborgPointerState, absolute, true),
     /* the N95 (S60 3rd edition) has no touch screen: keep the device for the guest driver but
        do not take host mouse input unless asked (-global syborg-pointer.input=on) */
@@ -442,6 +543,11 @@ static void ptr_reset(DeviceState *dev)
     memset(&s->cur, 0, sizeof(s->cur));
     memset(&s->pending, 0, sizeof(s->pending));
     s->dz = 0;
+    s->have_held = false;
+    s->last_move = 0;
+    if (s->sample_timer) {
+        timer_del(s->sample_timer);
+    }
     ptr_update(s);
 }
 

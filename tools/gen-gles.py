@@ -235,11 +235,11 @@ for a in (1, 2):
             if c:
                 hb.append('\t\tvoid *h_%s = gles_in(s, a[%d], b_%s);' % (p, i, p))
                 hb.append('\t\tif (a[%d] && !h_%s) { gles_bad(s, "%s"); break; }' % (i, p, name))
-            else:
-                hb.append('\t\tvoid *h_%s = gles_room(b_%s);' % (p, p))
+            else:                   # the call's arena (phase 4): capped, released by gles_call
+                hb.append('\t\tvoid *h_%s = gles_room(s, b_%s);' % (p, p))
+                hb.append('\t\tif (a[%d] && !h_%s) { gles_oom(c); break; }' % (i, p))
                 outs.append((p, i))
             args[i] = '(%s%s *)h_%s' % ('const ' if c else '', t if t != 'GLvoid' else 'void', p)
-            frees.append('g_free(h_%s);' % p)
         call = '%s(%s)' % (hn, ', '.join(args))
         if ret != 'void':
             hb.append('\t\tuint32_t r_ = (uint32_t)%s;' % call)

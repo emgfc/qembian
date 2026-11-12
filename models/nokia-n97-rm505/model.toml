@@ -43,6 +43,7 @@ line_pitch = 2560                          # 640 x 4 bytes [I]
 panel_rows = 360
 caps_words = 27                            # r_display: CDisplayDriver 0x84 bytes, caps at +0x18, as on the 5730 [V]
 touch = true                               # resistive single touch: exyin stand-in, -global syborg-pointer.input=on
+touch_rate_hz = 60                         # [I] resistive panel report rate: moves between samples are merged (syborg-pointer sample-hz)
 
 [board.audio]
 dsp = "rapido"                             # RAPIDO DSP model: aamdaifdriver + the ISC peer's F3 replies

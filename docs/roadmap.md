@@ -163,6 +163,13 @@ kernel faults in `__magic_address_readdesheader1` from `SessionSendSync` (client
 integers as descriptor pointers, e.g. TmScanServer, Anykey): worth checking against exec92's IPC
 argument-flag translation.
 
+**In progress: a safe graphics boundary, then a faster one (2026-11-11).** Plan, exit tests and status in
+[gpu-boundary-roadmap.md](gpu-boundary-roadmap.md) (findings: gpu-boundary-review-2026-11-10.md). Phases 1
+(authority: user-permission guest access, kernel-only registers, owner and compositor rights from
+d_display) and 2 (lifetime and bounds) are done; then the speed phases for slower hosts (phones): OpenVG
+batching (3), fewer copies (4), a renderer worker (5), each measured with `tools/gl_bench.py`. Hostile tests:
+`tools/probes/glsec`.
+
 **Later: host GPU presentation and the rest of the settings (parked 2026-11-08 by the owner).**
 Design and reasons in docs/gpu-host-review.md (sections 2 and 3, status table at the top). In order:
 1. Device side of GL scan-out: the syborg-gl context shared with QEMU's display EGL context, a
