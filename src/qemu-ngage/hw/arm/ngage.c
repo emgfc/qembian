@@ -17,6 +17,7 @@
  *   0x0C1F0000  NOS stand-in device (board-only, H-nos-standin)                 Q20 Q21
  *   0x0DE00000  kernel debug output (trace port), to serial 0                 Q18
  *   0x0C150420  CBus master to the external chips (device 1: power ASIC)       Q11
+ *               device 5: the Bluetooth module (LPRF, ngage_lprf.c), its interrupt CTSI 2 bit 4
  *   0x0C000000  UPP peripherals and internal SRAM (0x0C004000), virtual 0x58000000: catch-all
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
@@ -40,6 +41,8 @@
 #include "qemu/timer.h"
 #include "hw/core/irq.h"
 #include "ngage_mmc.h"
+#include "ngage_keys.h"
+#include "ngage_lprf.h"
 #include "accel/tcg/cpu-loop.h"
 #include "tcg/insn-start-words.h"
 #include "exec/target_page.h"
@@ -255,6 +258,46 @@ static const struct {
                     "powers off above 0x3DD and skips its delay for 5..93. 480 [I]" },
 };
 
+/*
+ * CBus device 5 = the Bluetooth module (LPRF): btldd.ldd's logical registers 37-44 are device 5
+ * registers 0, 1, 6, 8, 9, 10, 11, 16 (cbus.dll table 0x5037e544) [V]. The module (ngage_lprf.c)
+ * raises CTSI status 2 bit 4 (interrupt source 25) a moment after each event, never from inside
+ * the CBus access itself.
+ */
+#define NGAGE_CBUS_LPRF   5
+#define NGAGE_CTSI2_LPRF  0x0010
+#define NGAGE_LPRF_DELAY_NS 50000       /* 50 us [I] */
+
+static NgageLprf ngage_lprf;
+static QEMUTimer *ngage_lprf_timer;
+
+static void ngage_lprf_kick(void *opaque)
+{
+    if (!timer_pending(ngage_lprf_timer)) {
+        timer_mod(ngage_lprf_timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + NGAGE_LPRF_DELAY_NS);
+    }
+}
+
+static void ngage_lprf_expire(void *opaque)
+{
+    if (ngage_lprf_deliver(&ngage_lprf)) {
+        ngage_ctsi2_raise(NGAGE_CTSI2_LPRF);
+    }
+}
+
+static void ngage_lprf_log(void *opaque, const char *msg)
+{
+    qemu_log_mask(LOG_UNIMP, "ngage-bt: %s\n", msg);
+}
+
+static void ngage_lprf_setup(void)
+{
+    ngage_lprf.kick = ngage_lprf_kick;
+    ngage_lprf.log = ngage_lprf_log;
+    ngage_lprf_init(&ngage_lprf);
+    ngage_lprf_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, ngage_lprf_expire, NULL);
+}
+
 static uint64_t ngage_cbus_read(void *opaque, hwaddr addr, unsigned size)
 {
     NgageCbus *c = opaque;
@@ -276,6 +319,9 @@ static void ngage_cbus_commit_write(NgageCbus *c)
 
     c->regs[r] = (uint32_t)c->hi << 16 | c->lo;
     c->written[r] = true;
+    if (r >> 5 == NGAGE_CBUS_LPRF) {
+        ngage_lprf_write(&ngage_lprf, r & 0x1f, c->lo);
+    }
     if (ngage_log_hot(&count[r]))
     qemu_log_mask(LOG_UNIMP, "ngage-cbus: W dev %u reg %02x = %04x%s (fmt %02x cmd %03x) pc=%08x\n",
                   r >> 5, r & 0x1f, c->lo, c->hi ? " hi" : "", c->fmt, c->cmd, ngage_pc());
@@ -312,6 +358,10 @@ static void ngage_cbus_write(void *opaque, hwaddr addr, uint64_t val, unsigned s
                     v = ngage_cbus_status[i].val;
                     src = " (declared status)";
                 }
+            }
+            if (r >> 5 == NGAGE_CBUS_LPRF) {
+                v = ngage_lprf_read(&ngage_lprf, r & 0x1f);
+                src = " (Bluetooth module)";
             }
             if (r == (1 << 5 | 0x15) && getenv("NGAGE_POWERON")) {   /* experiments (Q51) */
                 v = strtoul(getenv("NGAGE_POWERON"), NULL, 0);
@@ -1467,6 +1517,7 @@ static void ngage_init(MachineState *machine)
             t->t[i].irq = in[i];                                         /* IrqTimer<i> */
         }
         ngage_keys_init(sys, in[25]);                       /* keypad, IrqCTSI_IRQ (Q53) */
+        ngage_lprf_setup();                                 /* Bluetooth, CBus dev 5, CTSI 2 */
         ngage_mmc_init(sys, in, ngage_mmc_file);            /* MMC 21-24, DMA channels 6.. [I] */
         memory_region_init_io(&t->mr, NULL, &ngage_timer_ops, t, "ngage.timers",
                               0x20 * NGAGE_TIMERS);

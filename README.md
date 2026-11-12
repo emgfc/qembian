@@ -109,6 +109,14 @@ registration, packet data bridged to the host network (QEMU user networking) and
 settings message that creates the Internet access point. The N8 can also use an Ethernet device on
 the host network (`docs/devices/nokia-n8-rm596/ethernet.md`).
 
+**Hosted EKA2 (experimental, 2026-11-12).** A second way to run a phone: the EKA2 kernel as a
+32-bit ARM Linux process, with the phone's ROM code running natively instead of under CPU emulation
+(`src/hosted/README.md`, `docs/hosted-eka2/`). Today it runs inside a QEMU aarch64 virtual machine;
+the target is a phone or board whose CPU still executes 32-bit ARM code (e.g. a Pixel 3a). The N95 8GB
+boots to its home screen this way with a live screen and keypad: `python3 tools/hosted/phone.py`
+(Ctrl+T shows the Linux side: the whole phone is one Linux process, each Symbian thread a Linux thread).
+Offline only; no sound output, no 3D graphics; the N8 and later phones need the graphics path first.
+
 **Host platform.** Linux on x86-64 (amd64) is the only tested host. Other systems and
 architectures may work, but they are not tested or supported.
 
@@ -219,5 +227,8 @@ its MCP server, configured in `.mcp.json`), `docs/devices.md` and `docs/adding-a
 qembian's own code is MIT licensed (`LICENSE`), except where a file or directory says otherwise:
 changes to and code built into Eclipse Public License projects (the kernel and board patches,
 personalities, stand-in drivers, the elf2e32_next patch) are under the EPL-1.0, and the QEMU board
-code and QEMU patches are under the GPL-2.0-or-later, like QEMU. Third-party sources are fetched
+code and QEMU patches are under the GPL-2.0-or-later, like QEMU. The hosted kernel (`src/hosted`) is
+under the EPL-1.0, like the kernel it is built into; the fake modem core
+(`src/qemu-syborg/hw/arm/syborg_modem_core.*`), used by both QEMU and the hosted kernel, is dual licensed
+GPL-2.0-or-later OR EPL-1.0. Third-party sources are fetched
 at build time and keep their own licenses. Nokia firmware and SDKs are not part of this project.

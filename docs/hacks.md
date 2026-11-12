@@ -108,6 +108,96 @@ patch it applies at start-up.
 | Bootstrap answers: Intel 0x8874 for both flash chips; power-on reason = power key (CBus dev 1 reg 0x15 bit 4, start-up mode 4); device 4 ASIC id 0x0400; PLL/ready bits forced on | `ngage.c` (Q4, Q9, Q10, Q14, Q15) | real chip models where they matter (the C: flash media, UEM ADC/RTC) |
 | **Timer stop/start (2026-11-12, fix, not a hack):** a mode write 0 keeps the remaining count, a running mode written while stopped resumes from +10 (timer 1 froze otherwise: every one-shot kernel timer, the keypad scan included, stopped) | `ngage.c` ngage_timer_write | n/a |
 | **H-ngage-mmc (2026-11-12):** MMC host at 0x0C120600 + the DMA engine at 0x0C120300 (`ngage_mmc.c`, `-M ngage,mmc=CARD.img`): every command completes at once (busy bits never set, CmdIdle/DataIdle always asserted, CmdRdy = a response word waits); a fixed CID and a CSD v1.x sized from the image; R1 always 0x900 (tran, ready). DMA: only transfers to/from the MMC FIFO are modelled (whole count at once, channel interrupt = source 6 + ch [I]); other channels (the LCD's) keep the catch-all behaviour (control reads back what was written). Card detect = the stack's own CMD0/1/2 polling | `src/qemu-ngage/hw/arm/ngage_mmc.c`, docs/research/ngage-mmc-controller.md | busy timing, write-protect/lock (CMD42), the GD1 game-card driver, a DMA model for the LCD |
+| **H-ngage-bt (2026-11-12):** the Bluetooth module (LPRF, CBus device 5, CTSI status 2 bit 4 on source 25) is a minimal Bluetooth 1.1 HCI controller (`ngage_lprf.c`): it answers btldd's register protocol at once (reset indication on control 1, buffer size 520, every write acknowledged), every HCI command succeeds with standard return fields, inquiries find nobody, connections time out. BD_ADDR 00:02:EE:12:34:56, name "N-Gage", manufacturer 1, features and buffer sizes are guesses nothing checks [I]. Out-of-range timeouts get status 0x12 as on a real controller. The module never sleeps (no 0x20/0x100 status, no wake-up GPIO) | `ngage_lprf.c`, `ngage.c` (CBus dev 5), `ngage_keys.c` (CTSI 2); docs/research/ngage-bluetooth.md; `tests/ngage_lprf_test.c` | the real module's timing, sleep and its vendor commands; a radio link (host Bluetooth or a second board) for multiplayer |
+| **H-ngage-selftest-stop (2026-11-12):** the ISI table sends SelfTestServer `PN_EPOC_TEST` (0x59) msg 1 sub-id 8 when it opens unit 13. That case answers and stops SelfTestServer; it then closes its BTTestServer session, BTTestServer exits and frees btldd's only channel. Without it BTTestServer (connected by SelfTestServer at boot) keeps the channel for ever, bt.prt's HCI open fails -11, and BTServer, emon ("App. closed EmonServer") and RHostResolver::GetHostName (Snakes) fail. What really ends the boot test session on a phone is not known [I] | `src/qemu-ngage/isi-replies.txt` (`ind 13 ...`) | the CMT's own end of the test session (real NOS), or whatever the phone really sends |
+
+## Hosted EKA2 (src/hosted, tools/hosted/htest.py; docs/hosted-eka2/)
+
+The EPL kernel running as a 32-bit Linux process, the phone's ROM code native (design:
+`src/hosted/README.md`, future designs: `docs/hosted-eka2/future.md`). Test machine: QEMU virt aarch64.
+[V] = checked against the ARM board, the EPL source or a test; [G] = a guess or a choice that only had to
+work for now. Each row says where the shortcut lives and what the real implementation would be.
+
+### Architecture-level shortcuts (deliberate, see src/hosted/README.md "Choices")
+
+| Hack | Where | Real implementation |
+|---|---|---|
+| The whole Symbian machine is ONE Linux process: every Symbian process shares one address space; no memory protection between Symbian processes, nor between user code and kernel data (as the Win32 emulator) [G] | design | one Linux process per Symbian process, kernel data in a shared memfd (future.md section 4) |
+| The host CPU must execute AArch32 (old phones, Cortex-A53..A76 class, the QEMU test VM); arm64-only CPUs and x86-64 cannot run it [V] | design | JIT / ahead-of-time translation (future.md section 6) |
+| One host thread per nanothread, exactly one running at a time; a switch is a futex hand-over (Win32 model). The unicore `nkern`, no SMP [V] | `nkern/linux/ncsched.cpp` | one host thread for all nanothreads, or nkernsmp with per-CPU host threads (future.md 3, 5) |
+| Futexes are process-shared (no FUTEX_PRIVATE_FLAG) although there is one process: kept for the multi-process and SMP designs, where the scheduler lock, fast mutexes and thread events in shared kernel data must be woken from another process. Costs the slower shared-key path on every futex call [inferred 10-30%] | `rt/hrt.h` | private futexes while single-process if a measurement says it matters; shared again with the split |
+| Kernel-side ROM images (the phone's EKERN-prelinked LDDs/PDDs/extensions) are replaced by hosted builds of the same sources by file name (htest KMODULES, LCD.DLL from the profile); ROM extensions without a build are skipped with a log line (BTRACEX, EXMON*, KDEBUG, svphostfs, svpsnap, rm_debug); sound and webcamera drivers not built [V for the built ones] | `kernel/linux/kmodules.cpp`, htest.py | the module list generated from the device profile like the ARM ROM |
+| Each built-in module is one partial link with every symbol not used by another object localised (COMDAT groups dropped first, so modules from one source keep their own inline copies) [V: kn_efile] | htest.py | real separately loaded kernel DLLs (a hosted E32 loader for kernel code) |
+| A reloaded built-in module gets its .data restored, .bss zeroed and constructors rerun (as a fresh ARM DLL); no static destructors on unload [G] | `kmodules.cpp` | same, plus destructors if a driver needs them |
+| Test variant (HostedAsic) instead of our Syborg variant: 1 ms tick from a nanokernel interrupt thread, host clock as RTC, debug output to fd 1. Its variant HAL copies Syborg's answers (`assp.cpp`: EMachineUid_OmapH4, LED caps) [V] | `variant/hvariant.cpp` | run the real Syborg variant (KASYBORG) on intc/timer/RTC device models |
+| Built with `__DEBUGGER_SUPPORT__` as our ARM kernel [V] | htest.py | - |
+
+### Fixed addresses and sizes (chosen, not computed as the phone's memory model does)
+
+| Hack | Where | Real implementation |
+|---|---|---|
+| Layout: EXE data window 0x00400000; RAM code 0x70000000 (128 MB); DLL static data 0x78000000 (127 MB); exec trampolines 0x7ff00000; core ROM 0x80000000; I/O window 0xC6000000 (64 device pages); kernel data 0xC8000000; the hosted kernel image linked at 0xD0000000 (its .bss over 0x00400000 broke EXE data once) [G for the RAM regions; ROM, I/O, kernel data as the multiple model] | `memmodel/linux/mcodeseg.cpp`, `vectors.cpp`, `include/board/mmboot.h`, htest.py `-Ttext-segment` | the multiple model's computed regions (`iUserCodeBase` from the ROM header) |
+| RAM code and DLL data regions bump-allocated and never freed; `Epoc::AllocPhysicalRam` a bump allocator over a 32 MB "physical" window at 0x20000000, `FreePhysicalRam` does nothing [G] | `hboard.cpp`, `mcodeseg.cpp` | real allocators (TBitMapAllocator) |
+| Physical windows: I/O at phys 0xC0000000 (linear 0xC6000000), ROFS flash at phys 0x60000000, driver RAM at 0x20000000; `Epoc::LinearToPhysical` answers only for these [G] | `hboard.cpp`, `memmodel/linux/mphys.cpp` | a page-table-like map of every physical allocation |
+| RAM size reported as 128 MB, RAM drive max 32 MB; the kernel heap is a 64 MB anonymous mapping (MAP_NORESERVE) [G] | `memmodel/linux/minit.cpp`, `nkern/linux/nkhost.cpp` | the phone's RAM size from the profile; heap growth as on ARM |
+| Host thread stacks 128 KB; thread records in never-freed pages [G] | `nkern/linux/lxhost.cpp` | per-thread sizes from the Symbian thread's supervisor stack size |
+| The EKERN process's UIDs/SID/VID set by hand (on Win32 they came from the PE image) [V: values of the ARM EKERN] | `minit.cpp` | from the ROM's EKERN image header |
+| EUSER's exec stub range (N95: 0x803a0348..0x803a0d28) is found by `tools/hosted/romscan.py` on the composed ROM and passed in by htest; `svc`s outside it reach Linux as syscalls [V for the N95] | htest.py, `vectors.cpp` | scan every module's stubs at ROM composition; seccomp on all Symbian code ranges |
+
+### Memory model
+
+| Hack | Where | Real implementation |
+|---|---|---|
+| EXE .data/.bss of the running process in one live window at 0x00400000, saved and loaded by copy on process switch (a memfd per process before, remapped: 2 mmaps per switch); IPC to a process that is not live goes through its alias, IPC to the live window with the kernel locked | `memmodel/linux/mprocess.cpp`, `mutils.cpp` | per-process address spaces (future.md 4) |
+| DLL static data (ROM and RAM DLLs) uses the Win32 model's copy-on-switch (`iDataCopy`) [V] | `mutils.cpp` | per-process address spaces; until then copy only dirty data |
+| `RawRead`/`RawWrite` check only for a NULL non-zero-length address; any other bad user pointer from the kernel faults and is caught by the exception path (no IPC alias, no permission check) [G] | `mprocess.cpp` | per-process mappings with real protection |
+| `PrepareMemoryForDMA`/`ReleaseMemoryFromDMA` return KErrNotSupported [G: no driver needed them yet] | `mprocess.cpp` | pin and translate pages |
+| Code modifier (debugger breakpoints written into code) not ported: `CodeModifier::CodeSegRemoved` no-op | `kernel/linux/kplat.cpp` | port memmodel/epoc putils.cpp CodeModifier |
+| `kernel/scodeseg.cpp` built at -O0: its comparator tests bit 0 of a reference (UB), clang -O2 folds it away [V] | htest.py | patch the comparator |
+| EPL sources clang refuses compile from generated copies with the same meaning: ECOMM `if (a1<0)` on a pointer -> `(TUint)a1<0u` [V: GCC/RVCT compare pointers unsigned] | htest.py `SOURCE_FIXES` | upstream-style source fix |
+
+### Nanokernel, CPU and exec calls
+
+| Hack | Where | Real implementation |
+|---|---|---|
+| Exec calls: EUSER's `svc #n; bx lr` stubs (and lone `svc`s in the block) patched in the loaded ROM to jump to per-stub trampolines (direct calls into the dispatcher on the thread's stack, realigned to 8 bytes; only r0 changes, as the trap); unmatched ones still trap (SIGSYS). `htest --env EXEC_TRAP_ONLY=1` disables the patching [V] | `nkern/linux/vectors.cpp` | stub patching at ROM composition, or a separate kernel stack per thread as ARM |
+| The host thread's record is in TPIDRURO (Linux `set_tls`); we assume the phone's user code never reads TPIDRURO (it uses TPIDRURW, which we leave alone) [G for ARMv6K+ firmware] | `nkern/linux/lxhost.cpp` | check every firmware's EUSER for TPIDRURO reads |
+| Raw host threads (`hthread`: display, sound pump, modem timers) start with TPIDRURO 0 so `LxSelf()` is NULL on them; nanothreads set their record themselves [V: t_tls] | `rt/hrt.c` | - |
+| Interrupts suspend the running nanothread with SIGUSR2 and park it (Win32 SuspendThread); disabling interrupts = taking the global interrupt lock [V] | `ncsched.cpp`, `lxhost.cpp` | user-level switches on one host thread (future.md 3) |
+| Tick suppression: the 1 kHz tick thread takes the interrupt lock and advances the timer queue (NTimerQ::IdleTime/Advance) when nothing expires, a real interrupt only when due and at least every 8 ticks (timeslice ticks caught up then). Timeslices therefore expire in 8 ms steps; idle sleeps in 1 ms steps [G] | `nkern/linux/nkhost.cpp` | a one-shot host timer programmed to the next expiry (future.md 2) |
+| Idle = WFI: the hosted `NKIdle` calls the power model/handler and then parks the null thread until an interrupt reschedules (`NThread::Idle`); no hosted power controller does the wait itself. Bug 2026-11-12: the null thread spun at 100% CPU after boot [V: kn_boot] | `kernel/linux/kplat.cpp` | a hosted power controller (DPowerController::CpuIdle) doing the wait, as the Win32 emulator's |
+| ARM11-only encodings emulated on SIGILL: CLZ with zero should-be-one fields (N95 AknIconServer) [V] | `nkern/linux/lxhost.cpp` | same on a real ARMv8 phone; add encodings as they appear |
+| SWP/SWPB and CP15 barriers rely on the host kernel's emulation (`CONFIG_SWP_EMULATION`, `CP15_BARRIER_EMULATION`, an undef trap each); the N95's EUSER has none, some apps do [V: romscan] | `src/hosted/linux/hosted.config` | patch hot sites to LDREX/STREX if they show up in profiles |
+| Unaligned accesses rely on the host kernel's compat alignment fixups [G] | `hosted.config` | - |
+
+### The hosted board (device models)
+
+| Hack | Where | Real implementation |
+|---|---|---|
+| I/O bus: a device page without a model is plain memory (reads 0 or what was written). Models: NVMemory (0x10 IRQ 12, 0x0d IRQ 14), framebuffer (0x05), keyboard (0x03 IRQ 2), sound (0x0e IRQ 13), modem (0x19/0x1b, IRQ 15/16). No model for serial, pointer, timer, intc, RTC, GL, sensors, ethernet, platform device [G] | `variant/hboard.cpp` and the device files | one model per QEMU syborg device, shared code where possible (as the modem core) |
+| Interrupts: edge delivery (the raised flag clears when the ISR runs, a device raises again), no priorities, `Interrupt::SetPriority` KErrNotSupported, `Clear` no-op; one IRQ thread runs every ISR [G] | `hboard.cpp` | level semantics as syborg_intc.c |
+| Device models (hsnd, hmodem, hkeyb) serialise register access with a spinlock that spins with `sched_yield`; a nanothread takes it with interrupts disabled (an ISR on the interrupt thread reads the same registers), ISRs and host helper threads take only the spinlock. Bug 2026-11-12: with only the kernel locked, the sound ISR spun on the lock its interrupted thread held (start-up tone hang) [V: kn_devlock] | `variant/hsnd.cpp`, `hmodem.cpp`, `hkeyb.cpp` | per-device locks as QEMU's, ISRs run without the global lock |
+| NVMemory drives map the seed images private: every write is lost when the run ends [G, deliberate for tests; the phone window too] | `hboard.cpp` | a writable copy per instance, as sydb sessions |
+| Fake modem on the hosted board: offline only (booting first); no packet data (no network), no sound pacing (`snd_*` hooks answer "nothing playing": RAPIDO replies come at once), power off/reset ends the process [G] | `variant/hmodem.cpp` | host network and the sound model's ring state |
+| syborg-snd as a sink: rings consumed at the playback rate in 5 ms steps (encoded MP3/AAC at a nominal 16 KB/s), CAPS claims MP3/AAC decoders so ehwa accepts codec nodes; nothing is played [G] | `variant/hsnd.cpp` | an audio output (host sound), the modem's RAPIDO pacing hooks |
+| Framebuffer: registers (size, base, pitch, refresh), no vsync interrupt, orientation/partial mode stored but not applied [G] | `hboard.cpp` | vsync and damage from the LCD driver |
+| Live view: an ivshmem device (PCI 00:05.0, 1 MB, a host file build/hosted/htest/phone.shm) holds a header, a 64-entry key ring and XRGB pixels; a host thread in the VM copies changed rows every 30 ms and bumps a frame counter; `tools/hosted/phone.py` polls the file every 20 ms. The VM finds the BAR through its sysfs `resource2` file (env `PHONE`) [G] | `variant/hdisplay.cpp`, htest `--phone`, `tools/hosted/phone.py` | DRM/KMS on a phone; a doorbell interrupt instead of polling |
+| Keypad: the phone window maps Qt key -> qcode (the sydb phone window's table) -> scan code (the device keymap through `tools/device.py qemu_keymap`) and writes it to the key ring; the VM's display thread drains the ring every 10 ms into the syborg-keyboard model as bit-30 codes (already scan codes, no set-1 table); a full ring or FIFO (64) drops keys; key auto-repeat comes from the phone's window server, not the host [G] | `variant/hkeyb.cpp`, `hdisplay.cpp`, `tools/hosted/phone.py` | evdev on the phone (the keymap's host keys) |
+| Linux console (Ctrl+T in the phone window): the VM's init forks `lxtop` in phone mode, which prints a `top`-like block (processes, the "symbian" process's threads by CPU) to the serial log every 2 s, lines prefixed `LXTOP`; the window parses the log. Each Symbian thread names its Linux thread at start (`prctl(PR_SET_NAME)`, 15 chars: "Proc:Thread"); kernel helper threads that never pass `EpocThreadFunction` keep their creator's name ("Supervisor") [G, a show-and-tell feature] | `src/hosted/init/init.c`, `kernel/linux/kthreadname.cpp`, `tools/hosted/phone.py` | a virtio console or a shell in the image |
+
+### Test tooling
+
+| Hack | Where | Real implementation |
+|---|---|---|
+| The test VM's Linux is arm64 defconfig + `hosted.config` (6.18 LTS), not stripped down; QEMU TCG `cortex-a55` (also `max`), 1-4 CPUs, 1 GB; ROM, seeds and output over 9p [V] | `tools/hosted/htest.py`, `src/hosted/linux/` | a minimal kernel config for the Pixel 3a |
+| htest `--env` values are read as hex by the tests (`hgetenv_hex`): `PROBE_MS=4e20` is 20 s, `20000` is 131 s [V: bit me 2026-11-12] | `src/hosted/tests/kn_efile.cpp` | decimal values, or a unit suffix |
+| `kn_efile` judges the boot at a fixed probe time (default 15 s): what has started, who is blocked, then pass/fail; a slower machine needs a later `PROBE_MS` [G] | `kn_efile.cpp` | wait on events (a start-up-done property) instead of a time |
+
+### Known remaining non-fatal failures (hosted)
+
+| Hack | Where | Real implementation |
+|---|---|---|
+| Boot proceeds with known failures: DcfRepSrv panics CDCFREPSRV 1000 (not on ARM, open); HALSettings -12 and baksrvs/mc_useragent exits also happen on ARM [V] | - | investigate DcfRepSrv |
 
 ## Known remaining non-fatal failures
 

@@ -81,6 +81,15 @@ the device model and sydb. Start with `docs/eka1-ngage.md` (state, running, debu
 evidence is in `docs/eka1-ngage-questions.md`. Window: `python3 eka1/tools/ngage_phone.py`;
 debug sessions: `eka1/tools/ngage_sess.py` (own sessions only, never `phone-*` unasked).
 
+## Hosted EKA2: the kernel as a Linux process
+
+The EPL kernel runs as a 32-bit ARM Linux process with the phone's ROM code native (no CPU emulation of
+Symbian code); the N95 boots to its home screen in a QEMU aarch64 test VM. Start with
+`src/hosted/README.md` (diagram, choices, layout), `docs/hosted-eka2/` (`roadmap.md` status and speed,
+`tests.md`, `future.md`: SMP, one process per Symbian process, JIT/AOT for arm64-only CPUs) and the
+"Hosted EKA2" section of `docs/hacks.md`. Window: `python3 tools/hosted/phone.py`; tests:
+`python3 tools/hosted/htest.py` (env values are hex). Every shortcut goes into docs/hacks.md.
+
 ## Subagent research rules
 
 Research agents deliver **just enough API/protocol knowledge to mock a driver or system**, never a
@@ -103,3 +112,7 @@ full reverse-engineering of it.
 - oFono/phonet and other GPL sources are naming references only; copy no code.
 - Local commits only, no push.
 - Log missing tools in `docs/tooling-ideas.md` after long debugging loops.
+- Tests grow with the code: new work comes with tests, edge cases included. They need not be exhaustive
+  on the first attempt (don't block progress), but the test base must grow quickly. **Every bug fixed
+  gets a regression test for exactly that case** (named after the bug, saying what broke). Homes:
+  `tests/` (host-side Python/C), `src/hosted/tests/` (hosted-EKA2 kernel tests, `tools/hosted/htest.py`).

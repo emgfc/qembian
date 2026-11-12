@@ -132,3 +132,10 @@ no kernel change. Record/replay (3) is still open.
   iTimer.iState (always 0); only its "nwait" (+40) is right. Also missing: `sydb mem` (free/total RAM
   pages; read here from TheMmu.iRamPageAllocator by hand) and a pending-sync-IPC list per thread
   (the scratch pairing script paired file-server messages wrongly).
+
+- **ngage_sess: catches filtered by thread, and a cheap "who returned this error".** (2026-11-12, N-Gage
+  Bluetooth) Finding where a -11 came from took many boots: a conditional catch on User::Leave or
+  LeaveIfError is evaluated on every hit (~0.5-1 s each), which makes boot crawl, and the condition
+  can't name a thread. Wanted: `--catch 'VA=LABEL?thread~SocketServer'` evaluated in the daemon from the
+  current-thread word without a full register read, and an "exec return value" trace (kernel exec
+  handler results != 0 per thread) to see failing kernel calls without breakpoints.

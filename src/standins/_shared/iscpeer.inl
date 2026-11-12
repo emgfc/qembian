@@ -64,7 +64,15 @@ enum { KMDeliver = 1, KMLog = 2, KMDataDeliver = 3 };				// RX kinds (3: for Dat
 // KMaxData through the same port buffers (2 KB each way); a small queue per channel, allocated on first use
 const TInt KMaxData = 2048;
 const TInt KDataQueue = 8;
-static inline volatile TUint32& ModemReg(TInt aOff) { return *(volatile TUint32*)(KModemBase + aOff); }
+#ifdef __HOSTED__	// the hosted EKA2 board: registers through its I/O bus (src/hosted/variant/hboard.cpp, hmodem.cpp)
+TUint32 HostedIoRead(TUint32 aAddr);
+void HostedIoWrite(TUint32 aAddr, TUint32 aValue);
+static inline TUint32 ModemRead(TInt aOff) { return HostedIoRead(KModemBase + aOff); }
+static inline void ModemWrite(TInt aOff, TUint32 aValue) { HostedIoWrite(KModemBase + aOff, aValue); }
+#else
+static inline TUint32 ModemRead(TInt aOff) { return *(volatile TUint32*)(KModemBase + aOff); }
+static inline void ModemWrite(TInt aOff, TUint32 aValue) { *(volatile TUint32*)(KModemBase + aOff) = aValue; }
+#endif
 
 class DIscPeerChannel;
 
@@ -91,7 +99,7 @@ public:
 		r = Interrupt::Bind(KModemIrq, Isr, this);
 		if (r != KErrNone)
 			return r;
-		ModemReg(KMIntEnable) = 1;
+		ModemWrite(KMIntEnable, 1);
 		Interrupt::Enable(KModemIrq);
 		Kern::Printf("ISCPEER: install %S (channels %d..%d, QEMU modem port %d)", &KLddName, ISC_CHANNEL_BASE, ISC_CHANNEL_BASE + KMaxChannels - 1, KModemPort);
 		return SetName(&KLddName);
@@ -517,19 +525,18 @@ void DIscPeerChannel::Forward(TInt aKind, const TUint8* aData, TInt aLen)
 	{
 	if (aLen > 0x800)
 		aLen = 0x800;
-	volatile TUint32* tx = (volatile TUint32*)(KModemBase + KMTxBuf);
 	for (TInt i = 0; i < aLen; i += 4)
 		{
 		TUint32 w = 0;
 		for (TInt k = 0; k < 4 && i + k < aLen; ++k)
 			w |= (TUint32)aData[i + k] << (8 * k);
-		tx[i >> 2] = w;
+		ModemWrite(KMTxBuf + i, w);
 		}
 	if (iSlot <= 0)
 		return;
-	ModemReg(KMTxChannel) = (TUint32)(iSlot << 8 | iChannel);
-	ModemReg(KMTxLen) = (TUint32)aLen;
-	ModemReg(KMTxGo) = (TUint32)aKind;
+	ModemWrite(KMTxChannel, (TUint32)(iSlot << 8 | iChannel));
+	ModemWrite(KMTxLen, (TUint32)aLen);
+	ModemWrite(KMTxGo, (TUint32)aKind);
 	iF->Drain();
 	}
 
@@ -541,20 +548,19 @@ void DIscPeerChannel::HandleSend(const TUint8* m, TInt aLen)
 
 void DIscPeerFactory::Drain()
 	{
-	while (ModemReg(KMRxCount))
+	while (ModemRead(KMRxCount))
 		{
-		TInt kind = ModemReg(KMRxKind), ch = ModemReg(KMRxChannel), len = ModemReg(KMRxLen);
+		TInt kind = ModemRead(KMRxKind), ch = ModemRead(KMRxChannel), len = ModemRead(KMRxLen);
 		TUint8* m = iBuf;
 		if (len > (kind == KMDataDeliver ? KMaxData : KMaxMsg))
 			len = kind == KMDataDeliver ? KMaxData : KMaxMsg;
-		volatile TUint32* rx = (volatile TUint32*)(KModemBase + KMRxBuf);
 		for (TInt i = 0; i < len; i += 4)
 			{
-			TUint32 w = rx[i >> 2];
+			TUint32 w = ModemRead(KMRxBuf + i);
 			for (TInt k = 0; k < 4 && i + k < len; ++k)
 				m[i + k] = (TUint8)(w >> (8 * k));
 			}
-		ModemReg(KMRxPop) = 1;
+		ModemWrite(KMRxPop, 1);
 		if (kind == KMLog)
 			{
 			m[len] = 0;

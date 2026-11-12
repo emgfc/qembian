@@ -144,13 +144,14 @@ tools/isi.py log build/runs/X/serial.log [--all]   # unanswered requests, or eve
 shared by every BB5 device; each device's `isi-replies.txt` (profile `[modem].replies`) is its canned
 reply table, layered on the family's shared table (`modem.replies = ["platform/isi/replies-bb5.txt",
 "isi-replies.txt"]`; the later file wins per (resource, request)). The modem is QEMU's `syborg-modem`
-device (`src/qemu-syborg/hw/arm/syborg_modem.c`, 2026-11-10): `tools/device.py qemu-args` writes
+device (`src/qemu-syborg/hw/arm/syborg_modem.c`, 2026-11-10; since 2026-11-12 a thin QEMU host around the
+modem core `syborg_modem_core.c`, which the hosted EKA2 board runs too: `src/hosted/variant/hmodem.cpp`): `tools/device.py qemu-args` writes
 `<build dir>/gen/isi-replies.tab` (an instance's own `isi-replies.tab`, its `[overrides]` may change the modem) from them at every launch, so a reply change needs only a
 restart, no ROM rebuild. Unsolicited messages a phone waits for: `[modem].indications` (sent once per
 subscribing channel).
 Adding a simple modem answer = one `reply RES REQ RESP bytes...` line in the device file. Replies that
 depend on the request (echoes, IMEI, light, MTC state, RAPIDO DSP timing, power off) are in
-`syborg_modem.c`; per-device values come from the board config (`[modem].imei`, `power_off_delay_s`,
+`syborg_modem_core.c`; per-device values come from the board config (`[modem].imei`, `power_off_delay_s`,
 `sim_service_status`, `indications`). The guest keeps only the ISC/ISA channel driver
 (`src/standins/_shared/iscpeer.inl`: IscApi controls, receive parking, delivery), which forwards to the
 device's port (0xc0019000, IRQ 15; port 1 at 0xc001b000, IRQ 16; mapped by patches/qemu-baseport/0023). Each channel object (several clients
@@ -164,6 +165,16 @@ The user's phones are device instances, `build/instances/<name>/` (instance.toml
 logs; docs/sydb.md "Which phone"): `tools/instance.py list|show|create|clone|rename|delete|set|check|
 primary|adopt`. `python3 tools/sydb/sydb.py phone NAME` opens one. `$SYBORG_INSTANCE` (set by sydb)
 makes `tools/device.py` load the instance's device with its `[overrides]`.
+
+## Hosted EKA2: `tools/hosted/htest.py`, `tools/hosted/phone.py`
+
+The EPL kernel as a Linux process in a QEMU aarch64 test VM (design: src/hosted/README.md; docs/hosted-eka2/). `htest.py [tests]` builds
+and runs the hosted tests (`--rom DEVICE` for the phone-ROM ones, `--env NAME=VALUE`, numbers in hex:
+`PROBE_MS=4e20` is 20 s); docs/hosted-eka2/tests.md lists them. `python3 tools/hosted/phone.py` boots the
+N95 user side on it and shows the screen live in a window (ivshmem shared memory,
+build/hosted/htest/phone.shm; serial log build/hosted/htest/phone.log); keys as in the sydb phone window
+(arrows, Enter = OK, F5/F7 = soft keys, digits); Ctrl+T shows the VM's Linux `top` beside the phone (each Symbian
+thread is a named Linux thread of the one process "symbian"); closing the window stops the VM.
 
 ## Interactive runs: `scripts/run-gui.sh`
 

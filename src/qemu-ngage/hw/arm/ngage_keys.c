@@ -7,7 +7,9 @@
  *   0x0C15040C rows (bits 0-5): +00 input, +02 drive latch, +04 (0x0C150410) row interrupt
  *              enable (low byte enables, high byte disables [I])
  *   0x0C150100 CTSI status: bit 2 = keypad (bit 15 = CBUS/UEM); write 1 to clear [I]
- *   interrupt source 25 (IrqCTSI_IRQ).
+ *   0x0C150102 CTSI status 2: bit 4 = the Bluetooth module (LPRF, ngage_lprf.c) [V: cbus.dll ISR
+ *              0x5037d5bc tests it and calls btldd's ISR, which writes 0x10 back to ack]
+ *   interrupt source 25 (IrqCTSI_IRQ) for both [I for status 2].
  * Idle: all columns driven, row interrupts enabled; a press pulls its row. The ISR disables the
  * row interrupts, acks, and a DFC scans: drive one row, read the columns. Scan codes come from
  * ekeyb's layout 3 table (0x5041c4b0, index row * 5 + col) [V], so the board only needs to
@@ -49,7 +51,7 @@ static const NgageKey ngage_keys[] = {
 typedef struct {
     MemoryRegion mr, ctsi_mr;
     qemu_irq irq;
-    uint16_t ctsi;
+    uint16_t ctsi, ctsi2;
     uint16_t regs[16];
     uint8_t xc, xr, ier;            /* driven columns, driven rows, row interrupt enable */
     uint8_t pressed[6];             /* pressed[row] = column bits */
@@ -86,7 +88,7 @@ static void kpd_update(NgageKpd *k)
     if (kpd_rows(k) & k->ier) {
         k->ctsi |= NGAGE_CTSI_KPD;
     }
-    qemu_set_irq(k->irq, (k->ctsi & NGAGE_CTSI_KPD) != 0);
+    qemu_set_irq(k->irq, (k->ctsi & NGAGE_CTSI_KPD) != 0 || k->ctsi2 != 0);
 }
 
 static void kpd_latch(uint8_t *l, uint16_t v, uint8_t mask)
@@ -124,17 +126,27 @@ static void kpd_write(void *opaque, hwaddr a, uint64_t v, unsigned size)
 
 static uint64_t ctsi_read(void *opaque, hwaddr a, unsigned size)
 {
-    return a ? 0 : ((NgageKpd *)opaque)->ctsi;
+    NgageKpd *k = opaque;
+
+    return a == 0 ? k->ctsi : a == 2 ? k->ctsi2 : 0;
 }
 
 static void ctsi_write(void *opaque, hwaddr a, uint64_t v, unsigned size)
 {
     NgageKpd *k = opaque;
 
-    if (!a) {
+    if (a == 0) {
         k->ctsi &= ~v;
-        kpd_update(k);
+    } else if (a == 2) {
+        k->ctsi2 &= ~v;
     }
+    kpd_update(k);
+}
+
+void ngage_ctsi2_raise(uint16_t bits)
+{
+    kpd.ctsi2 |= bits;
+    kpd_update(&kpd);
 }
 
 static const MemoryRegionOps kpd_ops = {

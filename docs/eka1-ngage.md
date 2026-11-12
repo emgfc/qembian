@@ -39,8 +39,13 @@ Related documents:
   `python3 eka1/tools/ngage_phone.py --mmc build/ngage/games/snakes-card.img` (or
   `ngage_sess.py start --mmc IMG`). Writes are modelled but untested.
 
-Not working or not modelled yet: see "Next" below. Games can't be started yet: on the idle screen
-no key does anything (Menu, both softkeys), with or without a card (Next 1).
+- **Bluetooth (2026-11-12).** The BT module (LPRF on CBus device 5) is a minimal HCI controller
+  (`ngage_lprf.c`, H-ngage-bt): the phone's stack starts, Bluetooth is "off" by the phone's own
+  setting, RHostResolver::GetHostName works. Needs H-ngage-selftest-stop (an ISI message that
+  ends SelfTestServer so BTTestServer frees btldd's only channel). docs/research/ngage-bluetooth.md.
+- **Games.** Snakes (card) starts and plays (menu, single-player level).
+
+Not working or not modelled yet: see "Next" below.
 
 ## Running it
 
@@ -206,12 +211,9 @@ $OD -D -b binary -m arm [-M force-thumb] --adjust-vma=0x50000000 \
 
 ## Next
 
-1. **Games.** Fixed 2026-11-12: the dead keys a minute after boot were the board's timer 1 (the
-   kernel's one-shot queue) freezing on a stop/start without a new count; the keypad scan waits on
-   it. Now the Menu opens, Snakes (from the card) is listed and starts, then aborts in its own thread
-   (`6R45_1`, fault address 0xFFE503E4) and the kernel hits its fatal-fault routine. Next: what the
-   game touches there (its own LIGHTDRV.DLL / GAMECOMMS.DLL from the card, or a device page we don't
-   model: catch-all log). Do not answer SIM `09 23 {25}`: "not available" stopped start-up.
+1. **Games.** Snakes runs (2026-11-12). Its abort at 0xFFE503E4 was the game's BTGetName error
+   path (null object) after GetHostName returned -44: fixed by the Bluetooth module. Next: more
+   games and their own needs. Do not answer SIM `09 23 {25}`: "not available" stopped start-up.
 2. **Game cards (MMC).** Done for plain FAT cards (above). A dump of a real game card next. Some N-Gage cards are
    copy-protected.
 3. **Time at boot.** The RTC hand-over passes the RTC's own unset time, so every boot asks
@@ -220,7 +222,8 @@ $OD -D -b binary -m arm [-M force-thumb] --adjust-vma=0x50000000 \
 5. **First-boot speed.** The C: format takes about 30 s, spent in the kernel and the NOS
    stub (medint's slot 6 calls).
 6. **The LCD.** lcd.ldd's own transfers (DMA), so H-ngage-fb can go (Q47).
-7. **Audio, Bluetooth, emon.** BT reports HCI errors -33; "Emon server panic" 4.
+7. **Audio.** Bluetooth and emon work (H-ngage-bt). BT multiplayer needs a radio link (two
+   boards, or the host's Bluetooth).
 8. **Device model (P5).** `models/nokia-ngage-rh29`, sydb support, a smoke test.
 9. **The real NOS.** Descrambling it is the owner's decision (Q20). It would replace most of
    the stand-in.

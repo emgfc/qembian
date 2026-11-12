@@ -21,8 +21,21 @@ namespace SybSnd
 	enum { FS16 = 0, FS8 = 1, FALaw = 2, FMp3 = 3, FAac = 4, FS24in32 = 5, FS32 = 6, FSwap16 = 0x100 };
 	enum { StRun = 1, StEos = 2, StUnder = 4, StDecErr = 8, StWm = 16 };
 
+#ifdef __HOSTED__
+	// the hosted EKA2 board: registers through its I/O bus (src/hosted/variant/hsnd.cpp). Bug 2026-11-12:
+	// the direct accesses below bypassed it, the sound model never saw a stream and the start-up tone hung.
+	struct TReg
+		{
+		TUint32 iAddr;
+		inline operator TUint32() const { return HostedIoRead(iAddr); }
+		inline TReg& operator=(TUint32 aValue) { HostedIoWrite(iAddr, aValue); return *this; }
+		};
+	inline TReg G(TUint aOff) { TReg r = { KHwSVPAudioDevice + aOff }; return r; }
+	inline TReg S(TInt aSlot, TUint aOff) { TReg r = { KHwSVPAudioDevice + 0x100 + aSlot * 0x40 + aOff }; return r; }
+#else
 	inline volatile TUint32& G(TUint aOff) { return *(volatile TUint32*)(KHwSVPAudioDevice + aOff); }
 	inline volatile TUint32& S(TInt aSlot, TUint aOff) { return *(volatile TUint32*)(KHwSVPAudioDevice + 0x100 + aSlot * 0x40 + aOff); }
+#endif
 	inline TBool Present() { return G(RId) == KId; }
 	}
 #endif

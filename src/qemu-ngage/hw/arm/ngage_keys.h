@@ -9,5 +9,7 @@ typedef struct {
 } NgageKey;
 
 void ngage_keys_init(MemoryRegion *sys, qemu_irq irq);
+/* CTSI status 2 (0x0C150102): raise bits (bit 4 = Bluetooth module), same interrupt source */
+void ngage_ctsi2_raise(uint16_t bits);
 
 #endif
